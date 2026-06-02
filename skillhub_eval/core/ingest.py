@@ -5,8 +5,15 @@ Frontmatter parsing is intentionally minimal (no YAML library dependency):
 only single-level key: value pairs within the --- block are extracted.
 """
 
+import json
 import re
 from pathlib import Path
+
+try:
+    import yaml as _yaml
+    _YAML_AVAILABLE = True
+except ImportError:
+    _YAML_AVAILABLE = False
 
 
 def _parse_frontmatter(text: str) -> dict:
@@ -23,7 +30,11 @@ def _parse_frontmatter(text: str) -> dict:
 
 
 def _load_cases(eval_cases_dir: Path) -> list[dict]:
-    """Parse eval_cases directory into a list of minimal case dicts."""
+    """
+    Parse eval_cases directory into a list of case dicts.
+    Uses PyYAML when available for full parsing (preserves `assertions` lists).
+    Falls back to line-by-line parsing for flat fields only.
+    """
     if not eval_cases_dir.exists():
         return []
     cases: list[dict] = []
@@ -32,13 +43,55 @@ def _load_cases(eval_cases_dir: Path) -> list[dict]:
             continue
         text = filepath.read_text(encoding="utf-8")
         case: dict = {"_path": str(filepath)}
-        for line in text.splitlines():
-            for key in ("id", "type", "user_intent"):
-                if line.startswith(f"{key}:"):
-                    case[key] = line.split(":", 1)[1].strip()
+
+        if filepath.suffix == ".json":
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    case.update(parsed)
+            except Exception:
+                pass
+        elif _YAML_AVAILABLE:
+            try:
+                parsed = _yaml.safe_load(text)
+                if isinstance(parsed, dict):
+                    case.update(parsed)
+            except Exception:
+                # fallback to line-by-line
+                for line in text.splitlines():
+                    for key in ("id", "type", "user_intent"):
+                        if line.startswith(f"{key}:"):
+                            case[key] = line.split(":", 1)[1].strip()
+        else:
+            for line in text.splitlines():
+                for key in ("id", "type", "user_intent"):
+                    if line.startswith(f"{key}:"):
+                        case[key] = line.split(":", 1)[1].strip()
+
         if "id" in case:
             cases.append(case)
     return cases
+
+
+def load_sample_io(bundle_path: str, case_id: str) -> dict | None:
+    """
+    Load the sample_io actual output for a case_id.
+    Looks for sample_io/{case_id}.json or sample_io/{case_id}.yaml.
+    Returns the parsed dict or None if not found.
+    """
+    root = Path(bundle_path)
+    for ext in (".json", ".yaml", ".yml"):
+        path = root / "sample_io" / f"{case_id}{ext}"
+        if path.exists():
+            text = path.read_text(encoding="utf-8")
+            try:
+                if ext == ".json":
+                    return json.loads(text)
+                if _YAML_AVAILABLE:
+                    return _yaml.safe_load(text)
+            except Exception:
+                pass
+    return None
 
 
 def ingest_bundle(bundle_path: str) -> dict:

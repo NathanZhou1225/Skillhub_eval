@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.4.2",
+  "code": "688001",
+  "fetched_at": "2026-05-21T12:00:00+08:00",
+  "source": "mock_fixture",
+  "kline": {
+    "status": "unavailable",
+    "reason_code": "INSUFFICIENT_BARS",
+    "reason": "可用 K 线不足 5 根",
+    "bars_available": 0,
+    "bars_requested": 60,
+    "series": []
+  },
+  "ma_overlay": {
+    "ma5": [],
+    "ma20": [],
+    "ma60": []
+  },
+  "fund_flow": {
+    "status": "error",
+    "reason_code": "FETCH_FAILED",
+    "reason": "行情不可用，跳过资金流",
+    "as_of_date": null,
+    "reference_date": null,
+    "lag_trading_days": null,
+    "series": []
+  },
+  "annotations": null,
+  "overlays": {
+    "status": "unavailable",
+    "reason": "K 线不可用",
+    "anchor": "first_bar_close",
+    "dates": [],
+    "stock_pct": [],
+    "sh_index": {
+      "code": "000001",
+      "name": "上证指数",
+      "status": "error",
+      "pct": []
+    },
+    "sector": {
+      "code": null,
+      "name": null,
+      "status": "skipped",
+      "pct": null
+    }
+  },
+  "benchmark_sector_fund_flow": {
+    "status": "placeholder",
+    "reason_code": "FETCH_FAILED",
+    "reason": "板块近 5 日资金流 fixture 占位",
+    "sector_name": null,
+    "matched_name": null,
+    "as_of_date": null,
+    "reference_date": null,
+    "lag_trading_days": null,
+    "series": [],
+    "requested_name": null
+  }
+}

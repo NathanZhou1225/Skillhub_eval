@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ meta.name }}（{{ meta.code }}）个股诊断 · stock-radar</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 6px;
+      --space-1: 8px;
+      --space-2: 16px;
+      --space-3: 24px;
+      --space-4: 32px;
+      --sem-red-bg: #fef2f2;
+      --sem-red-fg: #b91c1c;
+      --sem-red-border: #fecaca;
+      --sem-green-bg: #f0fdf4;
+      --sem-green-fg: #15803d;
+      --sem-blue-bg: #eff6ff;
+      --sem-blue-fg: #1d4ed8;
+      --sem-gray-bg: #f1f5f9;
+      --sem-gray-fg: #64748b;
+      --text-title: 1.45rem;
+      --text-section: 1.05rem;
+      --text-body: 0.9rem;
+      --text-caption: 0.78rem;
+      --text-hero-body: 0.92rem;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      box-shadow: none;
+    }
+    .page { max-width: 1080px; margin: 0 auto; padding: var(--space-3) var(--space-2) var(--space-4); }
+
+    /* ── Phase 4.1 · 流式驾驶舱 ── */
+    :root {
+      --cockpit-pad: 16px;
+    }
+    .hero {
+      background: transparent;
+      padding: 0;
+      margin-bottom: var(--space-3);
+      box-shadow: none;
+    }
+    .cockpit-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--cockpit-pad);
+      box-shadow: none;
+    }
+    .cockpit-quote { margin: 0 0 12px; }
+    .cockpit-title-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 8px 10px;
+      margin: 8px 0 4px;
+    }
+    .cockpit-title-row h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
+    .cockpit-inline-quote {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: 1.05rem;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .cockpit-price { color: var(--text); font-variant-numeric: tabular-nums; }
+    .cockpit-change { font-variant-numeric: tabular-nums; }
+    .cockpit-change.is-up { color: var(--sem-red-fg); }
+    .cockpit-change.is-down { color: var(--sem-green-fg); }
+    .cockpit-context {
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--text-caption);
+      line-height: 1.5;
+    }
+    .state-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 10px;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      margin: 0;
+      border: 1px solid transparent;
+    }
+    .state-badge--alert { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+    .state-badge--sector { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .state-badge--hot { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+    .state-badge--shift { background: #faf5ff; color: #7e22ce; border-color: #e9d5ff; }
+    .state-badge--calm { background: var(--sem-gray-bg); color: var(--sem-gray-fg); border-color: var(--border); }
+    .summary-box {
+      background: #f8fafc;
+      border-radius: 7px;
+      padding: 10px 12px;
+      margin: 0 0 12px;
+    }
+    .summary-box-caption {
+      margin: 0 0 6px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: #94a3b8;
+      letter-spacing: 0.02em;
+    }
+    .summary-hook {
+      margin: 0;
+      font-size: var(--text-hero-body);
+      line-height: 1.65;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .cockpit-judgments { margin: 0; }
+    .j-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .j-row {
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      overflow: hidden;
+    }
+    .j-row-trigger {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      width: 100%;
+      padding: 7px 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+    }
+    .j-row-trigger:hover { opacity: 0.92; }
+    .j-dot {
+      flex: 0 0 6px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-top: 0.55em;
+    }
+    .j-dot--focus { background: #ef4444; }
+    .j-dot--secondary { background: #f59e0b; }
+    .j-dot--normal { background: #cbd5e1; }
+    .j-key {
+      flex: 0 0 4.8em;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      color: #64748b;
+      white-space: nowrap;
+    }
+    .j-key--risk { color: #d95040; }
+    .j-val {
+      flex: 1;
+      min-width: 0;
+      font-size: var(--text-body);
+      font-weight: 500;
+      line-height: 1.5;
+      color: var(--text);
+    }
+    .j-headline { font-weight: 500; }
+    .j-sub {
+      display: block;
+      margin-top: 3px;
+      font-size: 0.72rem;
+      font-weight: 400;
+      color: #94a3b8;
+      line-height: 1.45;
+    }
+    .j-priority {
+      display: inline;
+      margin-left: 6px;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    .risk-tag {
+      display: inline;
+      margin-left: 6px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: #fde8e8;
+      color: #d95040;
+      font-size: 0.68rem;
+      font-weight: 600;
+      white-space: nowrap;
+      vertical-align: baseline;
+    }
+    .j-chevron {
+      flex: 0 0 auto;
+      align-self: center;
+      font-size: 0.68rem;
+      color: #94a3b8;
+      transition: transform 0.2s ease;
+    }
+    .j-row[data-collapsed="false"] .j-chevron { transform: rotate(90deg); }
+    .j-row .smooth-fold-panel { overflow: hidden; transition: height 0.3s ease; height: 0; }
+    .j-row-inner {
+      padding: 6px 0 4px calc(4.8em + 12px);
+      margin-left: 0;
+    }
+    .j-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      margin: 8px 0 0;
+      padding: 0;
+      font-size: 0.68rem;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+    .j-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .j-legend .j-dot { margin-top: 0; flex: 0 0 6px; }
+    .j-expand-label {
+      margin: 10px 0 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+    .j-expand-label:first-child { margin-top: 8px; }
+    .j-expand-text {
+      margin: 0 0 8px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: #334155;
+    }
+    .j-expand-list {
+      margin: 0 0 8px;
+      padding-left: 1.1rem;
+      font-size: 0.88rem;
+      line-height: 1.55;
+      color: #334155;
+    }
+    .j-expand-list li { margin-bottom: 4px; }
+    .j-risk-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0; }
+    .j-risk-row {
+      display: grid;
+      grid-template-columns: minmax(5.5em, 6.5em) 2.2em 1fr;
+      gap: 8px;
+      align-items: start;
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+    .j-risk-cat { font-weight: 600; color: var(--text); }
+    .j-risk-level {
+      font-size: 0.68rem;
+      font-weight: 600;
+      text-align: center;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+    }
+    .j-risk-level--高 { color: var(--sem-red-fg); background: var(--sem-red-bg); border-color: var(--sem-red-border); }
+    .j-risk-level--中 { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+    .j-risk-level--低 { color: var(--sem-gray-fg); background: var(--sem-gray-bg); }
+    .j-risk-level--未发现 { color: var(--muted); background: var(--bg); }
+    .j-risk-text { color: #334155; }
+    .client-bridge,
+    .cockpit-client-brief {
+      margin-top: 12px;
+      background: var(--bg);
+      border-left: 3px solid var(--border);
+      border-radius: var(--radius);
+      padding: var(--space-2) var(--cockpit-pad);
+    }
+    .advisor-blockquote {
+      margin: 0;
+      background: transparent;
+      color: var(--text);
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      box-shadow: none;
+    }
+    .advisor-blockquote-label {
+      display: block;
+      font-size: var(--text-caption);
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      margin-bottom: var(--space-1);
+    }
+    .advisor-blockquote-body {
+      margin: 0;
+      font-size: var(--text-body);
+      line-height: 1.65;
+      color: #334155;
+    }
+    .tier-evidence { padding: 0 0 var(--space-1); }
+    .evidence-conclusion {
+      margin: 0 0 var(--space-1);
+      font-weight: 500;
+      line-height: 1.55;
+      color: var(--text);
+    }
+    .dim-stub-line {
+      margin: 0 0 6px;
+      font-size: var(--text-caption);
+      color: var(--muted);
+      font-weight: 400;
+    }
+    .evidence-list {
+      margin: 0 0 var(--space-1);
+      padding-left: 1.25rem;
+      font-weight: 400;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .evidence-list li { margin-bottom: 4px; }
+    .interpretation-body {
+      margin: var(--space-2) 0 0;
+      padding: 0;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--muted);
+      font-weight: 400;
+    }
+    /* Phase 2 · 平滑折叠 */
+    .smooth-fold { margin: 0 0 var(--space-2); }
+    .smooth-fold-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 400;
+      color: #94a3b8;
+      line-height: 1.5;
+      font-family: inherit;
+    }
+    .smooth-fold-trigger:hover { color: #64748b; }
+    .smooth-fold-trigger:focus-visible {
+      outline: 2px solid #cbd5e1;
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .smooth-fold-panel {
+      height: 0;
+      overflow: hidden;
+      transition: height 0.3s ease;
+    }
+    .smooth-fold-inner { padding-top: var(--space-1); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: none;
+      border-radius: var(--radius);
+      padding: var(--space-3);
+      margin-bottom: var(--space-3);
+      box-shadow: none;
+    }
+    .card h2 { margin: 0 0 var(--space-2); font-size: var(--text-section); font-weight: 600; color: var(--text); }
+    .chart-box { width: 100%; height: 430px; min-height: 430px; }
+    .chart-box-radar { width: 100%; height: 200px; min-height: 200px; }
+    .chart-box-fund { width: 100%; height: 268px; min-height: 268px; }
+
+    /* ── K 线控件区 ── */
+    .kline-dashboard { margin-bottom: var(--space-2); }
+    .kline-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: var(--space-1);
+      font-size: var(--text-caption);
+      box-shadow: none;
+    }
+    .kline-mode-group { display: inline-flex; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+    .kline-mode-btn {
+      border: none;
+      background: var(--card);
+      color: var(--muted);
+      padding: 6px 12px;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .kline-mode-btn.is-active { background: var(--text); color: #fff; }
+    .kline-toggles { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+    .kline-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      color: var(--text);
+      user-select: none;
+    }
+    .kline-toggle input { accent-color: var(--text); }
+    .kline-snapshot-row {
+      font-size: var(--text-caption);
+      color: var(--muted);
+      padding: 6px 2px var(--space-1);
+      line-height: 1.5;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--space-1);
+    }
+    .kline-snapshot-row strong { color: var(--text); font-weight: 600; }
+    .kline-compare-caption { display: block; font-size: 0.72rem; opacity: 0.85; margin-top: 4px; }
+
+    /* ── 六维分析 ── */
+    .six-dim-card { padding-bottom: var(--space-1); }
+    .matrix-radar-zone {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--space-2);
+    }
+    .radar-visual-col { min-width: 0; max-width: 420px; }
+    .radar-insight {
+      margin: 0;
+      font-size: var(--text-body);
+      line-height: 1.65;
+      color: var(--muted);
+    }
+    .radar-insight strong {
+      display: block;
+      font-size: var(--text-caption);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    /* ── 资金面双图 (2g-D) ── */
+    .fund-dual-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 0 0 12px;
+    }
+    @media (max-width: 720px) {
+      .fund-dual-grid { grid-template-columns: 1fr; }
+    }
+    .fund-panel-label {
+      margin: 0 0 6px;
+      font-size: var(--text-caption);
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .fund-placeholder-note {
+      font-size: 0.72rem;
+      color: #94a3b8;
+      text-align: center;
+      padding: 8px 0 4px;
+    }
+
+    /* ── Dimensions (minimal · 2g-D) ── */
+    .dim-section {
+      border: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      margin-bottom: 0;
+      overflow: visible;
+      background: transparent;
+      padding-bottom: var(--space-1);
+    }
+    .dim-section:last-child { border-bottom: none; }
+    .dim-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-1);
+      padding: var(--space-2) 0 var(--space-1);
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+    .dim-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .dim-section.is-core .dim-title { font-weight: 600; }
+    .dim-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dim-dot--core { background: var(--sem-blue-fg); }
+    .dim-dot--critical { background: #b45309; }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 999px;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+    .badge-core { background: var(--sem-green-bg); color: var(--sem-green-fg); border-color: #bbf7d0; }
+    .badge-secondary { background: var(--sem-gray-bg); color: var(--sem-gray-fg); border-color: var(--border); }
+    .badge-tech { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .badge-signal { background: var(--sem-gray-bg); color: var(--sem-gray-fg); border-color: var(--border); }
+
+    .chart-container {
+      padding: 0 0 var(--space-2);
+    }
+    .banner {
+      border-radius: var(--radius);
+      padding: var(--space-1) var(--space-2);
+      font-size: 0.82rem;
+      margin-bottom: var(--space-2);
+      box-shadow: none;
+    }
+    .banner-warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+    .banner-info { background: var(--sem-gray-bg); color: var(--muted); border: 1px solid var(--border); }
+    .tech-snapshot-label {
+      font-size: var(--text-caption);
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      margin: 0 0 8px;
+      padding: 0 2px;
+    }
+    .anno-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .anno-item {
+      background: var(--bg);
+      border-radius: var(--radius);
+      padding: var(--space-1) 10px;
+      font-size: 0.8rem;
+      border: 1px solid var(--border);
+    }
+    .anno-item .k { color: var(--muted); display: block; margin-bottom: 2px; font-size: 0.72rem; }
+
+    .chart-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 180px;
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      text-align: center;
+      padding: var(--space-3);
+      font-size: 0.88rem;
+      box-shadow: none;
+    }
+
+    .footer {
+      margin-top: var(--space-3);
+      padding-top: var(--space-2);
+      border-top: 1px solid var(--border);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .meta-foot { margin-top: 8px; font-size: 0.75rem; opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <section class="cockpit-panel">
+        {% set j_short = {'j1': '主驱动', 'j2': '窗口', 'j3': '阶段', 'j4': '板块', 'j5': '风险'} %}
+        {% set chg = meta.change_pct %}
+        {% set chg_fmt = "%.2f"|format(chg) %}
+        {% if chg_fmt.endswith('.00') %}
+          {% set chg_fmt = chg_fmt[:-3] %}
+        {% elif chg_fmt.endswith('0') %}
+          {% set chg_fmt = chg_fmt[:-1] %}
+        {% endif %}
+        {% if chg > 0 %}
+          {% set chg_text = '+' ~ chg_fmt %}
+        {% else %}
+          {% set chg_text = chg_fmt %}
+        {% endif %}
+
+        <div class="cockpit-quote">
+          <span class="state-badge state-badge--{{ state_badge_variant }}">{{ judgment.state_display }}</span>
+          <div class="cockpit-title-row">
+            <h1>{{ meta.name }}（{{ meta.code }}）</h1>
+            <span class="cockpit-inline-quote">
+              <span class="cockpit-price">{{ meta.price }}</span>
+              <span class="cockpit-change{% if chg >= 0 %} is-up{% else %} is-down{% endif %}">{{ chg_text }}%</span>
+            </span>
+          </div>
+          <p class="cockpit-context">
+            {%- if meta.quote_mode == 'intraday' -%}
+              {{ meta.data_as_of }} 盘中 · {{ meta.title_context }}
+            {%- elif '收盘' in meta.data_as_of -%}
+              {{ meta.data_as_of.replace(' 收盘', '') }} 收盘 · {{ meta.title_context }}
+            {%- else -%}
+              {{ meta.data_as_of }} 收盘 · {{ meta.title_context }}
+            {%- endif -%}
+          </p>
+        </div>
+
+        <div class="summary-box">
+          <p class="summary-box-caption">总结前瞻</p>
+          <p class="summary-hook">{{ summary_display }}</p>
+        </div>
+
+        <div class="cockpit-judgments" aria-label="核心研判">
+          <ul class="j-list">
+            {% for item in j_items %}
+            <li class="j-row j-row--{{ item.key }} smooth-fold" data-collapsed="true">
+              <button type="button" class="j-row-trigger smooth-fold-trigger" aria-expanded="false" title="{{ item.full_header }}">
+                <span class="j-dot j-dot--{{ item.dot_kind }}" aria-hidden="true"></span>
+                <span class="j-key{% if item.is_j5 %} j-key--risk{% endif %}">{{ j_short[item.key] }}</span>
+                <span class="j-val">
+                  <span class="j-headline">{{ item.headline }}</span>{% if item.is_j5 and item.risk_tone_label %}<span class="risk-tag">{{ item.risk_tone_label }}</span>{% elif item.priority_label %}<span class="j-priority">{{ item.priority_label }}</span>{% endif %}{% if item.subtitle %}<span class="j-sub">{{ item.subtitle }}</span>{% endif %}
+                </span>
+                <span class="j-chevron smooth-fold-label" aria-hidden="true">▶</span>
+              </button>
+              {% if item.has_expand %}
+              <div class="smooth-fold-panel">
+                <div class="smooth-fold-inner j-row-inner">
+                  {% if item.legacy_fallback %}
+                  <p class="j-expand-label">详情</p>
+                  <p class="j-expand-text">{{ item.fallback_text }}</p>
+                  {% else %}
+                    {% if item.conclusion %}
+                    <p class="j-expand-label">结论</p>
+                    <p class="j-expand-text">{{ item.conclusion }}</p>
+                    {% endif %}
+                    {% if item.counter_examples %}
+                    <p class="j-expand-label">反例排除</p>
+                    <ul class="j-expand-list">
+                      {% for ex in item.counter_examples %}<li>{{ ex }}</li>{% endfor %}
+                    </ul>
+                    {% endif %}
+                    {% if item.key_rhythm %}
+                    <p class="j-expand-label">关键节奏</p>
+                    <p class="j-expand-text">{{ item.key_rhythm }}</p>
+                    {% endif %}
+                    {% if item.footnote %}
+                    <p class="j-expand-text" style="margin-top:8px;color:var(--muted);font-size:0.82rem;">{{ item.footnote }}</p>
+                    {% endif %}
+                    {% if item.risks %}
+                    <p class="j-expand-label">风险清单（逐项过）</p>
+                    <div class="j-risk-list">
+                      {% for risk in item.risks %}
+                      <div class="j-risk-row">
+                        <span class="j-risk-cat">{{ risk.category }}</span>
+                        <span class="j-risk-level j-risk-level--{{ risk.level }}">{{ risk.level }}</span>
+                        <span class="j-risk-text">{{ risk.text }}</span>
+                      </div>
+                      {% endfor %}
+                    </div>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              </div>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="j-legend" aria-hidden="true">
+            <span class="j-legend-item"><span class="j-dot j-dot--focus"></span>重点关注</span>
+            <span class="j-legend-item"><span class="j-dot j-dot--secondary"></span>次要</span>
+            <span class="j-legend-item"><span class="j-dot j-dot--normal"></span>常规</span>
+          </p>
+        </div>
+
+        <div class="cockpit-client-brief">
+          <blockquote class="advisor-blockquote">
+            <span class="advisor-blockquote-label">【今天告诉客户什么】</span>
+            <p class="advisor-blockquote-body">{{ client_brief.full }}</p>
+          </blockquote>
+        </div>
+      </section>
+    </header>
+
+    <section class="card six-dim-card">
+      <h2>六维分析</h2>
+      <div class="matrix-radar-zone">
+        <div class="radar-visual-col">
+          <div id="radar-chart" class="chart-box-radar"></div>
+        </div>
+        <p class="radar-insight">{{ radar_insight }}</p>
+      </div>
+
+      {% for dim in dimensions %}
+      <article class="dim-section{% if dim.is_core %} is-core{% endif %}" data-dim="{{ dim.key }}">
+        <div class="dim-header">
+          <span class="dim-title">
+            {% if dim.dot_kind == 'core' %}<span class="dim-dot dim-dot--core" aria-hidden="true"></span>{% elif dim.dot_kind == 'critical' %}<span class="dim-dot dim-dot--critical" aria-hidden="true"></span>{% endif %}
+            【{{ dim.key }}】
+          </span>
+          <span class="badge {% if dim.is_core %}badge-core{% elif dim.role == 'secondary_technical' %}badge-tech{% else %}badge-secondary{% endif %}">{{ dim.badge }}</span>
+          {% if dim.signal_badge %}
+          <span class="badge badge-signal">{{ dim.signal_badge }}</span>
+          {% endif %}
+        </div>
+
+        {% if dim.show_technical_chart %}
+        <div class="chart-container">
+          {% if dim.annotation_rows %}
+          <p class="tech-snapshot-label">技术快照</p>
+          <div class="anno-grid">
+            {% for row in dim.annotation_rows %}
+            <div class="anno-item"><span class="k">{{ row.label }}</span>{{ row.value }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if chart_payload.kline_status == 'unavailable' %}
+          <div class="chart-placeholder">
+            K 线暂不可用<br>
+            <span style="font-size:0.8rem;">{{ chart_payload.kline_reason or '数据缺失' }}</span>
+          </div>
+          {% else %}
+          {% if chart_payload.kline_status == 'partial' %}
+          <div class="banner banner-warn">{{ chart_payload.kline_partial_note }}</div>
+          {% endif %}
+          {% if chart_payload.overlay_status == 'partial' and chart_payload.overlay_reason %}
+          <div class="banner banner-info">{{ chart_payload.overlay_reason }}</div>
+          {% endif %}
+          <div class="kline-dashboard" id="kline-dashboard">
+            <div class="kline-toolbar">
+              {% if chart_payload.overlay_stale_note %}
+              <div class="banner banner-warn" style="margin-bottom:0.5rem;">{{ chart_payload.overlay_stale_note }}</div>
+              {% endif %}
+              <div class="kline-mode-group" role="group" aria-label="坐标系">
+                <button type="button" class="kline-mode-btn is-active" data-kline-mode="absolute">绝对价格</button>
+                <button type="button" class="kline-mode-btn" data-kline-mode="percentage">累计涨跌幅</button>
+              </div>
+              <div class="kline-toggles">
+                <label class="kline-toggle"><input type="checkbox" id="kline-toggle-stock" checked> 个股 K 线</label>
+                <label class="kline-toggle"><input type="checkbox" id="kline-toggle-sh" checked> {{ chart_payload.overlay_labels.sh }}</label>
+                <label class="kline-toggle"><input type="checkbox" id="kline-toggle-sector"{% if not chart_payload.overlay_show_sector %} disabled{% else %} checked{% endif %}> {{ chart_payload.overlay_labels.sector }}</label>
+              </div>
+            </div>
+            <div class="kline-snapshot-row" id="kline-snapshot-row">
+              <span id="kline-snapshot-text">{{ chart_payload.kline_snapshot.absolute_line }}</span>
+              <span class="kline-compare-caption">{{ chart_payload.kline_snapshot.compare_caption }}</span>
+            </div>
+            <div id="{{ dim.chart_id }}" class="chart-box"></div>
+          </div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if dim.show_fund_chart %}
+        <div class="chart-container">
+          {% if chart_payload.fund_status == 'stale' %}
+          <div class="banner banner-warn">{{ chart_payload.fund_stale_note }}</div>
+          {% endif %}
+          {% if chart_payload.sector_fund_status == 'stale' and chart_payload.sector_fund_stale_note %}
+          <div class="banner banner-warn">{{ chart_payload.sector_fund_stale_note }}</div>
+          {% endif %}
+          <div class="fund-dual-grid">
+            <div class="fund-panel">
+              <p class="fund-panel-label">个股近 5 日主力潮汐</p>
+              {% if chart_payload.fund_status in ('ok', 'stale') and chart_payload.fund_dates %}
+              <div id="{{ dim.chart_id }}" class="chart-box-fund"></div>
+              {% else %}
+              <div class="chart-placeholder">
+                个股资金流暂不可用<br>
+                <span style="font-size:0.8rem;">{{ chart_payload.fund_reason or '接口失败' }}</span>
+              </div>
+              {% endif %}
+            </div>
+            <div class="fund-panel">
+              <p class="fund-panel-label">{{ chart_payload.sector_fund_label }}近 5 日主力潮汐</p>
+              {% if chart_payload.sector_fund_match_note %}
+              <p class="fund-panel-sub" style="font-size:0.75rem;color:#64748b;margin:-0.15rem 0 0.35rem;">{{ chart_payload.sector_fund_match_note }}</p>
+              {% endif %}
+              {% if chart_payload.sector_fund_status in ('ok', 'stale') and chart_payload.sector_fund_dates %}
+              <div id="{{ chart_payload.fund_sector_chart_id }}" class="chart-box-fund"></div>
+              {% else %}
+              <div class="chart-placeholder">
+                板块资金流暂不可用<br>
+                <span style="font-size:0.8rem;">{{ chart_payload.sector_fund_reason or '数据缺失' }}</span>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="tier-evidence">
+          {% if dim.stub_conclusion %}
+          <p class="dim-stub-line">{{ dim.stub_conclusion }}</p>
+          {% endif %}
+          <p class="evidence-conclusion">{{ dim.conclusion }}</p>
+          {% if dim.data_bullets %}
+          <ul class="evidence-list">
+            {% for b in dim.data_bullets %}<li>{{ b }}</li>{% endfor %}
+          </ul>
+          {% endif %}
+        </div>
+
+        {% if dim.interpretation %}
+        <div class="smooth-fold dim-interpretation-fold" data-collapsed="true">
+          <button type="button" class="smooth-fold-trigger" aria-expanded="false">
+            <span class="smooth-fold-label">▶ 查看逻辑解释</span>
+          </button>
+          <div class="smooth-fold-panel">
+            <div class="smooth-fold-inner">
+              <p class="interpretation-body">{{ dim.interpretation }}</p>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </section>
+
+    <footer class="footer">
+      <p><strong>数据备注：</strong>{{ provenance.data_notes }}</p>
+      {% if provenance.fetch_errors %}
+      <p><strong>接口异常：</strong>{{ provenance.fetch_errors | join('、') }}</p>
+      {% endif %}
+      <p>{{ provenance.disclaimer }}</p>
+      <div class="meta-foot">HTML 由 render_html.py 生成 · {{ rendered_at }}</div>
+    </footer>
+  </div>
+
+  <script>
+    window.__RADAR_DATA__ = {{ {
+      "labels": radar_labels,
+      "weights": radar_series,
+      "core_dims": judgment.core_dimensions,
+      "chart": chart_payload
+    } | tojson }};
+  </script>
+  <script>
+    (function () {
+      if (typeof echarts === 'undefined') {
+        console.error('ECharts CDN failed to load');
+        return;
+      }
+      var data = window.__RADAR_DATA__;
+      var chart = data.chart;
+      var charts = [];
+
+      function trackResize(instance) {
+        window.addEventListener('resize', function () { instance.resize(); });
+        charts.push(instance);
+      }
+
+      // Radar — embedded in 六维分析 card
+      var radarEl = document.getElementById('radar-chart');
+      if (radarEl) {
+        var coreSet = {};
+        (data.core_dims || []).forEach(function (d) { coreSet[d] = true; });
+        var radar = echarts.init(radarEl);
+        radar.setOption({
+          tooltip: {},
+          radar: {
+            center: ['50%', '54%'],
+            radius: '58%',
+            indicator: data.labels.map(function (name) {
+              var isCore = !!coreSet[name];
+              return {
+                name: name,
+                max: 100,
+                nameTextStyle: {
+                  color: isCore ? '#1d4ed8' : '#64748b',
+                  fontWeight: isCore ? 600 : 400,
+                  fontSize: isCore ? 12 : 11
+                }
+              };
+            }),
+            splitArea: { areaStyle: { color: ['#f8fafc', '#fff'] } },
+            axisLine: { lineStyle: { color: '#e2e8f0' } },
+            splitLine: { lineStyle: { color: '#e2e8f0' } }
+          },
+          series: [{
+            type: 'radar',
+            data: [{
+              value: data.weights,
+              name: '六维雷达',
+              areaStyle: { color: 'rgba(29, 78, 216, 0.12)' },
+              lineStyle: { color: '#1d4ed8', width: 2 },
+              itemStyle: { color: '#1d4ed8' }
+            }]
+          }]
+        });
+        trackResize(radar);
+      }
+
+      // K-line — 2g-B single grid: Absolute (L price / R %) | Percentage (3 lines)
+      if (chart.kline_status !== 'unavailable') {
+        var klineEl = document.getElementById(chart.kline_chart_id);
+        if (klineEl && chart.dates.length) {
+          var kline = echarts.init(klineEl);
+          var hasOverlay = chart.overlay_status !== 'unavailable' && (
+            (chart.overlay_sh_pct && chart.overlay_sh_pct.length) ||
+            (chart.overlay_stock_pct && chart.overlay_stock_pct.length)
+          );
+          var klineState = {
+            mode: 'absolute',
+            showStock: true,
+            showSh: true,
+            showSector: !!chart.overlay_show_sector
+          };
+          var snapshot = chart.kline_snapshot || {};
+          var snapshotEl = document.getElementById('kline-snapshot-text');
+
+          function updateSnapshotRow() {
+            if (!snapshotEl || !snapshot) return;
+            snapshotEl.textContent = klineState.mode === 'percentage'
+              ? (snapshot.percentage_line || '')
+              : (snapshot.absolute_line || '');
+          }
+
+          function stockCandleSeries() {
+            return {
+              name: 'K线',
+              type: 'candlestick',
+              yAxisIndex: 0,
+              data: chart.ohlc,
+              itemStyle: { color: '#dc2626', color0: '#16a34a', borderColor: '#dc2626', borderColor0: '#16a34a' }
+            };
+          }
+
+          function maSeries() {
+            return [
+              { name: 'MA5', type: 'line', yAxisIndex: 0, data: chart.ma5, smooth: true, showSymbol: false, lineStyle: { width: 1.2, color: '#f59e0b' } },
+              { name: 'MA20', type: 'line', yAxisIndex: 0, data: chart.ma20, smooth: true, showSymbol: false, lineStyle: { width: 1.2, color: '#6366f1' } },
+              { name: 'MA60', type: 'line', yAxisIndex: 0, data: chart.ma60, smooth: true, showSymbol: false, lineStyle: { width: 1.2, color: '#06b6d4' } }
+            ];
+          }
+
+          function klineLegendConfig(data) {
+            return {
+              data: data,
+              top: 0,
+              left: 8,
+              right: 8,
+              type: 'scroll',
+              itemWidth: 12,
+              itemHeight: 8,
+              itemGap: 16,
+              textStyle: { fontSize: 11, padding: [0, 0, 0, 4] }
+            };
+          }
+
+          function overlayLine(name, data, color, yIndex, dashed) {
+            var style = { width: 1.4, color: color, opacity: dashed ? 0.7 : 1 };
+            if (dashed) style.type = 'dashed';
+            return {
+              name: name,
+              type: 'line',
+              yAxisIndex: yIndex,
+              data: data,
+              smooth: true,
+              showSymbol: false,
+              lineStyle: style,
+              z: dashed ? 2 : 3
+            };
+          }
+
+          function buildAbsoluteOption() {
+            var series = [];
+            var legend = [];
+            if (klineState.showStock) {
+              series.push(stockCandleSeries());
+              series = series.concat(maSeries());
+              legend = ['MA5', 'MA20', 'MA60'];
+            }
+            if (hasOverlay && klineState.showSh) {
+              series.push(overlayLine(chart.overlay_labels.sh, chart.overlay_sh_pct, '#8b5cf6', 1, true));
+              legend.push(chart.overlay_labels.sh);
+            }
+            if (hasOverlay && klineState.showSector && chart.overlay_sector_pct && chart.overlay_sector_pct.length) {
+              series.push(overlayLine(chart.overlay_labels.sector, chart.overlay_sector_pct, '#ea580c', 1, true));
+              legend.push(chart.overlay_labels.sector);
+            }
+            var yAxis = [{ scale: true, name: '价格', position: 'left', splitLine: { lineStyle: { type: 'dashed' } } }];
+            if (hasOverlay && (klineState.showSh || klineState.showSector)) {
+              yAxis.push({
+                type: 'value',
+                name: '涨跌幅%',
+                position: 'right',
+                splitLine: { show: false },
+                axisLabel: { formatter: '{value}%' }
+              });
+            }
+            return {
+              tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, confine: true },
+              legend: klineLegendConfig(legend),
+              grid: { left: 56, right: hasOverlay ? 68 : 20, top: 44, bottom: 36 },
+              xAxis: { type: 'category', data: chart.dates, boundaryGap: true },
+              yAxis: yAxis,
+              series: series
+            };
+          }
+
+          function buildPercentageOption() {
+            var series = [];
+            var legend = [];
+            if (klineState.showStock) {
+              series.push(overlayLine(chart.overlay_labels.stock, chart.overlay_stock_pct, '#1d4ed8', 0, false));
+              legend.push(chart.overlay_labels.stock);
+            }
+            if (hasOverlay && klineState.showSh) {
+              series.push(overlayLine(chart.overlay_labels.sh, chart.overlay_sh_pct, '#8b5cf6', 0, true));
+              legend.push(chart.overlay_labels.sh);
+            }
+            if (hasOverlay && klineState.showSector && chart.overlay_sector_pct && chart.overlay_sector_pct.length) {
+              series.push(overlayLine(chart.overlay_labels.sector, chart.overlay_sector_pct, '#ea580c', 0, true));
+              legend.push(chart.overlay_labels.sector);
+            }
+            return {
+              tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, confine: true },
+              legend: klineLegendConfig(legend),
+              grid: { left: 56, right: 20, top: 44, bottom: 36 },
+              xAxis: { type: 'category', data: chart.dates, boundaryGap: false },
+              yAxis: {
+                type: 'value',
+                name: '累计涨跌%',
+                splitLine: { lineStyle: { type: 'dashed' } },
+                axisLabel: { formatter: '{value}%' }
+              },
+              series: series
+            };
+          }
+
+          function applyKline() {
+            var opt = klineState.mode === 'percentage' ? buildPercentageOption() : buildAbsoluteOption();
+            kline.setOption(opt, true);
+            updateSnapshotRow();
+          }
+
+          document.querySelectorAll('[data-kline-mode]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              klineState.mode = btn.getAttribute('data-kline-mode');
+              document.querySelectorAll('[data-kline-mode]').forEach(function (b) {
+                b.classList.toggle('is-active', b === btn);
+              });
+              applyKline();
+            });
+          });
+
+          var toggleStock = document.getElementById('kline-toggle-stock');
+          var toggleSh = document.getElementById('kline-toggle-sh');
+          var toggleSector = document.getElementById('kline-toggle-sector');
+          if (toggleStock) toggleStock.addEventListener('change', function () { klineState.showStock = toggleStock.checked; applyKline(); });
+          if (toggleSh) toggleSh.addEventListener('change', function () { klineState.showSh = toggleSh.checked; applyKline(); });
+          if (toggleSector) toggleSector.addEventListener('change', function () { klineState.showSector = toggleSector.checked; applyKline(); });
+
+          applyKline();
+          trackResize(kline);
+        }
+      }
+
+      function fundBarOption(dates, values) {
+        var maxAbs = 0;
+        (values || []).forEach(function (v) {
+          maxAbs = Math.max(maxAbs, Math.abs(Number(v) || 0));
+        });
+        if (maxAbs === 0) maxAbs = 1;
+        var bound = Math.ceil(maxAbs * 1.15 * 10) / 10;
+        return {
+          tooltip: {
+            trigger: 'axis',
+            formatter: function (p) {
+              var v = p[0];
+              var num = Number(v.value);
+              var sign = num >= 0 ? '净流入' : '净流出';
+              return v.name + '<br/>主力' + sign + ' ' + Math.abs(num).toFixed(2) + ' 亿';
+            }
+          },
+          grid: { left: 52, right: 16, top: 36, bottom: 32 },
+          xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 } },
+          yAxis: {
+            type: 'value',
+            name: '亿元',
+            min: -bound,
+            max: bound,
+            nameGap: 12,
+            nameTextStyle: { fontSize: 11, padding: [0, 0, 0, 0] },
+            splitLine: { lineStyle: { type: 'dashed', color: '#e2e8f0' } },
+            axisLabel: { fontSize: 10 }
+          },
+          series: [{
+            type: 'bar',
+            data: values.map(function (v) {
+              var num = Number(v) || 0;
+              return {
+                value: num,
+                itemStyle: { color: num >= 0 ? '#b91c1c' : '#15803d' }
+              };
+            }),
+            barMaxWidth: 40,
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              lineStyle: { type: 'solid', color: '#94a3b8', width: 1 },
+              data: [{ yAxis: 0 }]
+            }
+          }]
+        };
+      }
+
+      // Fund flow — 左/右独立降级：一侧失败不影响另一侧
+      var fundEl = document.getElementById(chart.fund_chart_id);
+      if (fundEl && chart.fund_dates && chart.fund_dates.length) {
+        var fund = echarts.init(fundEl);
+        fund.setOption(fundBarOption(chart.fund_dates, chart.fund_values));
+        trackResize(fund);
+      }
+
+      var sectorFundEl = document.getElementById(chart.fund_sector_chart_id);
+      if (sectorFundEl && chart.sector_fund_dates && chart.sector_fund_dates.length) {
+        var sectorFund = echarts.init(sectorFundEl);
+        sectorFund.setOption(
+          fundBarOption(chart.sector_fund_dates, chart.sector_fund_values)
+        );
+        trackResize(sectorFund);
+      }
+
+      function initSmoothFolds() {
+        document.querySelectorAll('.smooth-fold').forEach(function (fold) {
+          var trigger = fold.querySelector('.smooth-fold-trigger');
+          var panel = fold.querySelector('.smooth-fold-panel');
+          var inner = fold.querySelector('.smooth-fold-inner');
+          var label = trigger && trigger.querySelector('.smooth-fold-label');
+          if (!trigger || !panel || !inner || !label) return;
+
+          function panelHeight() {
+            return inner.scrollHeight;
+          }
+
+          function setCollapsed(collapsed, animate) {
+            var isJRow = fold.classList.contains('j-row');
+            fold.setAttribute('data-collapsed', collapsed ? 'true' : 'false');
+            trigger.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            if (isJRow) {
+              label.textContent = collapsed ? '▶' : '▼';
+            } else {
+              label.textContent = collapsed ? '▶ 查看逻辑解释' : '▼ 收起逻辑解释';
+            }
+            if (collapsed) {
+              if (animate) {
+                var current = panel.offsetHeight || panelHeight();
+                panel.style.height = current + 'px';
+                requestAnimationFrame(function () { panel.style.height = '0px'; });
+              } else {
+                panel.style.height = '0px';
+              }
+            } else {
+              panel.style.height = panelHeight() + 'px';
+            }
+          }
+
+          panel.addEventListener('transitionend', function (evt) {
+            if (evt.propertyName !== 'height') return;
+            if (fold.getAttribute('data-collapsed') === 'false') {
+              panel.style.height = 'auto';
+            }
+          });
+
+          trigger.addEventListener('click', function () {
+            var collapsed = fold.getAttribute('data-collapsed') !== 'false';
+            if (collapsed) {
+              setCollapsed(false, true);
+            } else {
+              panel.style.height = panelHeight() + 'px';
+              requestAnimationFrame(function () { setCollapsed(true, true); });
+            }
+          });
+
+          setCollapsed(fold.getAttribute('data-collapsed') !== 'false', false);
+        });
+      }
+
+      initSmoothFolds();
+    })();
+  </script>
+</body>
+</html>

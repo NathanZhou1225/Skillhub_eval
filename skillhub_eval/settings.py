@@ -6,8 +6,9 @@ class Settings(BaseSettings):
 
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
-    workbuddy_api_key: str = ""
-    workbuddy_base_url: str = ""
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    gemini_model: str = "gemini-2.0-flash"
     eval_db_path: str = "data/skillhub_eval.db"
     eval_llm_mode: str = "live"
     rubric_version: str = "v1.2"

@@ -73,7 +73,7 @@ def test_save_and_get_votes(repo):
     run_id = repo.create_run("s5", "/tmp/s5", "confirmed", "capability_full")
     votes = [
         {"model": "deepseek", "case_id": "c1", "score_total": 85},
-        {"model": "workbuddy", "case_id": "c1", "score_total": 72},
+        {"model": "gemini", "case_id": "c1", "score_total": 72},
     ]
     repo.save_votes(run_id, votes)
     fetched = repo.get_votes_for_run(run_id)

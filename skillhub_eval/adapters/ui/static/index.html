@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SkillHub 极简确认台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f7ff', 100:'#e0effe', 500:'#3b82f6', 700:'#1d4ed8', 900:'#1e3a8a' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .tab-active   { border-bottom: 3px solid #3b82f6; color: #1d4ed8; font-weight: 600; }
+    .tab-inactive { border-bottom: 3px solid transparent; color: #6b7280; }
+    .status-pass  { background:#dcfce7; color:#166534; }
+    .status-warn  { background:#fef9c3; color:#854d0e; }
+    .status-fail  { background:#fee2e2; color:#991b1b; }
+    .status-pending      { background:#f3f4f6; color:#4b5563; }
+    .status-awaiting     { background:#fef3c7; color:#92400e; }
+    .badge { padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
+    .fade-in { animation: fadeIn .25s ease-in; }
+    @keyframes fadeIn { from {opacity:0; transform:translateY(4px)} to {opacity:1; transform:translateY(0)} }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
+<header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between shadow-sm">
+  <div class="flex items-center gap-3">
+    <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">S</div>
+    <div>
+      <span class="font-bold text-gray-900 text-lg">SkillHub</span>
+      <span class="ml-2 text-gray-400 text-sm">极简确认台 v0.1</span>
+    </div>
+  </div>
+  <div class="flex items-center gap-4">
+    <span id="api-status" class="text-xs text-gray-400">连接中…</span>
+    <button onclick="location.reload()" class="text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border rounded-md hover:border-blue-300 transition">刷新</button>
+    <a href="/docs" target="_blank" class="text-xs text-blue-600 hover:underline">Swagger →</a>
+  </div>
+</header>
+
+<!-- ── Tab Bar ───────────────────────────────────────────────────────────────── -->
+<nav class="bg-white border-b border-gray-200 px-6 flex gap-6">
+  <button id="tab-author" class="tab-active py-3 text-sm transition" onclick="switchTab('author')">
+    📝 作者补全台
+  </button>
+  <button id="tab-expert" class="tab-inactive py-3 text-sm transition" onclick="switchTab('expert')">
+    🔍 专家审核台
+    <span id="review-badge" class="ml-1 badge bg-red-100 text-red-700 hidden">0</span>
+  </button>
+  <button id="tab-history" class="tab-inactive py-3 text-sm transition" onclick="switchTab('history')">
+    📋 评估历史
+  </button>
+</nav>
+
+<!-- ── Main ─────────────────────────────────────────────────────────────────── -->
+<main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+
+  <!-- ══ Tab 1: Author ══════════════════════════════════════════════════════ -->
+  <div id="panel-author" class="fade-in space-y-6">
+
+    <!-- Trigger new run -->
+    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <h2 class="font-semibold text-gray-900 mb-1">发起评估任务</h2>
+      <p class="text-sm text-gray-500 mb-4">填写 Skill 包路径，选择状态和模式，立即触发异步评估</p>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Skill ID</label>
+          <input id="inp-skill-id" type="text" placeholder="e.g. skill.attendance" value=""
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Bundle 路径</label>
+          <input id="inp-bundle-path" type="text" placeholder="e.g. /data/skills/attendance"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Bundle State</label>
+          <select id="inp-bundle-state" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+            <option value="confirmed">confirmed（完整确认）</option>
+            <option value="draft_enriched">draft_enriched（草稿）</option>
+            <option value="minimal">minimal（最小结构）</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Evaluation Mode</label>
+          <select id="inp-eval-mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+            <option value="capability_full">capability_full（全量评审）</option>
+            <option value="degraded">degraded（摸底评审）</option>
+            <option value="structural_only">structural_only（仅结构）</option>
+          </select>
+        </div>
+      </div>
+      <div class="mt-4 flex gap-3 items-center">
+        <button onclick="triggerRun()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
+          ▶ 发起评估
+        </button>
+        <span id="run-msg" class="text-sm text-gray-500"></span>
+      </div>
+    </div>
+
+    <!-- Live status of last run -->
+    <div id="run-status-card" class="hidden bg-white rounded-xl border border-gray-200 p-6 shadow-sm fade-in">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-900">运行状态</h3>
+        <button onclick="stopPolling()" class="text-xs text-gray-400 hover:text-gray-600">停止轮询</button>
+      </div>
+      <div id="run-status-body" class="text-sm text-gray-700 space-y-2"></div>
+    </div>
+
+    <!-- Confirm gaps form -->
+    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <h2 class="font-semibold text-gray-900 mb-1">确认 Gap 字段</h2>
+      <p class="text-sm text-gray-500 mb-4">AI 已识别出草稿缺口，请在此补全安全敏感字段后提交</p>
+      <div class="flex gap-3 mb-4">
+        <input id="inp-confirm-skill-id" type="text" placeholder="Skill ID"
+          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        <button onclick="loadGaps()" class="bg-gray-100 hover:bg-gray-200 text-sm px-4 py-2 rounded-lg transition border border-gray-300">
+          查询 Gaps
+        </button>
+      </div>
+      <div id="gaps-list" class="space-y-3"></div>
+      <div id="confirm-form" class="hidden mt-4 space-y-3">
+        <div class="grid grid-cols-2 gap-3" id="confirm-fields-grid"></div>
+        <div class="flex gap-3 items-center pt-2 border-t border-gray-100">
+          <input id="inp-operator" type="text" placeholder="操作人姓名" value="author"
+            class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          <button onclick="submitConfirm()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
+            ✅ 确认提交
+          </button>
+          <span id="confirm-msg" class="text-sm text-gray-500"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Tab 2: Expert ══════════════════════════════════════════════════════ -->
+  <div id="panel-expert" class="hidden fade-in space-y-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-semibold text-gray-900">待审核队列</h2>
+          <p class="text-sm text-gray-500 mt-0.5">以下 Run 触发了 R5 模型分歧或 R7 中等质量告警，需专家复核</p>
+        </div>
+        <button onclick="loadExpertQueue()" class="text-xs text-blue-600 hover:underline">刷新列表</button>
+      </div>
+      <div id="expert-queue" class="space-y-4">
+        <p class="text-sm text-gray-400 text-center py-6">加载中…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Tab 3: History ═════════════════════════════════════════════════════ -->
+  <div id="panel-history" class="hidden fade-in">
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <h2 class="font-semibold text-gray-900">评估历史</h2>
+        <div class="flex gap-2 items-center">
+          <label class="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer">
+            <input type="checkbox" id="filter-human" onchange="loadHistory()" class="rounded" />
+            仅显示待人工审核
+          </label>
+          <button onclick="loadHistory()" class="text-xs text-blue-600 hover:underline ml-3">刷新</button>
+        </div>
+      </div>
+      <div id="history-table" class="overflow-x-auto">
+        <p class="text-sm text-gray-400 text-center py-10">加载中…</p>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Toast ─────────────────────────────────────────────────────────────────── -->
+<div id="toast" class="fixed bottom-6 right-6 hidden bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-xl max-w-sm z-50 transition"></div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────────
+const API = '';   // same origin; set to 'http://localhost:8000' if needed
+let _pollTimer = null;
+let _currentRunId = null;
+let _confirmSkillId = null;
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  ['author','expert','history'].forEach(t => {
+    document.getElementById('panel-'+t).classList.toggle('hidden', t !== name);
+    const btn = document.getElementById('tab-'+t);
+    btn.className = (t === name ? 'tab-active' : 'tab-inactive') + ' py-3 text-sm transition';
+  });
+  if (name === 'expert')  loadExpertQueue();
+  if (name === 'history') loadHistory();
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+async function apiFetch(path, opts={}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `fixed bottom-6 right-6 text-sm px-4 py-3 rounded-xl shadow-xl max-w-sm z-50 transition ${ok ? 'bg-gray-900 text-white' : 'bg-red-600 text-white'}`;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+// ── Health check ──────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const d = await apiFetch('/health');
+    document.getElementById('api-status').textContent = '● 在线';
+    document.getElementById('api-status').className = 'text-xs text-green-500';
+  } catch {
+    document.getElementById('api-status').textContent = '● 离线';
+    document.getElementById('api-status').className = 'text-xs text-red-500';
+  }
+}
+
+// ── Trigger run ───────────────────────────────────────────────────────────────
+async function triggerRun() {
+  const skillId    = document.getElementById('inp-skill-id').value.trim();
+  const bundlePath = document.getElementById('inp-bundle-path').value.trim();
+  const state      = document.getElementById('inp-bundle-state').value;
+  const mode       = document.getElementById('inp-eval-mode').value;
+
+  if (!skillId || !bundlePath) { toast('请填写 Skill ID 和 Bundle 路径', false); return; }
+
+  const msgEl = document.getElementById('run-msg');
+  msgEl.textContent = '发起中…';
+  try {
+    const data = await apiFetch('/eval/run', {
+      method: 'POST',
+      body: JSON.stringify({ skill_id: skillId, skill_bundle_path: bundlePath,
+                              bundle_state: state, evaluation_mode: mode }),
+    });
+    _currentRunId = data.run_id;
+    msgEl.textContent = `run_id: ${data.run_id.slice(0,8)}…`;
+    document.getElementById('run-status-card').classList.remove('hidden');
+    toast('✅ 评估任务已提交，轮询状态中…');
+    startPolling(data.run_id);
+  } catch (e) {
+    msgEl.textContent = '';
+    toast('❌ ' + e.message, false);
+  }
+}
+
+// ── Status polling ────────────────────────────────────────────────────────────
+function startPolling(runId) {
+  stopPolling();
+  _pollTimer = setInterval(() => pollStatus(runId), 4000);
+  pollStatus(runId);
+}
+
+function stopPolling() {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+async function pollStatus(runId) {
+  try {
+    const d = await apiFetch(`/eval/report/${runId}`);
+    const body = document.getElementById('run-status-body');
+    const terminal = ['completed','failed','awaiting_human_review','awaiting_confirm'].includes(d.status);
+
+    const statusClass = {
+      pass:'status-pass', fail:'status-fail', warn:'status-warn',
+      awaiting_confirm:'status-awaiting', awaiting_human_review:'status-awaiting',
+    }[d.review_status || d.status] || 'status-pending';
+
+    let scoreStr = d.score_total !== null && d.score_total !== undefined
+      ? `<strong>${d.score_total}</strong>/100`
+      : '<span class="text-gray-400">null（模型分歧）</span>';
+
+    let reasonHtml = '';
+    if (d.report && d.report.reason_codes && d.report.reason_codes.length) {
+      reasonHtml = `<div class="text-xs text-gray-500">reason_codes: ${d.report.reason_codes.join(', ')}</div>`;
+    }
+
+    let humanHtml = '';
+    if (d.human_review_required) {
+      humanHtml = `<div class="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+        ⚠ 需要专家复核 — 请切换至「专家审核台」Tab 进行处理
+      </div>`;
+    }
+
+    body.innerHTML = `
+      <div class="flex items-center gap-3 flex-wrap">
+        <span class="badge ${statusClass}">${d.status}</span>
+        ${d.review_status ? `<span class="badge ${statusClass}">${d.review_status}</span>` : ''}
+        ${d.human_review_required ? '<span class="badge bg-amber-100 text-amber-700">人工待审</span>' : ''}
+        <span class="text-gray-400 text-xs">${runId.slice(0,8)}…</span>
+      </div>
+      <div class="text-sm">分数：${scoreStr}</div>
+      ${reasonHtml}
+      ${humanHtml}
+      ${terminal ? '<div class="text-xs text-gray-400 mt-1">任务已终结，停止轮询</div>' : '<div class="text-xs text-blue-400 animate-pulse">评估进行中，每 4s 自动刷新…</div>'}
+    `;
+
+    if (terminal) stopPolling();
+  } catch(e) {
+    // silent on transient poll errors
+  }
+}
+
+// ── Load gaps ──────────────────────────────────────────────────────────────────
+async function loadGaps() {
+  const skillId = document.getElementById('inp-confirm-skill-id').value.trim();
+  if (!skillId) { toast('请填写 Skill ID', false); return; }
+  _confirmSkillId = skillId;
+
+  // Show a template for important confirmable fields (editable by author)
+  const required = [
+    { field: 'negative_prompts',  label: '禁止指令（negative_prompts）', placeholder: '不允许操作的场景或指令' },
+    { field: 'error_handling',    label: '错误处理策略（error_handling）', placeholder: '遇到异常时的返回格式' },
+    { field: 'permission_scope',  label: '权限范围（permission_scope）', placeholder: '允许访问的数据范围' },
+    { field: 'security_notes',    label: '安全备注（security_notes）', placeholder: '其他安全敏感约束' },
+  ];
+
+  const gapsList = document.getElementById('gaps-list');
+  gapsList.innerHTML = `
+    <div class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-2">
+      ⚠ 以下字段为安全敏感字段，系统无法代为确认，需作者手动填写后提交
+    </div>
+  `;
+
+  const grid = document.getElementById('confirm-fields-grid');
+  grid.innerHTML = required.map(f => `
+    <div>
+      <label class="block text-xs font-medium text-gray-700 mb-1">${f.label}</label>
+      <input type="text" id="field-${f.field}" placeholder="${f.placeholder}"
+        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+    </div>
+  `).join('');
+
+  document.getElementById('confirm-form').classList.remove('hidden');
+  toast('已加载待确认字段，请填写后提交');
+}
+
+// ── Submit confirm ─────────────────────────────────────────────────────────────
+async function submitConfirm() {
+  if (!_confirmSkillId) { toast('请先查询 Gaps', false); return; }
+  const operator = document.getElementById('inp-operator').value.trim() || 'author';
+  const fields = ['negative_prompts','error_handling','permission_scope','security_notes'];
+
+  const confirmed_fields = {};
+  fields.forEach(f => {
+    const val = document.getElementById('field-'+f)?.value.trim();
+    if (val) confirmed_fields[f] = val;
+  });
+
+  if (Object.keys(confirmed_fields).length === 0) {
+    toast('至少填写一个字段', false); return;
+  }
+
+  const msgEl = document.getElementById('confirm-msg');
+  msgEl.textContent = '提交中…';
+  try {
+    const data = await apiFetch(`/bundle/${_confirmSkillId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmed_fields, operator, confirmed_cases: [] }),
+    });
+    msgEl.textContent = '';
+    toast(`✅ 已确认 ${data.confirmed_count} 个字段，可发起 Mode D 全量评审`);
+    document.getElementById('inp-skill-id').value = _confirmSkillId;
+    document.getElementById('inp-bundle-state').value = 'confirmed';
+    document.getElementById('inp-eval-mode').value = 'capability_full';
+  } catch(e) {
+    msgEl.textContent = '';
+    toast('❌ ' + e.message, false);
+  }
+}
+
+// ── Expert queue ──────────────────────────────────────────────────────────────
+async function loadExpertQueue() {
+  const el = document.getElementById('expert-queue');
+  el.innerHTML = '<p class="text-sm text-gray-400 text-center py-6">加载中…</p>';
+  try {
+    const data = await apiFetch('/eval/history?human_review_only=true&limit=30');
+    updateReviewBadge(data.total);
+
+    if (!data.runs.length) {
+      el.innerHTML = '<div class="text-center py-10 text-gray-400 text-sm">暂无待审核任务 🎉</div>';
+      return;
+    }
+
+    el.innerHTML = data.runs.map(run => renderExpertCard(run)).join('');
+  } catch(e) {
+    el.innerHTML = `<p class="text-sm text-red-400 text-center py-6">加载失败: ${e.message}</p>`;
+  }
+}
+
+function renderExpertCard(run) {
+  const runIdShort = run.run_id.slice(0,8);
+  const scoreStr = run.score_total !== null && run.score_total !== undefined
+    ? run.score_total : '—';
+
+  return `
+  <div class="border border-gray-200 rounded-xl p-5 bg-gray-50 space-y-3" id="card-${run.run_id}">
+    <div class="flex items-start justify-between flex-wrap gap-2">
+      <div>
+        <div class="font-semibold text-gray-900">${run.skill_id}</div>
+        <div class="text-xs text-gray-400 mt-0.5">run_id: ${runIdShort}…  |  ${run.status}</div>
+      </div>
+      <div class="flex gap-2 flex-wrap">
+        ${renderBadge(run.review_status)}
+        <span class="badge bg-amber-100 text-amber-700">人工待审</span>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 text-sm">
+      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
+        <div class="text-xs text-gray-400 mb-1">综合得分</div>
+        <div class="text-xl font-bold ${run.score_total ? 'text-gray-900' : 'text-gray-400'}">${scoreStr}</div>
+      </div>
+      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
+        <div class="text-xs text-gray-400 mb-1">bundle_state</div>
+        <div class="text-sm font-medium text-gray-700">${run.bundle_state || '—'}</div>
+      </div>
+      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
+        <div class="text-xs text-gray-400 mb-1">eval_mode</div>
+        <div class="text-sm font-medium text-gray-700">${run.evaluation_mode || '—'}</div>
+      </div>
+    </div>
+
+    <div class="text-xs text-gray-500 bg-red-50 border border-red-100 rounded-lg p-3">
+      <span class="font-medium text-red-700">⚠ R5 模型分歧</span>：DeepSeek 与 Gemini 评分差异过大（≥10分）或建议状态互相矛盾，需专家人工裁定。
+    </div>
+
+    <div class="flex gap-3 items-center pt-1">
+      <input type="text" id="expert-${run.run_id}" placeholder="专家姓名"
+        class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <button onclick="submitReview('${run.run_id}', 'approve')"
+        class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+        ✅ 批准通过
+      </button>
+      <button onclick="submitReview('${run.run_id}', 'reject')"
+        class="bg-red-600 hover:bg-red-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition">
+        ❌ 拒绝驳回
+      </button>
+      <span id="review-msg-${run.run_id}" class="text-xs text-gray-500"></span>
+    </div>
+  </div>`;
+}
+
+async function submitReview(runId, action) {
+  const operator = document.getElementById(`expert-${runId}`)?.value.trim() || 'expert';
+  const msgEl = document.getElementById(`review-msg-${runId}`);
+  msgEl.textContent = '提交中…';
+  try {
+    const data = await apiFetch(`/eval/review/${runId}`, {
+      method: 'POST',
+      body: JSON.stringify({ action, operator, comment: `Manual ${action} by ${operator}` }),
+    });
+    toast(`✅ ${action === 'approve' ? '已批准' : '已驳回'} — review_status: ${data.review_status}`);
+    // Replace card with a compact result summary
+    const card = document.getElementById(`card-${runId}`);
+    if (card) {
+      card.innerHTML = `
+        <div class="flex items-center gap-3 py-2">
+          ${renderBadge(data.review_status)}
+          <span class="text-sm text-gray-600">由 <strong>${operator}</strong> ${action === 'approve' ? '批准' : '驳回'}</span>
+          <span class="text-xs text-gray-400 ml-auto">${runId.slice(0,8)}…</span>
+        </div>`;
+    }
+    loadExpertQueue();
+  } catch(e) {
+    msgEl.textContent = '';
+    toast('❌ ' + e.message, false);
+  }
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const humanOnly = document.getElementById('filter-human')?.checked;
+  const el = document.getElementById('history-table');
+  el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">加载中…</p>';
+  try {
+    const data = await apiFetch(`/eval/history?limit=50${humanOnly ? '&human_review_only=true' : ''}`);
+    if (!data.runs.length) {
+      el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">暂无历史记录</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+            <th class="text-left px-4 py-3 font-medium">Skill ID</th>
+            <th class="text-left px-4 py-3 font-medium">Run ID</th>
+            <th class="text-left px-4 py-3 font-medium">状态</th>
+            <th class="text-left px-4 py-3 font-medium">评审结果</th>
+            <th class="text-right px-4 py-3 font-medium">得分</th>
+            <th class="text-left px-4 py-3 font-medium">标记</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.runs.map(run => `
+            <tr class="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onclick="openRunDetail('${run.run_id}')">
+              <td class="px-4 py-3 font-medium text-gray-900">${run.skill_id}</td>
+              <td class="px-4 py-3 text-gray-400 font-mono text-xs">${run.run_id.slice(0,12)}…</td>
+              <td class="px-4 py-3"><span class="badge ${statusClass(run.status)}">${run.status}</span></td>
+              <td class="px-4 py-3">${run.review_status ? `<span class="badge ${statusClass(run.review_status)}">${run.review_status}</span>` : '—'}</td>
+              <td class="px-4 py-3 text-right font-mono">${run.score_total !== null && run.score_total !== undefined ? run.score_total : '—'}</td>
+              <td class="px-4 py-3">${run.human_review_required ? '<span class="badge bg-amber-100 text-amber-700">⚠ 待审</span>' : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div class="text-xs text-gray-400 px-4 py-3 border-t border-gray-100">${data.total} 条记录</div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<p class="text-sm text-red-400 text-center py-10">加载失败: ${e.message}</p>`;
+  }
+}
+
+async function openRunDetail(runId) {
+  try {
+    const d = await apiFetch(`/eval/report/${runId}`);
+    const info = [
+      `run_id: ${d.run_id}`,
+      `status: ${d.status}`,
+      `review_status: ${d.review_status || '—'}`,
+      `score_total: ${d.score_total !== null && d.score_total !== undefined ? d.score_total : 'null (disagreement)'}`,
+      `human_review_required: ${d.human_review_required}`,
+      d.report?.reason_codes?.length ? `reason_codes: ${d.report.reason_codes.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+    alert(info);
+  } catch(e) {
+    toast('❌ ' + e.message, false);
+  }
+}
+
+// ── Badge helpers ─────────────────────────────────────────────────────────────
+function renderBadge(s) {
+  return `<span class="badge ${statusClass(s)}">${s || '—'}</span>`;
+}
+
+function statusClass(s) {
+  return { pass:'status-pass', fail:'status-fail', warn:'status-warn',
+           awaiting_confirm:'status-awaiting', awaiting_human_review:'status-awaiting',
+           completed:'status-pass', failed:'status-fail' }[s] || 'status-pending';
+}
+
+function updateReviewBadge(count) {
+  const badge = document.getElementById('review-badge');
+  if (count > 0) {
+    badge.textContent = count;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+checkHealth();
+setInterval(checkHealth, 30000);
+
+// Preload expert queue badge on load
+apiFetch('/eval/history?human_review_only=true&limit=1')
+  .then(d => updateReviewBadge(d.total))
+  .catch(() => {});
+</script>
+</body>
+</html>

@@ -10,7 +10,7 @@
 
 **四阶段设计路线**：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ 前端交互与集市生态 → ④ 立项提案与商业价值呈现。
 
-**当前交付边界**：阶段一以**文档探索**为主，跑通评估 Agent **设计基线**；阶段二再 **工程搭建**（DeepSeek + WorkBuddy、断言引擎、交互补全 UI）。第一版以 `SKILL.md` 为主契约；混合最小版（有脚本→沙盒，无脚本→样例 I/O）；人工抽检保留；独立 Portal 后置。
+**当前交付边界**：阶段一以**文档探索**为主，跑通评估 Agent **设计基线**；阶段二已完成**工程搭建**（DeepSeek + Gemini、断言引擎、交互补全 UI，152 tests passing）。第一版以 `SKILL.md` 为主契约；混合最小版（有脚本→沙盒，无脚本→样例 I/O）；人工抽检保留；独立 Portal 后置。
 
 ---
 
@@ -25,12 +25,24 @@
 - [x] Task **1.2** 定稿：`docs/specs/评估指标与准入标准.md` **v1.2.1**（评分唯一权威；v1.2.1 仅补结构化输出/1.3 交叉引用，阈值不变）
 - [x] Task **1.3 定稿** `docs/specs/评审Agent工作流与Prompt骨架.md` **v0.2 Architecture Contract**（包状态、评估模式、A/B/C/D 编排、Prompt/Schema、`reason_code`、人工抽检与运营解释层；协议/评估标准已补交叉引用）
 
+### Completed（阶段二 · 2.0 评估引擎）
+
+- [x] **2.0** 评估引擎工程实现全部完成（Tasks 1–12，152 tests passing）
+  - 六边形单仓架构（`core / adapters / providers / persistence`）
+  - 评估状态机引擎（`EvaluationEngine`），C-3 两阶段执行，180s 超时熔断
+  - DSL 断言引擎（`core/assert_/dsl.py`），实现协议 §6.4 全部操作符及扩展集
+  - DeepSeek + **Gemini**（已替换 WorkBuddy）双模型评审，`BaseLLMProvider` 抽象
+  - SQLite 持久化（评估轮次、阶段日志、模型投票、缺口、人工抽检动作）
+  - FastAPI 薄适配层（6 个端点，Living Contract），`BackgroundTasks` 异步 Job
+  - Typer CLI（`run / status / history / confirm / serve`）
+  - 极简双 Tab 确认台 UI（`index.html`，Vanilla JS + Tailwind CDN）
+  - 全量 TDD，覆盖 R1–R8、§14 Checklist、C-1~C-6 所有修正项；E2E Smoke 17 用例
+
 ### In-Progress（阶段二 · 当前窗口）
 
-- [ ] **2.0** 评估引擎 2.0 实现（Implementation Plan 已产出，待执行）
 - [ ] Q-04 首批真实 Skill 资产清单（阶段二 2.1 样本库前置输入）
 
-### To-Start（阶段二 · 待 2.0 完成后启动）
+### To-Start（阶段二 · 待样本输入后启动）
 
 - [ ] **2.1** 样本库（用户指定常用/自用 Skill；先降级评估）
 - [ ] **2.2** 对抗性测试用例集 · **2.3** 校准 · **2.4** 上架后健康检查 + 使用反馈
@@ -60,7 +72,7 @@
 |----|------|--------|------|
 | Q-01 | 团队边界：设计 + demo Agent PoC | P0 | **已确认** |
 | Q-02 | Skill 载体以 `SKILL.md` 为主 | P0 | **初定** |
-| Q-03 | DeepSeek + WorkBuddy；成本/并发 | P1 | **初定，阶段二细化** |
+| Q-03 | DeepSeek + Gemini；成本/并发 | P1 | **阶段二已落地（Gemini 替换 WorkBuddy）** |
 | Q-04 | 首批 Skill 资产清单 | P1 | **待用户提供** |
 | Q-05 | 独立 Portal，当前不急 | P1 | **已确认** |
 | Q-06 | 保留人工抽检 | P2 | **已确认** |
@@ -97,7 +109,7 @@
 | **PASS 状态闸门：`bundle_state=confirmed` + `evaluation_mode=capability_full`** | 防止未确认 draft 或降级评估被人工/模型绕过直接上架 | 仅靠人工 approve 覆盖 warn |
 | **降级评估中未确认 `draft_value` 不参与代码断言失败判定** | 避免规范化草案污染 CodeAssert，使存量摸底误报 fail | 用 Agent 草案作为正式 schema 直接断言 |
 | **数据层驱动运营解释层** | `reason_code/evidence/required_actions` 生成话术，保持裁决可追溯 | 运营话术反向改 `review_status` |
-| **DeepSeek + WorkBuddy；人工抽检** | 已确认 | 全自动上架 |
+| **DeepSeek + Gemini；人工抽检** | WorkBuddy 替换为 Gemini（OpenAI 兼容端点，markdown 代码围栏自动剥离）；已落地 | 全自动上架 |
 | **独立 Portal 后置** | 先质量底座 | 先做 UI |
 | **阶段二仓库形态：六边形单仓**（`core/adapters/providers/persistence`） | 内核无 FastAPI/SQLite 依赖，四阶段后研发可只换 adapter；避免 PoC 即抛弃 | 扁平单包（难拆）；多包 workspace（阶段二过重） |
 | **执行模型：轻量异步 Job（BackgroundTasks）** | 防止 L2+双模型超 60s 超时；完美彩排生产异步架构；SQLite 状态流转支撑 2.3 分析 | 同步阻塞（Swagger 易 504）；混合模式（分支复杂） |
@@ -187,7 +199,7 @@
 | ID | 内容 | 说明 |
 |----|------|------|
 | **Q-04** | 首批 Skill 资产清单 | 常用/自用 Skill 名称与路径 |
-| **Q-03** | DeepSeek / WorkBuddy 成本与并发 | 阶段二实现时细化 |
+| **Q-03** | DeepSeek / Gemini 成本与并发 | 阶段二已细化 |
 | **Q-08** | 场景分类一级词表 | 阶段三，本阶段可忽略 |
 
 ### 勿做
@@ -231,3 +243,4 @@
 | 2026-06-02 | **Task 1.1b 完成**：`Skill编写指南.md` 升级为 v1.0；面向作者与运营，补最小作者包、5 项写法标准、退回处理、运营追问、模板与 Golden Case 规划 |
 | 2026-06-02 | **阶段一收官**：文档定标完成；新增「阶段二 Handoff」接续指引 |
 | 2026-06-02 | **阶段二 Brainstorm 定稿**：六边形单仓 + 异步 Job + live LLM Provider + subprocess 沙盒 + 双 Tab 确认台 + Case X1；design spec 写入 `docs/superpowers/specs/`；Implementation Plan 产出中 |
+| 2026-06-02 | **阶段二 2.0 工程实现完成**：Tasks 1-12 全部完成，152 tests passing。引擎状态机（C-3 两阶段 + 180s 超时）、DSL 断言引擎（§6.4 全操作符）、SQLite 持久化、FastAPI 6 端点、Typer CLI、极简双 Tab UI 全部联通；**WorkBuddy 替换为 Gemini**（\providers/gemini.py\uff0cOpenAI 兼容端点） |
