@@ -22,3 +22,6 @@ data/
 .cursor_memory/
 .codebuddy/
 .workbuddy/
+
+# 测试用skills
+testskills/
