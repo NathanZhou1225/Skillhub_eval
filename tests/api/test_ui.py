@@ -33,7 +33,7 @@ def test_ui_has_both_tabs():
 
 
 def test_ui_has_key_api_endpoints_referenced():
-    """JS code must reference all 5 contract endpoints."""
+    """JS code must reference contract endpoints including gaps API."""
     app = create_app()
     client = TestClient(app)
     r = client.get("/ui/index.html")
@@ -42,6 +42,66 @@ def test_ui_has_key_api_endpoints_referenced():
     assert "/eval/history" in r.text
     assert "/eval/review/" in r.text
     assert "/bundle/" in r.text
+    assert "/gaps" in r.text
+
+
+def test_ui_gaps_panel_wired_to_api():
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "loadGaps" in r.text
+    assert "renderGapsSnapshot" in r.text
+    assert "copyTemplateByKey" in r.text
+    assert "post-confirm-checklist" in r.text
+    assert "可复制模板" in r.text
+
+
+def test_ui_provider_summary_helpers():
+    """T5 — dual-model score bars and per-case table in static UI."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "formatScoreDisplay" in r.text
+    assert "renderProviderSummaryBars" in r.text
+    assert "renderPerCaseDetails" in r.text
+    assert "getProviderSummary" in r.text
+    assert "bg-red-50" in r.text
+
+
+def test_ui_t6_history_and_timing_helpers():
+    """T6 — history table uses compact score + stage_timing panel."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "formatScoreCompact" in r.text
+    assert "formatTimingSummaryCell" in r.text
+    assert "renderStageTimingPanel" in r.text
+    assert "renderStageProgressList" in r.text
+    assert "stage_timing" in r.text
+
+
+def test_ui_has_diagnostic_and_feedback_helpers():
+    """Post-T8: structure diagnostic card + per-case model feedback."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "renderDiagnosticReportCard" in r.text
+    assert "renderModelVotesFeedback" in r.text
+    assert "renderCompletenessBar" in r.text
+    assert "结构诊断报告" in r.text
+    assert "renderProviderErrorPanel" in r.text
+
+
+def test_ui_has_skill_summary_card():
+    """P2+summary: renderSkillSummaryCard and warn reason helpers must be present."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "renderSkillSummaryCard" in r.text
+    assert "_warnReasonText" in r.text
+    assert "WARN_COMPLETENESS_LOW" in r.text
+    assert "WARN_SCORE_MIDRANGE" in r.text
+    assert "技能质量诊断摘要" in r.text
 
 
 def test_ui_has_confirm_and_review_forms():

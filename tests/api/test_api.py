@@ -194,6 +194,60 @@ def test_get_history_human_review_filter(client_with_repo):
 
 # ─── POST /bundle/{skill_id}/confirm ─────────────────────────────────────────
 
+def test_get_bundle_gaps_not_found(client):
+    resp = client.get("/bundle/skill.missing/gaps")
+    assert resp.status_code == 404
+
+
+def test_get_bundle_gaps_returns_snapshot_and_templates(client_with_repo):
+    c, repo = client_with_repo
+    run_id = repo.create_run(
+        skill_id="grill-me",
+        skill_bundle_path="/tmp/grill-me",
+        bundle_state="minimal",
+        evaluation_mode="capability_full",
+    )
+    repo.save_gaps(run_id, {
+        "skill_id": "grill-me",
+        "run_id": run_id,
+        "gaps": [
+            {"field_path": "eval_cases", "severity": "block", "message": "missing"},
+        ],
+        "required_actions": ["创建 eval_cases/ 目录"],
+    })
+
+    resp = c.get("/bundle/grill-me/gaps")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["skill_id"] == "grill-me"
+    assert body["gaps"][0]["field_path"] == "eval_cases"
+    assert body["required_actions"]
+    assert "eval_case" in body["templates"]
+    assert "sample_io" in body["templates"]
+    assert "user_intent:" in body["templates"]["eval_case"]
+
+
+def test_get_bundle_gaps_includes_confirmations(client_with_repo):
+    c, repo = client_with_repo
+    run_id = repo.create_run(
+        skill_id="skill.gaps",
+        skill_bundle_path="/tmp/x",
+        bundle_state="minimal",
+        evaluation_mode="capability_full",
+    )
+    repo.save_gaps(run_id, {
+        "skill_id": "skill.gaps",
+        "run_id": run_id,
+        "gaps": [],
+        "required_actions": [],
+    })
+    repo.save_confirmation("skill.gaps", "negative_prompts", "no PII", "alice")
+
+    resp = c.get("/bundle/skill.gaps/gaps")
+    assert resp.status_code == 200
+    assert resp.json()["confirmed_fields"]["negative_prompts"] == "no PII"
+
+
 def test_bundle_confirm_persists_fields(client_with_repo):
     c, repo = client_with_repo
     payload = {
@@ -224,7 +278,80 @@ def test_bundle_confirm_empty_fields_returns_422(client):
 
 # ─── POST /eval/review/{run_id} ───────────────────────────────────────────────
 
-def test_review_approve_updates_status(client_with_repo):
+def test_get_report_includes_provider_summary(client_with_repo):
+    from skillhub_eval.core.schemas import (
+        EvaluationReport,
+        HumanReview,
+        ProviderSummary,
+    )
+
+    c, repo = client_with_repo
+    run_id = repo.create_run(
+        skill_id="skill.r5",
+        skill_bundle_path="/tmp/x",
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    repo.save_report(
+        run_id,
+        EvaluationReport(
+            run_id=run_id,
+            skill_id="skill.r5",
+            skill_bundle_path="/tmp/x",
+            bundle_state="confirmed",
+            evaluation_mode="capability_full",
+            status="awaiting_human_review",
+            review_status="warn",
+            score_total=None,
+            score_total_source="null_due_to_disagreement",
+            reason_codes=["MODEL_DISAGREEMENT_R5"],
+            provider_summary=ProviderSummary(
+                deepseek_score=88.0,
+                gemini_score=60.0,
+                score_gap=28.0,
+                r5_triggered=True,
+                per_case=[],
+            ),
+            human_review=HumanReview(required=True, trigger_codes=["MODEL_DISAGREEMENT_R5"]),
+        ),
+    )
+
+    resp = c.get(f"/eval/report/{run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["provider_summary"] is not None
+    assert body["provider_summary"]["r5_triggered"] is True
+    assert body["report"]["provider_summary"]["deepseek_score"] == 88.0
+
+
+def test_get_report_includes_stage_timing(client_with_repo):
+    c, repo = client_with_repo
+    run_id = repo.create_run(
+        skill_id="skill.timing",
+        skill_bundle_path="/tmp/x",
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    repo.log_event(run_id, "stage_timing", {"stage": "level0_checking", "ms": 80})
+    repo.log_event(run_id, "stage_timing", {"stage": "model_judging", "ms": 12000})
+    repo.append_stage(run_id, "level0_checking")
+    repo.append_stage(run_id, "model_judging")
+
+    resp = c.get(f"/eval/report/{run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["stage_timings"]) == 2
+    assert body["timing_summary"]["model_judging_ms"] == 12000
+    assert "level0_checking" in body["stage_progress"]
+
+
+def test_review_approve_updates_status_and_report(client_with_repo):
+    from skillhub_eval.core.schemas import (
+        EvaluationReport,
+        HumanReview,
+        ProviderSummary,
+    )
+
     c, repo = client_with_repo
     run_id = repo.create_run(
         skill_id="skill.warn",
@@ -233,6 +360,22 @@ def test_review_approve_updates_status(client_with_repo):
         evaluation_mode="capability_full",
     )
     repo.set_human_review_required(run_id, True, ["MODEL_DISAGREEMENT_R5"])
+    repo.save_report(
+        run_id,
+        EvaluationReport(
+            run_id=run_id,
+            skill_id="skill.warn",
+            skill_bundle_path="/tmp/x",
+            bundle_state="confirmed",
+            evaluation_mode="capability_full",
+            status="awaiting_human_review",
+            review_status="warn",
+            provider_summary=ProviderSummary(
+                deepseek_score=88.0, gemini_score=60.0, r5_triggered=True,
+            ),
+            human_review=HumanReview(required=True),
+        ),
+    )
 
     resp = c.post(f"/eval/review/{run_id}", json={
         "action": "approve",
@@ -240,12 +383,12 @@ def test_review_approve_updates_status(client_with_repo):
         "comment": "LGTM after review",
     })
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["action"] == "approve"
-    assert body["review_status"] == "pass"
+    assert resp.json()["review_status"] == "pass"
 
-    run = repo.get_run(run_id)
-    assert run["review_status"] == "pass"
+    report = repo.get_report(run_id)
+    assert report["human_review"]["reviewer_action"] == "approve"
+    assert report["human_review"]["operator"] == "expert_bob"
+    assert report["provider_summary"]["deepseek_score"] == 88.0
 
 
 def test_review_reject_updates_status(client_with_repo):

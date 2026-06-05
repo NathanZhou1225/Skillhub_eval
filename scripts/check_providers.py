@@ -10,8 +10,9 @@ from skillhub_eval.providers.gemini import GeminiProvider
 from skillhub_eval.settings import settings
 
 PROMPT = (
-    "Reply with ONLY this JSON, no markdown: "
-    '{"sub_scores":{"step_completeness":{"score":80,"pass":true,'
+    "Connectivity check only. Reply with ONLY valid JSON, no markdown. "
+    "Use any integer 0-100 for score — do NOT copy a fixed example value. "
+    '{"sub_scores":{"step_completeness":{"score":<your integer>,"pass":true,'
     '"reason":"ok","evidence_refs":[]}},'
     '"confidence":"high","dimension_notes":"connectivity-test"}'
 )

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from skillhub_eval.core.schemas import EvaluationReport
+from skillhub_eval.core.stage_timing import summarize_stage_timings
 
 DDL = """
 CREATE TABLE IF NOT EXISTS evaluation_runs (
@@ -168,6 +169,17 @@ class SqliteRepository:
                 (run_id, stage, self._now(), json.dumps(metadata or {})),
             )
 
+    def get_stage_progress(self, run_id: str) -> list[str]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT stage FROM stage_transitions
+                WHERE run_id=? ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        return [row["stage"] for row in rows]
+
     def save_report(self, run_id: str, report: EvaluationReport) -> None:
         report_json = report.model_dump_json()
         review_status = report.review_status
@@ -197,6 +209,42 @@ class SqliteRepository:
             return None
         return json.loads(row["report_json"])
 
+    def patch_report_after_human_review(
+        self,
+        run_id: str,
+        action: str,
+        operator: str,
+        comment: str,
+        review_status: str,
+    ) -> None:
+        """T5/Q6: merge expert ruling into persisted report_json."""
+        report = self.get_report(run_id)
+        if not report:
+            return
+        hr = report.get("human_review") or {}
+        hr["reviewer_action"] = action
+        hr["operator"] = operator
+        hr["comment"] = comment
+        hr["required"] = False
+        report["human_review"] = hr
+        report["status"] = "completed"
+        report["review_status"] = review_status
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE evaluation_runs
+                SET report_json=?, review_status=?, status=?, completed_at=?
+                WHERE run_id=?
+                """,
+                (
+                    json.dumps(report),
+                    review_status,
+                    "completed",
+                    self._now(),
+                    run_id,
+                ),
+            )
+
     def list_history(
         self,
         limit: int = 50,
@@ -204,7 +252,8 @@ class SqliteRepository:
     ) -> list[dict]:
         query = (
             "SELECT run_id, skill_id, status, review_status, score_total, "
-            "bundle_state, evaluation_mode, human_review_required, created_at "
+            "score_total_source, reason_codes, bundle_state, evaluation_mode, "
+            "human_review_required, created_at "
             "FROM evaluation_runs"
         )
         params: list = []
@@ -215,7 +264,19 @@ class SqliteRepository:
         params.append(limit)
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
-        return [dict(row) for row in rows]
+        runs = []
+        for row in rows:
+            d = dict(row)
+            raw_codes = d.get("reason_codes")
+            try:
+                d["reason_codes"] = json.loads(raw_codes) if raw_codes else []
+            except (TypeError, json.JSONDecodeError):
+                d["reason_codes"] = []
+            runs.append(d)
+        summaries = self.get_stage_timing_summaries([r["run_id"] for r in runs])
+        for r in runs:
+            r["timing_summary"] = summaries.get(r["run_id"], {})
+        return runs
 
     def save_gaps(self, run_id: str, gaps_json: dict) -> None:
         skill_id = gaps_json.get("skill_id", "")
@@ -312,6 +373,21 @@ class SqliteRepository:
                 (skill_id, field_path, confirmed_value, operator, self._now()),
             )
 
+    def get_confirmations(self, skill_id: str) -> dict[str, str]:
+        """Return latest confirmed value per field_path for a skill."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT field_path, confirmed_value FROM bundle_confirmations
+                WHERE skill_id=? ORDER BY confirmed_at ASC
+                """,
+                (skill_id,),
+            ).fetchall()
+        result: dict[str, str] = {}
+        for row in rows:
+            result[row["field_path"]] = row["confirmed_value"]
+        return result
+
     def set_human_review_required(
         self,
         run_id: str,
@@ -337,3 +413,64 @@ class SqliteRepository:
                 """,
                 (run_id, event_name, json.dumps(payload), self._now()),
             )
+
+    def get_provider_errors(self, run_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload_json FROM analytics_events
+                WHERE run_id=? AND event_name='provider_error'
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            try:
+                result.append(json.loads(row["payload_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return result
+
+    def get_stage_timings(self, run_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload_json FROM analytics_events
+                WHERE run_id=? AND event_name='stage_timing'
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            try:
+                result.append(json.loads(row["payload_json"]))
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return result
+
+    def get_stage_timing_summaries(self, run_ids: list[str]) -> dict[str, dict]:
+        if not run_ids:
+            return {}
+        placeholders = ",".join("?" * len(run_ids))
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT run_id, payload_json FROM analytics_events
+                WHERE run_id IN ({placeholders}) AND event_name='stage_timing'
+                ORDER BY id ASC
+                """,
+                run_ids,
+            ).fetchall()
+        by_run: dict[str, list[dict]] = {}
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            by_run.setdefault(row["run_id"], []).append(payload)
+        return {
+            run_id: summarize_stage_timings(events)
+            for run_id, events in by_run.items()
+        }

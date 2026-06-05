@@ -10,7 +10,7 @@
 
 **四阶段设计路线**：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ 前端交互与集市生态 → ④ 立项提案与商业价值呈现。
 
-**当前交付边界**：阶段一以**文档探索**为主，跑通评估 Agent **设计基线**；阶段二已完成**工程搭建**（DeepSeek + Gemini、断言引擎、交互补全 UI，152 tests passing）。第一版以 `SKILL.md` 为主契约；混合最小版（有脚本→沙盒，无脚本→样例 I/O）；人工抽检保留；独立 Portal 后置。
+**当前交付边界**：阶段一文档定标已完成；阶段二 **2.0 + Phase 1（T1–T13）工程已收官**（**206 tests passing**，T8/T12 live + runbook）。**下一窗口**接续 **Phase 1 收尾（T14 UI 勾选）** 与 **BACKLOG 2.2–2.4**（对抗集、Prompt 校准、上架后健康检查）；**不重写** 1.2 阈值与 1.3 状态闸门。第一版以 `SKILL.md` 为主契约；R5 红线 case 分歧缩小**已明确不做 P0**（保留人工复核 + `skill_summary` 辅助）。独立 Portal / LUI 后置阶段三。
 
 ---
 
@@ -38,14 +38,35 @@
   - 极简双 Tab 确认台 UI（`index.html`，Vanilla JS + Tailwind CDN）
   - 全量 TDD，覆盖 R1–R8、§14 Checklist、C-1~C-6 所有修正项；E2E Smoke 17 用例
 
-### In-Progress（阶段二 · 当前窗口）
+### Completed（阶段二 · Phase 1 — T1–T5）
 
-- [ ] Q-04 首批真实 Skill 资产清单（阶段二 2.1 样本库前置输入）
+- [x] **grill-me 8 项决策** 已锁定并写入 Phase 1 计划文末
+- [x] **T1** 2.1-fix：Level0 结构/case gate 拆分；pre-confirm → `awaiting_confirm`；degraded 跳过 case gate
+- [x] **T2** Gaps 引擎（`scan_gaps` + `required_actions` + confirmations）
+- [x] **T3** `GET /bundle/{skill_id}/gaps` + 模板 + UI 补全台（confirm 后软 checklist）
+- [x] **T4** 全终态轻量 report（`gaps[]` / `stage_progress[]` / timeout·fail 路径）
+- [x] **T5** `provider_summary` 包级+per-case；专家台分歧快照；approve 回写 `human_review`
 
-### To-Start（阶段二 · 待样本输入后启动）
+### Completed（阶段二 · Phase 1 — T6–T8 + Post-T8）
 
-- [ ] **2.1** 样本库（用户指定常用/自用 Skill；先降级评估）
-- [ ] **2.2** 对抗性测试用例集 · **2.3** 校准 · **2.4** 上架后健康检查 + 使用反馈
+- [x] **Q-04 首版**：`testskills/` 三样本（stock-radar-V6.2、grill-me、tiered-memory-sprint-manager）
+- [x] **Phase 1 实现计划**：[`docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md`](docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md) — **已收官**
+- [x] **T6** 终态文案统一 + `stage_timing` 消费（API `timing_summary`、历史表得分/耗时列、详情模态）
+- [x] **T7** 2.3a 时延（`core/latency.py`、Semaphore(3)、45s/90s high-risk、429/503 重试、workflow 300/600s、`stage_timing`）
+- [x] **T8** testskills 三样本 live 验收 + [`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md)
+- [x] **T9–T12** Post-T8 质量修复 + T12 live 复测（Q-10/Q-11 PASS）
+- [x] **T13** warn 原因码（`WARN_COMPLETENESS_LOW` / `WARN_SCORE_MIDRANGE`）+ `skill_summary` AI 诊断摘要 + UI 三处接入
+
+### To-Start（阶段二 · 下一窗口 — 按推荐顺序）
+
+| 顺序 | 编号 | 内容 | 说明 |
+|------|------|------|------|
+| 0（可选收尾） | **T14** | UI 浏览器手工复测 | runbook §T13 + 原 UI 清单；`skillhub-eval serve` |
+| 1 | **2.1b** | 存量 Skill 补齐 → `confirmed` + 全量复评 | tiered-memory 等：补 `eval_cases` 后复评；grill-me 完整度 warn→pass 路径 |
+| 2 | **2.2** | 对抗性测试用例集 | 诱导偏差 / 不合规 Prompt；high-risk 样本验证拦截 |
+| 3 | **2.3** | 对抗集跑通 + **打分方差 / Prompt 校准** | 用 T8/T12 DB + `stage_timing`；R5 红线口径属校准范畴，非紧急改码 |
+| 4 | **2.4** | 自动分 vs 专家偏差 → 稳定阈值；上架后健康检查前瞻 | `eval_type: post_listing_health_check` 工程预留 |
+| — | **Q-04** | 扩充基准 Skill 清单（3→5+） | 不阻塞 2.2 设计，阻塞更多 live 矩阵 |
 
 ### To-Start（阶段三 / 四）
 
@@ -58,11 +79,10 @@
 
 | 事项 | 状态 |
 |------|------|
-| 文档三分离（指南 / 协议 / 评估标准 + 1.3 工作流） | **1.3 v0.2 架构契约完成** |
-| Task 1.2 评估指标与准入 | **v1.2.1 定稿**（含上架后健康检查术语；补 1.3 输出契约引用） |
-| Task 1.3 评审工作流与 Prompt | **v0.2 Architecture Contract 定稿** |
-| 编写指南 v1.0 | **已完成**（真实样本清单 Q-04 后续补充） |
-| 阶段二工程 / 样本跑通 | Backlog |
+| 阶段二 **2.0 + Phase 1（T1–T13）** | **✅ 工程收官**（206 tests；live runbook 已盖印） |
+| 阶段二 **T14** UI 手工复测 | **待下一窗口勾选**（runbook §T13） |
+| 阶段二 **2.2–2.4** | **待启动**（见上表；BACKLOG 与 Sprint 已对齐） |
+| 运营向说明文档 | `docs/guides/Skill准入与评估机制说明.md`（与 1.2/1.3 对齐，供业务阅读） |
 
 ---
 
@@ -73,11 +93,17 @@
 | Q-01 | 团队边界：设计 + demo Agent PoC | P0 | **已确认** |
 | Q-02 | Skill 载体以 `SKILL.md` 为主 | P0 | **初定** |
 | Q-03 | DeepSeek + Gemini；成本/并发 | P1 | **阶段二已落地（Gemini 替换 WorkBuddy）** |
-| Q-04 | 首批 Skill 资产清单 | P1 | **待用户提供** |
+| Q-04 | 首批 Skill 资产清单 | P1 | **首版已提供**（`testskills/` 三样本；可后续扩充） |
 | Q-05 | 独立 Portal，当前不急 | P1 | **已确认** |
 | Q-06 | 保留人工抽检 | P2 | **已确认** |
 | Q-07 | 权重 40/30/30 | P2 | **暂定** |
 | Q-08 | 场景分类一级词表 | P2 | 待共创 |
+| Q-09 | 评估时延偏高导致 `EVAL_WORKFLOW_TIMEOUT` | P1 | **T8 复测通过**：stock-radar 9 case 全量 **48.8s**（high 预算 600s）；T7 Semaphore+分级 timeout 有效 |
+| Q-10 | **DeepSeek 所有 case 恒定打 85 分** | P0 | **T12 live 通过**：stock-radar DS 分 `0/79/80.5/82`；grill-me `91.4–92.6`；无大面积同分锁死 |
+| Q-11 | **三维打分字段全为 null**；`awaiting_confirm` / `degraded` 无诊断卡 | P1 | **T12 live 通过**：`model_votes.dimension_scores` 三维均有 0–100 值；A1 诊断卡 API + UI helper 验通 |
+| Q-12 | **warn 原因不明确**（完整度不足 vs 分数中等）；pass/warn 均无 Skill 整体摘要 | P2 | **已解决**（T13）：warn 原因码 + `skill_summary` + UI 摘要卡 |
+| Q-13 | **R5 频繁触发**（如 stock-radar DS/Gemini 红线 case 口径差）；增加人工复核负担 | P2 | **已决策暂缓工程改码**：用户确认不做 P0「缩小分歧」；2.3 Prompt 校准 + 人工 + `skill_summary` 为主路径 |
+| Q-14 | **high-risk 长包 UI 跑评** 偶发双模型全超时、无分数 | P1 | **已缓解**：90s provider timeout + `EVAL_PROVIDER_UNAVAILABLE` 面板；T14 浏览器再验 |
 
 ---
 
@@ -117,7 +143,18 @@
 | **沙盒：subprocess + 仅 Python + 非 Python 降级 L1** | Windows 本地友好；内部白名单样本无逃逸风险；PoC 专注编排验证 | Docker（Windows 冷启动贵；吃超时预算） |
 | **交互补全：极简确认台（Vanilla JS + Tailwind）** | "Aha Moment" 演示 AI 拦截 → 草案 → 人确认 → 闭环；1–2 天前端量；Swagger 无法演示给业务方 | API-only（工程师向）；手改文件（丧失智能化体验） |
 | **Case 数量：X1 分 risk 上限（low 6 / medium 8 / high 12）** | 防止 high risk 9 用例与全局 8 上限数学冲突；2.2 对抗集需 high risk 验证 | 全局 8 上限（阶段二无法评 high risk，立项演示丢失拦截能力展示） |
+| **Level0 拆分：pre-confirm 仅结构门禁，case gate 延至 confirm 后** | minimal 存量须先进 `awaiting_confirm` 交互补全，避免 Level0 直接 `RISK_CASE_COUNT_INSUFFICIENT` | 维持原顺序（case gate 在 awaiting_confirm 前，无法演示补全流） |
+| **结构缺口（eval_cases/sample_io）UI 给模板、作者落盘后再评** | confirm API 只持久化元数据字段，不写目录；T3 模板 + runbook 闭环两 minimal 样本 | 自动 scaffold 写盘 API（本 Phase 1 不做，grill-me 可再议） |
+| **R5 UI 展示包级 + per-case 双模型分数** | 专家复核需看见 DS/Gemini 分歧依据；`score_total=null` 仍保留 | 仅展示 null 或仅包级汇总（专家盲批） |
+| **T5 `provider_summary` + 专家裁定回写** | 包级/per-case 双模型分；Δ≥15 浅红；`submit_review` 后 `report_json.human_review` 与 per-case 快照保留 | 仅 `score_total=null` 文案；裁定后丢弃分歧明细 |
+| **T7 时延控制（grill-me Q2）** | `Semaphore(3)` 共享并发；provider **45s**（high-risk **90s**）；429/503 指数退避 max 3× base 1s；workflow **low/medium 300s、high 600s**；`stage_timing` 埋点 | 无并发上限挤爆 API；180s 一刀切；5xx 全量重试拖垮时延 |
+| **warn 原因码与 Skill 摘要（T13）** | `DecisionStage.warn_reason_codes()` 区分完整度/分数 warn；Phase 5.5 Gemini 合成 `skill_summary`；UI `renderSkillSummaryCard` + `_warnReasonText` | 仅靠 `review_status=warn` 无文案；客户端拼接 feedback 无结构化摘要 |
+| **R5 分歧缩小不做 P0（Q-13）** | 红线 case 模型哲学差属校准范畴；人工复核 + per-case 表 + `skill_summary` 支撑决策 | 本阶段改聚合/均分掩盖分歧（与 1.2 R5 契约冲突） |
+| **T6 监控反射面：历史/详情消费 stage_timing** | `GET /eval/report` 暴露 `stage_timings` + `timing_summary`；历史表 `formatScoreCompact` + 耗时列；超时终态展示 `stage_progress` + 阶段条形图 | T8 live 数据仅落库、UI 静默（数据孤岛） |
 | **研发交接：四阶段 MVP 全部完成后才交接 + 编写交接文档** | 当前仍在 MVP Demo 阶段；过早交接徒增文档维护成本 | 立项演示后即交接（MVP 尚未完整） |
+| **Prompt 格式示例改用 `<integer 0-100>` 占位符，禁止照抄** | T8 live 实测发现 DeepSeek 字面遵循示例数值 85；占位符 + 评分段说明给模型语义锚定，无需具体数字 | 完全删除示例（缺结构引导→可能输出非法 JSON）；保留示例但只改数字（模型仍有锚定风险） |
+| **三维权重 40/30/30 硬编码在 `_extract_score`** | 与 1.2 协议 §3 权重统一，单一真源；fallback 保留平均逻辑向后兼容 mock provider | 由 prompt 动态传权重（增加变量，测试困难） |
+| **`check_providers.py` 同步修复示例分数** | 防止未来接入新模型时连通测试的示例值影响新模型打分锚定 | 不改（健康检查而已）|
 
 ---
 
@@ -139,74 +176,53 @@
 
 ---
 
-## 下一窗口接续指引（阶段二 · Agent 评估体系）
+## 下一窗口接续指引（阶段二 · 2.2–2.4 + T14）
 
 ### 新窗口开场句（可复制）
 
-> 阶段一已收官。本窗口启动**阶段二**：基于 [`评审Agent工作流与Prompt骨架.md`](docs/specs/评审Agent工作流与Prompt骨架.md) **v0.2 Architecture Contract** 做 Agent 评估体系**工程设计与实现**；先 brainstorm + grill-me 定稿，再编码与样本验证。**不重写** 1.2 评分 rubric 与 1.3 状态闸门。
+> 阶段二 **2.0 + Phase 1（T1–T13）已收官**（**206 tests**，T8/T12 live runbook）。本窗口：**T14** runbook UI 勾选（可选）→ **2.1b** 存量补齐复评 → **2.2** 对抗集 → **2.3** 方差/Prompt 校准 → **2.4** 上架后健康检查前瞻。必读 `RECORD.md`「当前状态·To-Start」、Sprint、[`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md)。**不重写** 1.2 阈值；**不做** R5 聚合改码（Q-13）。
+
+### 已完成（勿重复实现）
+
+| 范围 | 证据 |
+|------|------|
+| **2.0** 评估引擎 + UI + CLI | `skillhub_eval/` 六边形单仓；206 tests |
+| **Phase 1 T1–T13** | gaps、R5 可视化、T7 时延、Post-T8 prompt、T13 warn 文案 + `skill_summary` |
+| **2.1 首版样本** | `testskills/` 三样本 + T8/T12 矩阵 |
+| **2.3a 时延** | 已并入 T7（非独立待办） |
 
 ### 必读（按顺序）
 
-1. 本 `RECORD.md`（尤其「已做决策」「关键约束」）
-2. [`.cursor_memory/backlog/BACKLOG.md`](.cursor_memory/backlog/BACKLOG.md) — 阶段二 Task 2.0–2.4
-3. [`docs/specs/评审Agent工作流与Prompt骨架.md`](docs/specs/评审Agent工作流与Prompt骨架.md) **v0.2** — **阶段二实现主入口**（编排 A/B/C/D、Schema、`reason_code`、§14 检查清单）
-4. [`docs/specs/评估指标与准入标准.md`](docs/specs/评估指标与准入标准.md) **v1.2.1** — 评分与 R1–R8 权威（只引用，不改阈值）
-5. [`docs/specs/Skill元数据定义与编写规范.md`](docs/specs/Skill元数据定义与编写规范.md) **v0.5** — 包结构、DSL §6.4、§14 流程
-6. [`docs/guides/Skill编写指南.md`](docs/guides/Skill编写指南.md) **v1.0** — 作者/运营人类语言版
+1. 本 `RECORD.md` — 「当前状态」「待解决问题」「已做决策」
+2. [`.cursor_memory/active/SPRINT_skillhub-mvp.md`](.cursor_memory/active/SPRINT_skillhub-mvp.md)
+3. [`.cursor_memory/backlog/BACKLOG.md`](.cursor_memory/backlog/BACKLOG.md)
+4. [`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md) — T14 §T13
+5. [`docs/specs/评审Agent工作流与Prompt骨架.md`](docs/specs/评审Agent工作流与Prompt骨架.md) v0.2
+6. [`docs/specs/评估指标与准入标准.md`](docs/specs/评估指标与准入标准.md) v1.2.1
+7. [`docs/guides/Skill准入与评估机制说明.md`](docs/guides/Skill准入与评估机制说明.md) — 业务向
 
-### 阶段一已交付（勿重复造轮子）
+### 推荐执行顺序
 
-| 文档 | 版本 | 角色 |
+| 步骤 | 任务 | 验收 |
 |------|------|------|
-| 评估指标与准入标准 | v1.2.1 | 评分尺子、红线、准入矩阵 |
-| 元数据与上架协议 | v0.5 | 目录、Schema、DSL、端到端流程导读 |
-| 评审 Agent 架构契约 | v0.2 | 工程编排、Prompt、输入输出、人工抽检 |
-| Skill 编写指南 | v1.0 | 作者/运营操作手册 |
+| 0 | **T14** UI 手工复测（可选） | runbook §T13 + 原 UI 清单全部 `[x]` |
+| 1 | **2.1b** | tiered-memory / grill-me 补齐 `eval_cases` → confirmed 全量 → pass 或可追溯 warn |
+| 2 | **2.2** | 对抗 case YAML + 接入 `eval_cases`；high-risk 可演示拦截 |
+| 3 | **2.3** | 跑对抗集；方差报告；Prompt 迭代（含红线 `case_type_hint`，**不改 R5 聚合**） |
+| 4 | **2.4** | 专家偏差表；`post_listing_health_check` 数据模型/API 草图 |
 
-### 阶段二目标与推荐节奏
+### 硬约束（仍有效）
 
-**目标**：工程实现评估 Agent 体系（规范化 + 风险复核 + 双模型评审 + 代码断言 + 聚合层），并用 3–5 个真实 Skill 跑通 Capability Eval（含降级评估 → 补齐 → 复评）。
-
-| 步骤 | 动作 | 产出 |
-|------|------|------|
-| 1 | **Brainstorm** | 模块边界、技术栈、存储/编排形态（脚本 vs 服务） |
-| 2 | **Grill-me** | 压测：PASS 闸门、人工 approve 边界、降级 CodeAssert、R5 聚合 |
-| 3 | **设计定稿** | 阶段二实现设计稿（建议单独 md，对照 1.3 §14） |
-| 4 | **实现 2.0** | 编排引擎 + 断言引擎 + DS/WB 调用 + 结构化输出 |
-| 5 | **验证** | 对照 1.3 §14 检查清单逐项勾选；至少 1 个样本端到端 |
-| 6 | **2.1–2.4** | 样本库、对抗集、校准、上架后健康检查前瞻 |
-
-### 实现时必须遵守的硬约束（来自 1.3）
-
-1. **PASS 仅当** `bundle_state = confirmed` 且 `evaluation_mode = capability_full`。
-2. **人工 approve 不得绕过** 未确认 draft 直接 PASS。
-3. **降级模式下** 未确认 `draft_value` 不作为 CodeAssert 失败依据。
-4. **R5 触发时** `score_total = null`，禁止用均分掩盖分歧。
-5. **三类 Prompt 分离**：规范化 / 风险复核 / 质量评审，禁止单 Agent 包办。
-6. **数据层驱动解释层**：`reason_code` → 运营话术；话术不得反向改 `review_status`。
-
-### 阶段二任务清单（BACKLOG 摘要）
-
-- **2.0** Agent 评估体系架构与实现（对照 1.3 §14）
-- **2.1** 遴选 3–5 个基准 Skill（**Q-04**；先降级评估）
-- **2.1b** 存量补齐 → 完整复评
-- **2.2** 对抗性测试用例集
-- **2.3** 对抗集跑通与拦截率记录
-- **2.4** 自动分 vs 专家偏差 → Prompt/权重校准
-
-### 待输入（不阻塞设计，阻塞 2.1 首跑）
-
-| ID | 内容 | 说明 |
-|----|------|------|
-| **Q-04** | 首批 Skill 资产清单 | 常用/自用 Skill 名称与路径 |
-| **Q-03** | DeepSeek / Gemini 成本与并发 | 阶段二已细化 |
-| **Q-08** | 场景分类一级词表 | 阶段三，本阶段可忽略 |
+1. **PASS** 仅 `confirmed` + `capability_full`。
+2. **R5** → `score_total = null`，禁止均分掩盖。
+3. **降级**未确认 draft 不参与 CodeAssert 失败。
+4. 校准结论写入文档/配置，**不**在 2.3 中静默改 1.2 正文。
 
 ### 勿做
 
-- 不重写 1.2 三维权重与 R1–R8 阈值（校准放 2.4）。
-- 不把 1.3 契约再拆成多套 if-else 口径。
-- 阶段二 MVP 不做完整 Portal / LUI（阶段三）。
+- 重复 Phase 1 工程（T1–T13）。
+- P0 级「强制缩小 R5 分差」改聚合（Q-13）。
+- 阶段三 Portal / LUI / Q-08 词表。
 
 ---
 
@@ -219,13 +235,18 @@
 | **评审 Agent 工作流与 Prompt** | `docs/specs/评审Agent工作流与Prompt骨架.md` |
 | 元数据与上架协议 | `docs/specs/Skill元数据定义与编写规范.md` |
 | 开发者编写指南 v1.0 | `docs/guides/Skill编写指南.md` |
-| Skills 评估说明（可选） | `docs/guides/Skills评估说明.md` |
+| Skill 准入与评估机制说明（业务向） | `docs/guides/Skill准入与评估机制说明.md` |
+| Skills 评估标准说明 | `docs/guides/Skills评估标准说明.md` |
+| Post-T8 质量修复计划 | `docs/superpowers/plans/2026-06-03-prompt-quality-improvement.md` |
+| testskills live runbook | `docs/runbooks/testskills-phase1-validation.md` |
 | **阶段二工程化设计 Spec** | `docs/superpowers/specs/2026-06-02-phase2-eval-engine-design.md` |
 | 竞品调研 | `docs/research/Skill数据定义与编写规范调研.md` |
 | 架构 | `.cursor_memory/global/ARCHITECTURE.md` |
 | Active Sprint | `.cursor_memory/active/SPRINT_skillhub-mvp.md` |
 | Backlog | `.cursor_memory/backlog/BACKLOG.md` |
 | Skill 样例参考 | `../个股诊断/Skill/stock-radar-V6.2/` |
+| **Phase 1 实现计划** | `docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md` |
+| testskills 样本库 | `testskills/`（stock-radar-V6.2、grill-me、tiered-memory-sprint-manager） |
 
 ---
 
@@ -244,3 +265,16 @@
 | 2026-06-02 | **阶段一收官**：文档定标完成；新增「阶段二 Handoff」接续指引 |
 | 2026-06-02 | **阶段二 Brainstorm 定稿**：六边形单仓 + 异步 Job + live LLM Provider + subprocess 沙盒 + 双 Tab 确认台 + Case X1；design spec 写入 `docs/superpowers/specs/`；Implementation Plan 产出中 |
 | 2026-06-02 | **阶段二 2.0 工程实现完成**：Tasks 1-12 全部完成，152 tests passing。引擎状态机（C-3 两阶段 + 180s 超时）、DSL 断言引擎（§6.4 全操作符）、SQLite 持久化、FastAPI 6 端点、Typer CLI、极简双 Tab UI 全部联通；**WorkBuddy 替换为 Gemini**（\providers/gemini.py\uff0cOpenAI 兼容端点） |
+| 2026-06-02 | **阶段二运行验证补记**：`.env` 双模型连通性复测通过；`stock-radar-V6.2` 补齐至 high-risk 用例门槛；UI 增强 timeout 根因可见（回退展示顶层 `reason_codes`）；发现 `confirmed + capability_full` 仍有 `EVAL_WORKFLOW_TIMEOUT`，已并入 **2.3a 时延优化** |
+| 2026-06-02 | **阶段二下一窗口待办**：Sprint/RECORD 增补 **2.3b**（`awaiting_confirm`/timeout 轻量 report + UI 结构阶段展示）；Handoff 开场句更新为 2.1–2.4 优化接续 |
+| 2026-06-03 | **Phase 1 计划定稿**：Q-04 首版 `testskills/` 三样本；T1–T8 计划写入 `docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md`；T8 含 minimal 补全后全量闭环；R5 per-case 可视化；**grill-me gate 后执行** |
+| 2026-06-03 | **Phase 1 T1–T5 交付**：Level0 拆分 + gaps/API/UI；全终态 report；`provider_summary` + 专家台 per-case；`formatScoreDisplay` 提前覆盖部分 T6；修复 `scan_gaps` 导入；**185 tests** |
+| 2026-06-03 | **路由决策**：跳过 T6 扫尾，优先 **T7 时延承重墙**；T6 历史表对齐置于 T7 之后，与 `stage_timing`/残缺分一并消费 |
+| 2026-06-03 | **Phase 1 T7 交付**：`core/latency.py` + `providers/http_retry.py`；case `Semaphore(3)` 并行评审；risk 分级 workflow 300/600s；provider 45s + 429/503 重试；`stage_timing` / per-case 埋点；**191 tests** |
+| 2026-06-03 | **路由：T6 先于 T8**；**T6 交付**：`core/stage_timing.py`；report/history API 聚合时延；UI 历史得分/耗时列 + 详情阶段条形图 + 超时轨迹 |
+| 2026-06-03 | **Phase 1 T8 live 收官**：三样本矩阵实测写入 runbook；grill-me 最小补全包落盘；stock-radar 48.8s 无 timeout；R5+Approve 回写验通 |
+| 2026-06-03 | **T8 Live 质量反馈 & 优化计划**：发现 P0（DeepSeek 恒定 85，根因 `_build_prompt` 示例污染）、P1（三维字段全 null，`DimensionScores()` 传空 + prompt 仅含 `step_completeness`）、P2（UI 无诊断报告卡）；Prompt 全域审计完成，`check_providers.py` 同为污染点；优化计划立项 [`docs/superpowers/plans/2026-06-03-prompt-quality-improvement.md`](docs/superpowers/plans/2026-06-03-prompt-quality-improvement.md)；Q-10/Q-11 录入问题表 |
+| 2026-06-03 | **Post-T8 Fix-1–4 交付**：`engine._build_prompt` 占位符三维 rubric + SKILL 摘录；`_extract_score` 40/30/30；`dimension_scores_from_sub_scores`；`check_providers` 去固定分；UI 结构诊断卡 + per-case 反馈/三维；**201 tests** |
+| 2026-06-03 | **T12 live 收官**：`t8_live_validation.py` 矩阵复跑（stock-radar 58.8s，R5+Approve）；`t12_audit.py` Q-10/Q-11 **PASS**；`t12_ui_smoke.py` Fix-4 **PASS**；Phase 1 工程收官 |
+| 2026-06-03 | **T13 交付**：P2 warn 原因码 + `skill_summary` Phase 5.5 合成 + UI 诊断摘要卡；provider 全失败显式 `EVAL_PROVIDER_UNAVAILABLE`；high-risk 90s call timeout；**206 tests** |
+| 2026-06-03 | **阶段二 Phase 1 Handoff**：RECORD/Sprint/BACKLOG 对齐；下一窗口 **T14（可选）→ 2.1b → 2.2 → 2.3 → 2.4**；Q-13 R5 缩小暂缓；Handoff 节重写；增补 `Skill准入与评估机制说明.md` 引用 |

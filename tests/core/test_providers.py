@@ -67,14 +67,14 @@ async def test_deepseek_judge_returns_dict():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_deepseek_retries_on_500_then_succeeds():
+async def test_deepseek_retries_on_503_then_succeeds():
     call_count = 0
 
     def side_effect(request):
         nonlocal call_count
         call_count += 1
         if call_count < 3:
-            return httpx.Response(500, json={"error": "internal"})
+            return httpx.Response(503, json={"error": "unavailable"})
         return _mock_200(FAKE_RESPONSE)
 
     respx.post("https://api.deepseek.com/v1/chat/completions").mock(
@@ -94,7 +94,7 @@ async def test_deepseek_retries_on_500_then_succeeds():
 @pytest.mark.asyncio
 async def test_deepseek_raises_after_max_retries():
     respx.post("https://api.deepseek.com/v1/chat/completions").mock(
-        return_value=httpx.Response(500, json={"error": "permanent failure"})
+        return_value=httpx.Response(503, json={"error": "permanent failure"})
     )
     provider = DeepSeekProvider(
         api_key="test-key",

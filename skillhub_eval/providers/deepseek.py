@@ -1,16 +1,15 @@
 """
 DeepSeek LLM provider — live API implementation.
 
-Default mode: EVAL_LLM_MODE=live (no mock/replay in MVP).
-Retry with exponential back-off on 5xx or network errors.
+T7: 45s per-call timeout; retry 429/503 with exponential back-off (base 1s, max 3).
 """
 
-import asyncio
 import json
 
-import httpx
+from skillhub_eval.core.latency import PROVIDER_CALL_TIMEOUT_S, PROVIDER_RETRY_MAX
 
 from .base import BaseLLMProvider
+from .http_retry import post_with_retry
 
 
 class DeepSeekProvider(BaseLLMProvider):
@@ -19,8 +18,8 @@ class DeepSeekProvider(BaseLLMProvider):
         api_key: str,
         base_url: str = "https://api.deepseek.com/v1",
         model: str = "deepseek-chat",
-        timeout: float = 60.0,
-        max_retries: int = 3,
+        timeout: float = PROVIDER_CALL_TIMEOUT_S,
+        max_retries: int = PROVIDER_RETRY_MAX,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -38,28 +37,16 @@ class DeepSeekProvider(BaseLLMProvider):
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
         }
-        last_error: Exception | None = None
-
-        for attempt in range(self.max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    resp = await client.post(
-                        f"{self.base_url}/chat/completions",
-                        headers=headers,
-                        json=payload,
-                    )
-                if resp.status_code == 200:
-                    raw_content = resp.json()["choices"][0]["message"]["content"]
-                    return json.loads(raw_content)
-                last_error = RuntimeError(
-                    f"DeepSeek HTTP {resp.status_code}: {resp.text[:200]}"
-                )
-            except (httpx.RequestError, json.JSONDecodeError, KeyError) as exc:
-                last_error = exc
-
-            if attempt < self.max_retries - 1:
-                await asyncio.sleep(2**attempt)
-
-        raise RuntimeError(
-            f"DeepSeek failed after {self.max_retries} retries: {last_error}"
-        )
+        try:
+            resp = await post_with_retry(
+                url=f"{self.base_url}/chat/completions",
+                headers=headers,
+                json_payload=payload,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                provider_label="DeepSeek",
+            )
+            raw_content = resp.json()["choices"][0]["message"]["content"]
+            return json.loads(raw_content)
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise RuntimeError(f"DeepSeek invalid response: {exc}") from exc

@@ -1,5 +1,6 @@
 """
 Bundle routes:
+  GET  /bundle/{skill_id}/gaps   — latest gaps snapshot + templates
   POST /bundle/{skill_id}/confirm — author confirms gap fields
 """
 
@@ -10,10 +11,35 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from skillhub_eval.adapters.api.deps import get_repo
+from skillhub_eval.adapters.api.gap_templates import load_gap_templates
 from skillhub_eval.core.ports import Repository
 from skillhub_eval.core.schemas import ConfirmRequest
 
 router = APIRouter(prefix="/bundle", tags=["bundle"])
+
+
+@router.get("/{skill_id}/gaps")
+async def get_bundle_gaps(
+    skill_id: str,
+    repo: Annotated[Repository, Depends(get_repo)],
+) -> dict:
+    """
+    Return the latest gaps snapshot for a skill (from the most recent
+    awaiting_confirm / degraded run), plus confirmed fields and copy templates.
+    """
+    snapshot = repo.get_gaps(skill_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No gaps snapshot found for skill '{skill_id}'. "
+            "Run an evaluation first (minimal + capability_full).",
+        )
+    return {
+        **snapshot,
+        "skill_id": skill_id,
+        "confirmed_fields": repo.get_confirmations(skill_id),
+        "templates": load_gap_templates(),
+    }
 
 
 @router.post("/{skill_id}/confirm")

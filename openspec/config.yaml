@@ -1,0 +1,22 @@
+schema: spec-driven
+
+context: |
+  Project: SkillHub MVP — internal skill asset hub with eval engine (skillhub_eval).
+  Stack: Python 3.11+, pytest, FastAPI-style modules under skillhub_eval/.
+  Normative docs: docs/specs/Skill元数据定义与编写规范.md, docs/specs/评估指标与准入标准.md.
+  Sprint tracking: .cursor_memory/active/SPRINT_*.md and RECORD.md (do not duplicate sprint tasks into OpenSpec tasks).
+  Workflow: integrated-ai-workflow skill + .cursor/rules/integrated-ai-workflow.mdc — grill-me before apply; subagent-driven-development for execution.
+  Legacy plans in docs/superpowers/ are reference; new features use openspec/changes/<change>/ only.
+
+rules:
+  proposal:
+    - State non-goals and relation to current SPRINT phase
+    - Reference affected docs/specs paths when touching protocols
+  specs:
+    - Use Given/When/Then scenarios for eval and API behavior
+    - Align field names with Skill元数据定义与编写规范.md
+  design:
+    - Map modules to skillhub_eval/ paths; no TBD in interfaces
+  tasks:
+    - One checkbox per subagent-sized unit (typically 1–3 files)
+    - Include verification command per task (pytest path or CLI)

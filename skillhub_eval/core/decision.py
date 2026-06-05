@@ -73,6 +73,7 @@ class DecisionStage:
         )
 
         if not can_pass:
+            ctx.setdefault("_warn_reason_codes", []).append("WARN_NOT_CONFIRMED_FULL")
             return "warn"
 
         # ── R6: high-quality pass ─────────────────────────────────────────────
@@ -83,8 +84,16 @@ class DecisionStage:
         ):
             return "pass"
 
-        # ── R7: mid-range warn ────────────────────────────────────────────────
+        # ── R7: mid-range warn — distinguish completeness vs score ────────────
+        if score is not None and score >= _R6_SCORE_MIN and completeness < _R6_COMPLETENESS_MIN:
+            ctx.setdefault("_warn_reason_codes", []).append("WARN_COMPLETENESS_LOW")
+        elif score is not None and score >= _R8_SCORE_MAX:
+            ctx.setdefault("_warn_reason_codes", []).append("WARN_SCORE_MIDRANGE")
         return "warn"
+
+    def warn_reason_codes(self, ctx: dict) -> list[str]:
+        """Return extra reason codes set during decide(); call after decide()."""
+        return ctx.pop("_warn_reason_codes", [])
 
     def requires_human_review(self, ctx: dict, review_status: str) -> bool:
         """

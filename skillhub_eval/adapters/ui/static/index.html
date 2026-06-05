@@ -119,7 +119,7 @@
     <!-- Confirm gaps form -->
     <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
       <h2 class="font-semibold text-gray-900 mb-1">确认 Gap 字段</h2>
-      <p class="text-sm text-gray-500 mb-4">AI 已识别出草稿缺口，请在此补全安全敏感字段后提交</p>
+      <p class="text-sm text-gray-500 mb-4">查询最新缺口清单，按模板补全 Bundle 文件并确认安全字段</p>
       <div class="flex gap-3 mb-4">
         <input id="inp-confirm-skill-id" type="text" placeholder="Skill ID"
           class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
@@ -179,6 +179,17 @@
 
 </main>
 
+<!-- ── Run detail modal ──────────────────────────────────────────────────────── -->
+<div id="detail-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40" onclick="if(event.target===this)closeRunDetail()">
+  <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-gray-900">评估详情</h3>
+      <button type="button" onclick="closeRunDetail()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    <div id="detail-modal-body" class="text-sm text-gray-700 space-y-3"></div>
+  </div>
+</div>
+
 <!-- ── Toast ─────────────────────────────────────────────────────────────────── -->
 <div id="toast" class="fixed bottom-6 right-6 hidden bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-xl max-w-sm z-50 transition"></div>
 
@@ -188,6 +199,21 @@ const API = '';   // same origin; set to 'http://localhost:8000' if needed
 let _pollTimer = null;
 let _currentRunId = null;
 let _confirmSkillId = null;
+let _lastGapsSnapshot = null;
+
+const SECURITY_FIELDS = ['negative_prompts', 'error_handling', 'permission_scope', 'security_notes'];
+const SECURITY_LABELS = {
+  negative_prompts: '禁止指令（negative_prompts）',
+  error_handling: '错误处理策略（error_handling）',
+  permission_scope: '权限范围（permission_scope）',
+  security_notes: '安全备注（security_notes）',
+};
+const SECURITY_PLACEHOLDERS = {
+  negative_prompts: '不允许操作的场景或指令',
+  error_handling: '遇到异常时的返回格式',
+  permission_scope: '允许访问的数据范围',
+  security_notes: '其他安全敏感约束',
+};
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(name) {
@@ -272,6 +298,396 @@ function stopPolling() {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
 }
 
+function getProviderSummary(d) {
+  return d.provider_summary || (d.report && d.report.provider_summary) || null;
+}
+
+function getStageProgress(d) {
+  return d.stage_progress || (d.report && d.report.stage_progress) || [];
+}
+
+function getTimingSummary(d) {
+  if (d.timing_summary && Object.keys(d.timing_summary).length) {
+    return d.timing_summary;
+  }
+  return {};
+}
+
+function normalizeReportView(d) {
+  return {
+    status: d.status,
+    score_total: d.score_total,
+    score_total_source: d.score_total_source || (d.report && d.report.score_total_source),
+    reason_codes: (d.report && d.report.reason_codes) || d.reason_codes || [],
+  };
+}
+
+/** T6: one-line score for history table cells */
+function formatScoreCompact(d) {
+  const v = normalizeReportView(d);
+  if (v.status === 'awaiting_confirm') {
+    return '<span class="text-amber-700">待补全</span>';
+  }
+  if (v.reason_codes.includes('EVAL_WORKFLOW_TIMEOUT')) {
+    return '<span class="text-red-600">超时</span>';
+  }
+  if (v.score_total_source === 'null_due_to_disagreement') {
+    return '<span class="text-amber-800">R5 分歧</span>';
+  }
+  if (v.score_total !== null && v.score_total !== undefined) {
+    return `<span class="font-mono">${v.score_total}/100</span>`;
+  }
+  return '<span class="text-gray-400">—</span>';
+}
+
+function formatTimingSummaryCell(summary) {
+  if (!summary || !summary.total_phase_ms) {
+    return '<span class="text-gray-400">—</span>';
+  }
+  const total = (summary.total_phase_ms / 1000).toFixed(1);
+  const mj = summary.model_judging_ms != null
+    ? `<div class="text-gray-400">评审 ${(summary.model_judging_ms / 1000).toFixed(1)}s</div>`
+    : '';
+  return `<span class="font-mono text-gray-800">${total}s</span>${mj}`;
+}
+
+const STAGE_LABELS = {
+  level0_checking: 'Level0',
+  risk_locking: 'Risk',
+  case_executing: 'Case',
+  code_asserting: '断言',
+  model_judging: '双模评审',
+  aggregating: '聚合',
+};
+
+function renderStageProgressList(stages) {
+  if (!stages || !stages.length) return '';
+  const chips = stages.map(s => {
+    const label = STAGE_LABELS[s] || s;
+    return `<span class="inline-block mr-1 mb-1 px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">${escapeHtml(label)}</span>`;
+  }).join('<span class="text-gray-300 mx-0.5">→</span>');
+  return `<div class="mt-2 text-xs">
+    <span class="font-medium text-gray-600">阶段轨迹：</span>
+    <div class="mt-1 flex flex-wrap items-center">${chips}</div>
+  </div>`;
+}
+
+function renderStageTimingPanel(summary, opts = {}) {
+  if (!summary || !summary.phases || !summary.phases.length) {
+    return '';
+  }
+  const compact = opts.compact;
+  const maxMs = Math.max(...summary.phases.map(p => p.ms), 1);
+  const bars = summary.phases.map(p => {
+    const label = p.label || STAGE_LABELS[p.stage] || p.stage;
+    const pct = Math.max(6, Math.round((p.ms / maxMs) * 100));
+    return `
+      <div class="flex items-center gap-2 text-xs">
+        <span class="w-20 text-gray-600 shrink-0">${escapeHtml(label)}</span>
+        <div class="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+          <div class="h-full bg-blue-500 rounded" style="width:${pct}%"></div>
+        </div>
+        <span class="w-12 text-right font-mono text-gray-700">${(p.ms / 1000).toFixed(2)}s</span>
+      </div>`;
+  }).join('');
+  const slow = (!compact && summary.slow_cases && summary.slow_cases.length)
+    ? `<div class="mt-2 pt-2 border-t border-gray-100 text-xs text-gray-500">
+        <span class="font-medium text-gray-600">慢 case：</span>
+        ${summary.slow_cases.map(c =>
+          `${escapeHtml(c.case_id)} ${(c.ms / 1000).toFixed(2)}s`
+        ).join(' · ')}
+      </div>`
+    : '';
+  const total = summary.total_phase_ms
+    ? `<div class="text-xs text-gray-500 mt-2">管线合计 <strong class="text-gray-800">${(summary.total_phase_ms / 1000).toFixed(2)}s</strong></div>`
+    : '';
+  return `<div class="space-y-1">${bars}${slow}${total}</div>`;
+}
+
+function renderProviderErrorPanel(d) {
+  const errs = d.provider_errors
+    || (d.report && d.report.evidence && d.report.evidence.filter(e => e.kind === 'provider_error'))
+    || [];
+  const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
+  if (!errs.length && !codes.includes('EVAL_PROVIDER_UNAVAILABLE')) return '';
+  const rows = errs.slice(0, 12).map(e =>
+    `<li class="text-xs text-red-800 py-0.5">${escapeHtml(e.provider || '?')} · ${escapeHtml(e.case_id || '?')} — ${escapeHtml(e.error || 'unknown')}</li>`
+  ).join('');
+  return `
+    <div class="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
+      <div class="font-medium text-red-800">双模型评审未产出分数</div>
+      <p class="text-xs text-red-700 mt-1">API 超时或调用失败（非 R5 分歧）。请检查网络/密钥后重试；stock-radar 等 high-risk 包已自动使用 90s 单 call 超时。</p>
+      ${rows ? `<ul class="mt-2 list-disc list-inside">${rows}</ul>` : ''}
+    </div>`;
+}
+
+function renderSkillSummaryCard(d, opts = {}) {
+  const report = getReportPayload(d);
+  const ss = report.skill_summary || (d.skill_summary);
+  if (!ss || typeof ss !== 'object') return '';
+  const { collapsed = true } = opts;
+
+  const verdict = ss.overall_verdict ? `<p class="text-sm font-medium text-gray-800 mb-2">${escapeHtml(ss.overall_verdict)}</p>` : '';
+  const strengths = (ss.strengths || []).map(s =>
+    `<li class="text-xs text-green-800 py-0.5">✓ ${escapeHtml(s)}</li>`).join('');
+  const weaknesses = (ss.weaknesses || []).map(w =>
+    `<li class="text-xs text-red-800 py-0.5">✗ ${escapeHtml(w)}</li>`).join('');
+  const dims = ss.dimension_notes || {};
+  const dimRows = Object.entries({
+    instruction_following: '指令遵循',
+    output_compliance: '输出合规',
+    business_resolution: '业务解决',
+  }).map(([k, label]) => dims[k]
+    ? `<div class="text-xs text-gray-600 py-0.5"><span class="font-medium text-gray-700">${label}：</span>${escapeHtml(dims[k])}</div>`
+    : '').join('');
+  const rec = ss.recommendation
+    ? `<div class="mt-2 pt-2 border-t border-indigo-100 text-xs text-indigo-700"><span class="font-medium">建议：</span>${escapeHtml(ss.recommendation)}</div>`
+    : '';
+
+  const body = `
+    <div class="space-y-2">
+      ${verdict}
+      <div class="grid grid-cols-2 gap-2">
+        ${strengths ? `<div><div class="text-xs font-semibold text-green-700 mb-1">亮点</div><ul>${strengths}</ul></div>` : ''}
+        ${weaknesses ? `<div><div class="text-xs font-semibold text-red-700 mb-1">不足</div><ul>${weaknesses}</ul></div>` : ''}
+      </div>
+      ${dimRows ? `<div class="mt-1">${dimRows}</div>` : ''}
+      ${rec}
+    </div>`;
+
+  return `
+    <details class="mt-3 border border-indigo-200 rounded-lg bg-indigo-50"${collapsed ? '' : ' open'}>
+      <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-indigo-800 select-none">
+        📋 技能质量诊断摘要（AI 生成）▼
+      </summary>
+      <div class="px-3 pb-3">${body}</div>
+    </details>`;
+}
+
+function _warnReasonText(codes) {
+  if (!codes || !codes.length) return '';
+  if (codes.includes('WARN_COMPLETENESS_LOW')) {
+    const report = {};
+    return '<div class="text-xs text-amber-700 mt-1">⚠ 能力评分已达标，但元数据完整度未达 90 — 建议补齐 SKILL.md 结构字段后重新提交，可升至 pass</div>';
+  }
+  if (codes.includes('WARN_SCORE_MIDRANGE')) {
+    return '<div class="text-xs text-amber-700 mt-1">⚠ 综合分在中等档（70–84）— 建议优化技能描述、样例覆盖度后复评</div>';
+  }
+  if (codes.includes('WARN_NOT_CONFIRMED_FULL')) {
+    return '<div class="text-xs text-amber-700 mt-1">⚠ 未满足 PASS 闸门（需 confirmed + capability_full）— 本次为摸底评估，结论仅供参考</div>';
+  }
+  return '';
+}
+
+function formatScoreDisplay(d) {
+  const src = d.score_total_source || (d.report && d.report.score_total_source);
+  const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
+  const status = d.status;
+
+  if (status === 'awaiting_confirm') {
+    return '<span class="text-amber-700">待作者补全，尚未进入模型评审</span>';
+  }
+  if (codes.includes('EVAL_PROVIDER_UNAVAILABLE')) {
+    return renderProviderErrorPanel(d) || '<span class="text-red-600 font-medium">双模型 API 全部失败</span>';
+  }
+  if (codes.includes('EVAL_WORKFLOW_TIMEOUT')) {
+    const progress = getStageProgress(d);
+    const summary = getTimingSummary(d);
+    return `<div class="space-y-2">
+      <span class="text-red-600 font-medium">评估超时</span>
+      ${renderStageProgressList(progress)}
+      ${renderStageTimingPanel(summary, { compact: true })}
+    </div>`;
+  }
+  if (src === 'null_due_to_disagreement') {
+    const ps = getProviderSummary(d);
+    const bars = ps ? renderProviderSummaryBars(ps, { showR5Headline: true, compact: true }) : '';
+    return `<div class="space-y-1"><span class="text-amber-800">模型分歧（R5），综合分暂不可用</span>${bars}</div>`;
+  }
+  if (d.score_total !== null && d.score_total !== undefined) {
+    const ps = getProviderSummary(d);
+    const bars = ps && ps.deepseek_score != null
+      ? renderProviderSummaryBars(ps, { compact: true })
+      : '';
+    return `<div class="space-y-1"><strong>${d.score_total}</strong>/100${bars}${_warnReasonText(codes)}</div>`;
+  }
+  return '<span class="text-gray-400">—</span>';
+}
+
+function renderProviderSummaryBars(ps, opts = {}) {
+  if (!ps) return '';
+  const { showR5Headline = false, compact = false } = opts;
+  const ds = ps.deepseek_score != null ? ps.deepseek_score : '—';
+  const gm = ps.gemini_score != null ? ps.gemini_score : '—';
+  const gap = ps.score_gap != null ? ps.score_gap : '—';
+  const gapHi = typeof gap === 'number' && gap >= 15;
+  const headline = (showR5Headline || ps.r5_triggered)
+    ? '<div class="text-xs text-amber-800 mb-1">模型分歧（R5），综合分暂不可用</div>'
+    : '';
+  const pad = compact ? 'p-2' : 'p-3';
+  return `
+    ${headline}
+    <div class="grid grid-cols-3 gap-2 text-sm mt-1">
+      <div class="bg-blue-50 rounded ${pad} text-center border border-blue-100">
+        <div class="text-xs text-gray-500">DeepSeek</div>
+        <div class="font-bold text-blue-900">${ds}</div>
+        ${ps.deepseek_bundle_status ? `<div class="text-xs text-gray-500">${escapeHtml(ps.deepseek_bundle_status)}</div>` : ''}
+      </div>
+      <div class="bg-purple-50 rounded ${pad} text-center border border-purple-100">
+        <div class="text-xs text-gray-500">Gemini</div>
+        <div class="font-bold text-purple-900">${gm}</div>
+        ${ps.gemini_bundle_status ? `<div class="text-xs text-gray-500">${escapeHtml(ps.gemini_bundle_status)}</div>` : ''}
+      </div>
+      <div class="bg-gray-50 rounded ${pad} text-center border border-gray-200">
+        <div class="text-xs text-gray-500">Δ</div>
+        <div class="font-bold ${gapHi ? 'text-red-600' : 'text-gray-800'}">${gap}</div>
+      </div>
+    </div>`;
+}
+
+function getReportPayload(d) {
+  return (d && d.report) ? d.report : (d || {});
+}
+
+function renderCompletenessBar(score) {
+  if (score == null || score === undefined) return '';
+  const pct = Math.max(0, Math.min(100, Number(score)));
+  return `
+    <div class="mt-2">
+      <div class="flex justify-between text-xs text-gray-600 mb-1">
+        <span>元数据完整度</span>
+        <span class="font-mono">${pct.toFixed(0)}/100</span>
+      </div>
+      <div class="h-2 bg-gray-100 rounded overflow-hidden">
+        <div class="h-full bg-amber-500 rounded" style="width:${pct}%"></div>
+      </div>
+    </div>`;
+}
+
+function renderDiagnosticReportCard(d) {
+  const report = getReportPayload(d);
+  const gaps = report.gaps || [];
+  const actions = report.required_actions || [];
+  const completeness = report.completeness_score;
+  if (completeness == null && !gaps.length && !actions.length) return '';
+
+  const gapRows = gaps.map(g => `
+    <li class="flex items-start gap-2 py-1 border-b border-gray-50 last:border-0">
+      ${severityBadge(g.severity)}
+      <span class="text-xs text-gray-800"><code class="text-gray-600">${escapeHtml(g.field_path || g.id || '?')}</code>
+        — ${escapeHtml(g.message || g.hint || '')}</span>
+    </li>`).join('');
+
+  const actionRows = actions.map((a, i) =>
+    `<li class="text-xs text-gray-700 py-0.5">${i + 1}. ${escapeHtml(a)}</li>`
+  ).join('');
+
+  const status = d.status || report.status;
+  const intro = status === 'awaiting_confirm'
+    ? '本次仅完成结构检查，尚未进入模型质量评审。请按补全清单操作后重新提交全量评估。'
+    : '降级摸底评估已完成，结论仅供参考，不作为上架准入依据。';
+
+  return `
+    <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm space-y-2">
+      <div class="font-medium text-amber-900">结构诊断报告</div>
+      <p class="text-xs text-amber-800">${intro}</p>
+      ${renderCompletenessBar(completeness)}
+      ${gaps.length ? `<ul class="mt-2">${gapRows}</ul>` : ''}
+      ${actions.length ? `
+        <div class="mt-2 pt-2 border-t border-amber-100">
+          <div class="text-xs font-medium text-amber-900 mb-1">待办（required_actions）</div>
+          <ol class="list-decimal list-inside">${actionRows}</ol>
+        </div>` : ''}
+    </div>`;
+}
+
+function formatDimensionTriple(dim) {
+  if (!dim) return '—';
+  const fmt = (v) => (v != null && v !== undefined) ? v : '—';
+  return `IF ${fmt(dim.instruction_following)} · OC ${fmt(dim.output_compliance)} · BR ${fmt(dim.business_resolution)}`;
+}
+
+function renderModelVotesFeedback(d, collapsed = true) {
+  const report = getReportPayload(d);
+  const votes = report.model_votes || [];
+  if (!votes.length) return '';
+
+  const byCase = {};
+  votes.forEach(v => {
+    const cid = v.case_id || '?';
+    if (!byCase[cid]) byCase[cid] = { deepseek: null, gemini: null };
+    const key = (v.model || '').toLowerCase().includes('gemini') ? 'gemini' : 'deepseek';
+    byCase[cid][key] = v;
+  });
+
+  const rows = Object.entries(byCase).map(([caseId, pair]) => {
+    const ds = pair.deepseek;
+    const gm = pair.gemini;
+    const dsFb = ds && ds.feedback ? escapeHtml(ds.feedback) : '—';
+    const gmFb = gm && gm.feedback ? escapeHtml(gm.feedback) : '—';
+    const dsDim = ds && ds.dimension_scores ? formatDimensionTriple(ds.dimension_scores) : '—';
+    const gmDim = gm && gm.dimension_scores ? formatDimensionTriple(gm.dimension_scores) : '—';
+    return `
+      <tr class="border-t border-gray-100">
+        <td class="px-2 py-2 font-mono text-xs align-top">${escapeHtml(caseId)}</td>
+        <td class="px-2 py-2 text-xs align-top">
+          <div class="text-gray-500">${dsDim}</div>
+          <div class="text-gray-700 mt-0.5">${dsFb}</div>
+        </td>
+        <td class="px-2 py-2 text-xs align-top">
+          <div class="text-gray-500">${gmDim}</div>
+          <div class="text-gray-700 mt-0.5">${gmFb}</div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <details class="mt-2"${collapsed ? '' : ' open'}>
+      <summary class="cursor-pointer text-xs text-blue-600 font-medium">per-case 评审反馈与三维分 ▼</summary>
+      <table class="w-full text-xs mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white">
+        <thead class="bg-gray-50 text-gray-500">
+          <tr>
+            <th class="text-left px-2 py-1">case_id</th>
+            <th class="text-left px-2 py-1">DeepSeek（三维 · 反馈）</th>
+            <th class="text-left px-2 py-1">Gemini（三维 · 反馈）</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+}
+
+function renderPerCaseDetails(ps, collapsed = true) {
+  if (!ps || !ps.per_case || !ps.per_case.length) return '';
+  const rows = ps.per_case.map(row => {
+    const hi = row.gap != null && row.gap >= 15;
+    return `
+      <tr class="${hi ? 'bg-red-50' : ''}">
+        <td class="px-2 py-1 font-mono text-xs">${escapeHtml(row.case_id)}</td>
+        <td class="px-2 py-1 text-right">${row.deepseek_score != null ? row.deepseek_score : '—'}</td>
+        <td class="px-2 py-1 text-right">${row.gemini_score != null ? row.gemini_score : '—'}</td>
+        <td class="px-2 py-1 text-right font-medium ${hi ? 'text-red-600' : ''}">${row.gap != null ? row.gap : '—'}</td>
+        <td class="px-2 py-1 text-xs text-gray-600">${escapeHtml(row.ds_suggested_status || '—')} / ${escapeHtml(row.gemini_suggested_status || '—')}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <details class="mt-2"${collapsed ? '' : ' open'}>
+      <summary class="cursor-pointer text-xs text-blue-600 font-medium">per-case 分数对照 ▼</summary>
+      <table class="w-full text-xs mt-2 border border-gray-200 rounded-lg overflow-hidden bg-white">
+        <thead class="bg-gray-50 text-gray-500">
+          <tr>
+            <th class="text-left px-2 py-1">case_id</th>
+            <th class="text-right px-2 py-1">DS</th>
+            <th class="text-right px-2 py-1">Gemini</th>
+            <th class="text-right px-2 py-1">Δ</th>
+            <th class="text-left px-2 py-1">建议状态</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+}
+
 async function pollStatus(runId) {
   try {
     const d = await apiFetch(`/eval/report/${runId}`);
@@ -283,13 +699,14 @@ async function pollStatus(runId) {
       awaiting_confirm:'status-awaiting', awaiting_human_review:'status-awaiting',
     }[d.review_status || d.status] || 'status-pending';
 
-    let scoreStr = d.score_total !== null && d.score_total !== undefined
-      ? `<strong>${d.score_total}</strong>/100`
-      : '<span class="text-gray-400">null（模型分歧）</span>';
+    let scoreStr = formatScoreDisplay(d);
 
+    const reasonCodes = (d.report && d.report.reason_codes && d.report.reason_codes.length)
+      ? d.report.reason_codes
+      : (d.reason_codes || []);
     let reasonHtml = '';
-    if (d.report && d.report.reason_codes && d.report.reason_codes.length) {
-      reasonHtml = `<div class="text-xs text-gray-500">reason_codes: ${d.report.reason_codes.join(', ')}</div>`;
+    if (reasonCodes.length) {
+      reasonHtml = `<div class="text-xs text-gray-500">reason_codes: ${reasonCodes.join(', ')}</div>`;
     }
 
     let humanHtml = '';
@@ -309,63 +726,197 @@ async function pollStatus(runId) {
       <div class="text-sm">分数：${scoreStr}</div>
       ${reasonHtml}
       ${humanHtml}
+      ${renderProviderErrorPanel(d)}
+      ${(terminal && (d.status === 'awaiting_confirm' || (getReportPayload(d).gaps && getReportPayload(d).gaps.length)))
+        ? renderDiagnosticReportCard(d) : ''}
+      ${(terminal && getTimingSummary(d).total_phase_ms) ? `
+        <div class="mt-2 border-t border-gray-100 pt-2">
+          <div class="text-xs font-medium text-gray-600 mb-1">阶段耗时（stage_timing）</div>
+          ${renderStageTimingPanel(getTimingSummary(d), { compact: true })}
+        </div>` : ''}
+      ${terminal && getReportPayload(d).model_votes && getReportPayload(d).model_votes.length
+        ? renderModelVotesFeedback(d, true) : ''}
+      ${terminal ? renderSkillSummaryCard(d, { collapsed: true }) : ''}
       ${terminal ? '<div class="text-xs text-gray-400 mt-1">任务已终结，停止轮询</div>' : '<div class="text-xs text-blue-400 animate-pulse">评估进行中，每 4s 自动刷新…</div>'}
     `;
 
-    if (terminal) stopPolling();
+    if (terminal) {
+      stopPolling();
+      if (d.status === 'awaiting_confirm') {
+        const skillFromReport = (d.report && d.report.skill_id) || document.getElementById('inp-skill-id').value.trim();
+        if (skillFromReport) {
+          document.getElementById('inp-confirm-skill-id').value = skillFromReport;
+          body.innerHTML += `
+            <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              📋 待作者补全 — 已填充 Skill ID，正在加载缺口清单…
+            </div>`;
+          loadGaps(skillFromReport);
+        }
+      }
+    }
   } catch(e) {
     // silent on transient poll errors
   }
 }
 
-// ── Load gaps ──────────────────────────────────────────────────────────────────
-async function loadGaps() {
-  const skillId = document.getElementById('inp-confirm-skill-id').value.trim();
-  if (!skillId) { toast('请填写 Skill ID', false); return; }
-  _confirmSkillId = skillId;
+function severityBadge(severity) {
+  const cls = { block: 'bg-red-100 text-red-800', warn: 'bg-amber-100 text-amber-800', info: 'bg-blue-100 text-blue-800' }[severity] || 'bg-gray-100 text-gray-700';
+  const label = { block: '阻断', warn: '警告', info: '提示' }[severity] || severity;
+  return `<span class="badge ${cls}">${label}</span>`;
+}
 
-  // Show a template for important confirmable fields (editable by author)
-  const required = [
-    { field: 'negative_prompts',  label: '禁止指令（negative_prompts）', placeholder: '不允许操作的场景或指令' },
-    { field: 'error_handling',    label: '错误处理策略（error_handling）', placeholder: '遇到异常时的返回格式' },
-    { field: 'permission_scope',  label: '权限范围（permission_scope）', placeholder: '允许访问的数据范围' },
-    { field: 'security_notes',    label: '安全备注（security_notes）', placeholder: '其他安全敏感约束' },
-  ];
+async function copyTemplate(label, text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`✅ 已复制：${label}`);
+  } catch {
+    toast('复制失败，请手动选中复制', false);
+  }
+}
 
+function copyTemplateByKey(key) {
+  const labels = { eval_case: 'eval_case 模板', sample_io: 'sample_io 模板', frontmatter: 'frontmatter 片段' };
+  const text = _lastGapsSnapshot?.templates?.[key];
+  if (text) copyTemplate(labels[key] || key, text);
+}
+
+function renderTemplateButtons(templates) {
+  if (!templates || !Object.keys(templates).length) return '';
+  const items = [
+    { key: 'eval_case', label: 'eval_case 模板' },
+    { key: 'sample_io', label: 'sample_io 模板' },
+    { key: 'frontmatter', label: 'frontmatter 片段' },
+  ].filter(t => templates[t.key]);
+  if (!items.length) return '';
+  return `
+    <div class="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg space-y-3">
+      <div class="text-xs font-semibold text-gray-700 uppercase tracking-wide">可复制模板</div>
+      <p class="text-xs text-gray-500">将模板保存至 Bundle 路径对应目录后，再以 confirmed + capability_full 重新发起评估</p>
+      ${items.map(t => `
+        <div class="border border-gray-200 rounded-lg overflow-hidden bg-white">
+          <div class="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-100">
+            <span class="text-xs font-medium text-gray-700">${t.label}</span>
+            <button type="button" onclick="copyTemplateByKey('${t.key}')"
+              class="text-xs text-blue-600 hover:underline">复制</button>
+          </div>
+          <pre class="text-xs p-3 overflow-x-auto text-gray-600 whitespace-pre-wrap">${escapeHtml(templates[t.key])}</pre>
+        </div>
+      `).join('')}
+    </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderPostConfirmChecklist(blockActions) {
+  if (!blockActions || !blockActions.length) return '';
+  return `
+    <div id="post-confirm-checklist" class="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900 space-y-2">
+      <div class="font-semibold">✅ 元数据已确认 — 发起全量评前请核对：</div>
+      <ul class="list-disc list-inside text-xs space-y-1">
+        ${blockActions.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+        <li>结构文件已保存至 Bundle 路径（eval_cases/、sample_io/ 等）</li>
+      </ul>
+      <p class="text-xs text-amber-700">核对完成后，点击下方「发起评估」（已预填 confirmed + capability_full）</p>
+    </div>`;
+}
+
+function renderGapsSnapshot(data) {
   const gapsList = document.getElementById('gaps-list');
-  gapsList.innerHTML = `
-    <div class="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-2">
-      ⚠ 以下字段为安全敏感字段，系统无法代为确认，需作者手动填写后提交
-    </div>
-  `;
+  const gaps = data.gaps || [];
+  const actions = data.required_actions || [];
+  const bySeverity = { block: [], warn: [], info: [] };
+  gaps.forEach(g => (bySeverity[g.severity] || bySeverity.info).push(g));
 
+  let html = '';
+  if (actions.length) {
+    html += `
+      <div class="p-4 bg-white border border-gray-200 rounded-lg space-y-2">
+        <div class="text-sm font-semibold text-gray-900">待办清单</div>
+        <ol class="list-decimal list-inside text-sm text-gray-700 space-y-1">
+          ${actions.map(a => `<li>${escapeHtml(a)}</li>`).join('')}
+        </ol>
+      </div>`;
+  }
+  ['block', 'warn', 'info'].forEach(sev => {
+    if (!bySeverity[sev].length) return;
+    html += `
+      <div class="p-4 bg-white border border-gray-200 rounded-lg space-y-2">
+        <div class="text-sm font-semibold text-gray-900">${{block:'阻断项',warn:'警告项',info:'提示项'}[sev]}</div>
+        ${bySeverity[sev].map(g => `
+          <div class="flex items-start gap-2 text-sm">
+            ${severityBadge(g.severity)}
+            <div>
+              <span class="font-mono text-xs text-gray-500">${escapeHtml(g.field_path)}</span>
+              <div class="text-gray-700">${escapeHtml(g.message)}</div>
+            </div>
+          </div>
+        `).join('')}
+      </div>`;
+  });
+  const needsTemplates = gaps.some(g => ['eval_cases', 'eval_cases.count', 'sample_io', 'risk_level'].includes(g.field_path));
+  if (needsTemplates) {
+    html += renderTemplateButtons(data.templates);
+  }
+  gapsList.innerHTML = html || '<p class="text-sm text-gray-400">暂无缺口记录</p>';
+}
+
+function renderSecurityConfirmFields(confirmedFields) {
+  const confirmed = confirmedFields || {};
+  const pending = SECURITY_FIELDS.filter(f => !confirmed[f]);
   const grid = document.getElementById('confirm-fields-grid');
-  grid.innerHTML = required.map(f => `
+  if (!pending.length) {
+    grid.innerHTML = `<p class="text-sm text-green-700 col-span-2">✅ 安全敏感字段均已确认</p>`;
+    document.getElementById('confirm-form').classList.remove('hidden');
+    return;
+  }
+  grid.innerHTML = pending.map(f => `
     <div>
-      <label class="block text-xs font-medium text-gray-700 mb-1">${f.label}</label>
-      <input type="text" id="field-${f.field}" placeholder="${f.placeholder}"
+      <label class="block text-xs font-medium text-gray-700 mb-1">${SECURITY_LABELS[f]}</label>
+      <input type="text" id="field-${f}" placeholder="${SECURITY_PLACEHOLDERS[f]}"
+        value="${escapeHtml(confirmed[f] || '')}"
         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
     </div>
   `).join('');
-
   document.getElementById('confirm-form').classList.remove('hidden');
-  toast('已加载待确认字段，请填写后提交');
+}
+
+// ── Load gaps ──────────────────────────────────────────────────────────────────
+async function loadGaps(skillIdOverride) {
+  const skillId = (skillIdOverride || document.getElementById('inp-confirm-skill-id').value.trim());
+  if (!skillId) { toast('请填写 Skill ID', false); return; }
+  _confirmSkillId = skillId;
+
+  const gapsList = document.getElementById('gaps-list');
+  gapsList.innerHTML = '<p class="text-sm text-gray-400">加载中…</p>';
+
+  try {
+    const data = await apiFetch(`/bundle/${encodeURIComponent(skillId)}/gaps`);
+    _lastGapsSnapshot = data;
+    renderGapsSnapshot(data);
+    renderSecurityConfirmFields(data.confirmed_fields);
+    toast(`已加载 ${(data.gaps || []).length} 项缺口`);
+  } catch (e) {
+    gapsList.innerHTML = `<p class="text-sm text-red-500">加载失败：${escapeHtml(String(e.message))}</p>`;
+    toast('❌ ' + e.message, false);
+  }
 }
 
 // ── Submit confirm ─────────────────────────────────────────────────────────────
 async function submitConfirm() {
   if (!_confirmSkillId) { toast('请先查询 Gaps', false); return; }
   const operator = document.getElementById('inp-operator').value.trim() || 'author';
-  const fields = ['negative_prompts','error_handling','permission_scope','security_notes'];
 
   const confirmed_fields = {};
-  fields.forEach(f => {
-    const val = document.getElementById('field-'+f)?.value.trim();
+  SECURITY_FIELDS.forEach(f => {
+    const el = document.getElementById('field-'+f);
+    const val = el?.value.trim();
     if (val) confirmed_fields[f] = val;
   });
 
   if (Object.keys(confirmed_fields).length === 0) {
-    toast('至少填写一个字段', false); return;
+    toast('至少填写一个安全字段', false); return;
   }
 
   const msgEl = document.getElementById('confirm-msg');
@@ -380,6 +931,14 @@ async function submitConfirm() {
     document.getElementById('inp-skill-id').value = _confirmSkillId;
     document.getElementById('inp-bundle-state').value = 'confirmed';
     document.getElementById('inp-eval-mode').value = 'capability_full';
+
+    const blockActions = (_lastGapsSnapshot?.required_actions || [])
+      .filter(a => /eval_cases|sample_io|risk_level|创建|添加|移除/i.test(a));
+    const existing = document.getElementById('post-confirm-checklist');
+    if (existing) existing.remove();
+    document.getElementById('gaps-list').insertAdjacentHTML('beforeend', renderPostConfirmChecklist(blockActions));
+
+    await loadGaps(_confirmSkillId);
   } catch(e) {
     msgEl.textContent = '';
     toast('❌ ' + e.message, false);
@@ -399,23 +958,48 @@ async function loadExpertQueue() {
       return;
     }
 
-    el.innerHTML = data.runs.map(run => renderExpertCard(run)).join('');
+    const cards = await Promise.all(data.runs.map(async run => {
+      try {
+        const detail = await apiFetch(`/eval/report/${run.run_id}`);
+        return renderExpertCard(run, detail);
+      } catch {
+        return renderExpertCard(run, null);
+      }
+    }));
+    el.innerHTML = cards.join('');
   } catch(e) {
-    el.innerHTML = `<p class="text-sm text-red-400 text-center py-6">加载失败: ${e.message}</p>`;
+    el.innerHTML = `<p class="text-sm text-red-400 text-center py-6">加载失败: ${escapeHtml(String(e.message))}</p>`;
   }
 }
 
-function renderExpertCard(run) {
-  const runIdShort = run.run_id.slice(0,8);
-  const scoreStr = run.score_total !== null && run.score_total !== undefined
-    ? run.score_total : '—';
+function renderExpertCard(run, detail) {
+  const runIdShort = run.run_id.slice(0, 8);
+  const ps = detail ? getProviderSummary(detail) : null;
+  const r5 = ps && ps.r5_triggered;
+  const scoreHtml = detail ? formatScoreDisplay(detail) : (
+    run.score_total != null ? `<strong>${run.score_total}</strong>/100` : '<span class="text-gray-400">—</span>'
+  );
+
+  const r5Notice = r5 ? `
+    <div class="text-xs text-gray-600 bg-red-50 border border-red-100 rounded-lg p-3">
+      <span class="font-medium text-red-700">⚠ R5 模型分歧</span>：双模型分差或建议状态冲突，需专家裁定综合分。
+    </div>` : '';
+
+  const modelBlock = ps
+    ? `<div class="space-y-1">
+        <div class="text-xs font-medium text-gray-600">双模型包级分数</div>
+        ${renderProviderSummaryBars(ps)}
+        ${renderPerCaseDetails(ps, true)}
+        ${detail ? renderModelVotesFeedback(detail, true) : ''}
+      </div>`
+    : (detail ? renderModelVotesFeedback(detail, true) : '<p class="text-xs text-gray-400">加载 report 后可查看 per-case 对照</p>');
 
   return `
   <div class="border border-gray-200 rounded-xl p-5 bg-gray-50 space-y-3" id="card-${run.run_id}">
     <div class="flex items-start justify-between flex-wrap gap-2">
       <div>
-        <div class="font-semibold text-gray-900">${run.skill_id}</div>
-        <div class="text-xs text-gray-400 mt-0.5">run_id: ${runIdShort}…  |  ${run.status}</div>
+        <div class="font-semibold text-gray-900">${escapeHtml(run.skill_id)}</div>
+        <div class="text-xs text-gray-400 mt-0.5">run_id: ${runIdShort}…  |  ${escapeHtml(run.status)}</div>
       </div>
       <div class="flex gap-2 flex-wrap">
         ${renderBadge(run.review_status)}
@@ -423,26 +1007,16 @@ function renderExpertCard(run) {
       </div>
     </div>
 
-    <div class="grid grid-cols-3 gap-3 text-sm">
-      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
-        <div class="text-xs text-gray-400 mb-1">综合得分</div>
-        <div class="text-xl font-bold ${run.score_total ? 'text-gray-900' : 'text-gray-400'}">${scoreStr}</div>
-      </div>
-      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
-        <div class="text-xs text-gray-400 mb-1">bundle_state</div>
-        <div class="text-sm font-medium text-gray-700">${run.bundle_state || '—'}</div>
-      </div>
-      <div class="bg-white rounded-lg p-3 border border-gray-200 text-center">
-        <div class="text-xs text-gray-400 mb-1">eval_mode</div>
-        <div class="text-sm font-medium text-gray-700">${run.evaluation_mode || '—'}</div>
-      </div>
+    <div class="text-sm bg-white rounded-lg p-3 border border-gray-200">
+      <div class="text-xs text-gray-400 mb-1">综合得分</div>
+      ${scoreHtml}
     </div>
 
-    <div class="text-xs text-gray-500 bg-red-50 border border-red-100 rounded-lg p-3">
-      <span class="font-medium text-red-700">⚠ R5 模型分歧</span>：DeepSeek 与 Gemini 评分差异过大（≥10分）或建议状态互相矛盾，需专家人工裁定。
-    </div>
+    ${modelBlock}
+    ${r5Notice}
+    ${detail ? renderSkillSummaryCard(detail, { collapsed: false }) : ''}
 
-    <div class="flex gap-3 items-center pt-1">
+    <div class="flex gap-3 items-center pt-1 flex-wrap">
       <input type="text" id="expert-${run.run_id}" placeholder="专家姓名"
         class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-blue-300" />
       <button onclick="submitReview('${run.run_id}', 'approve')"
@@ -458,6 +1032,26 @@ function renderExpertCard(run) {
   </div>`;
 }
 
+function renderExpertVerdictCard(runId, detail, action, operator, reviewStatus) {
+  const ps = getProviderSummary(detail);
+  const hr = (detail.report && detail.report.human_review) || {};
+  const actionLabel = action === 'approve' ? '批准通过' : '驳回';
+  return `
+    <div class="space-y-3 py-1">
+      <div class="flex items-center gap-3 flex-wrap">
+        ${renderBadge(reviewStatus)}
+        <span class="badge bg-indigo-100 text-indigo-800">专家裁定</span>
+        <span class="text-sm text-gray-700">由 <strong>${escapeHtml(operator)}</strong> ${actionLabel}</span>
+        <span class="text-xs text-gray-400 ml-auto font-mono">${runId.slice(0, 8)}…</span>
+      </div>
+      ${hr.comment ? `<p class="text-xs text-gray-500">${escapeHtml(hr.comment)}</p>` : ''}
+      ${ps ? renderProviderSummaryBars(ps) : ''}
+      ${ps ? renderPerCaseDetails(ps, false) : ''}
+      ${renderModelVotesFeedback(detail, false)}
+      <p class="text-xs text-gray-400">per-case 快照已保留，供审计对照</p>
+    </div>`;
+}
+
 async function submitReview(runId, action) {
   const operator = document.getElementById(`expert-${runId}`)?.value.trim() || 'expert';
   const msgEl = document.getElementById(`review-msg-${runId}`);
@@ -468,15 +1062,18 @@ async function submitReview(runId, action) {
       body: JSON.stringify({ action, operator, comment: `Manual ${action} by ${operator}` }),
     });
     toast(`✅ ${action === 'approve' ? '已批准' : '已驳回'} — review_status: ${data.review_status}`);
-    // Replace card with a compact result summary
     const card = document.getElementById(`card-${runId}`);
     if (card) {
-      card.innerHTML = `
-        <div class="flex items-center gap-3 py-2">
-          ${renderBadge(data.review_status)}
-          <span class="text-sm text-gray-600">由 <strong>${operator}</strong> ${action === 'approve' ? '批准' : '驳回'}</span>
-          <span class="text-xs text-gray-400 ml-auto">${runId.slice(0,8)}…</span>
-        </div>`;
+      try {
+        const detail = await apiFetch(`/eval/report/${runId}`);
+        card.innerHTML = renderExpertVerdictCard(runId, detail, action, operator, data.review_status);
+      } catch {
+        card.innerHTML = `
+          <div class="flex items-center gap-3 py-2">
+            ${renderBadge(data.review_status)}
+            <span class="text-sm text-gray-600">由 <strong>${escapeHtml(operator)}</strong> ${action === 'approve' ? '批准' : '驳回'}</span>
+          </div>`;
+      }
     }
     loadExpertQueue();
   } catch(e) {
@@ -505,6 +1102,7 @@ async function loadHistory() {
             <th class="text-left px-4 py-3 font-medium">状态</th>
             <th class="text-left px-4 py-3 font-medium">评审结果</th>
             <th class="text-right px-4 py-3 font-medium">得分</th>
+            <th class="text-right px-4 py-3 font-medium">耗时</th>
             <th class="text-left px-4 py-3 font-medium">标记</th>
           </tr>
         </thead>
@@ -515,8 +1113,9 @@ async function loadHistory() {
               <td class="px-4 py-3 text-gray-400 font-mono text-xs">${run.run_id.slice(0,12)}…</td>
               <td class="px-4 py-3"><span class="badge ${statusClass(run.status)}">${run.status}</span></td>
               <td class="px-4 py-3">${run.review_status ? `<span class="badge ${statusClass(run.review_status)}">${run.review_status}</span>` : '—'}</td>
-              <td class="px-4 py-3 text-right font-mono">${run.score_total !== null && run.score_total !== undefined ? run.score_total : '—'}</td>
-              <td class="px-4 py-3">${run.human_review_required ? '<span class="badge bg-amber-100 text-amber-700">⚠ 待审</span>' : ''}</td>
+              <td class="px-4 py-3 text-right text-sm">${formatScoreCompact(run)}</td>
+              <td class="px-4 py-3 text-right text-xs">${formatTimingSummaryCell(run.timing_summary)}</td>
+              <td class="px-4 py-3">${run.human_review_required ? '<span class="badge bg-amber-100 text-amber-700">⚠ 待审</span>' : ''}${(run.reason_codes || []).includes('EVAL_WORKFLOW_TIMEOUT') ? '<span class="badge bg-red-100 text-red-700 ml-1">超时</span>' : ''}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -531,18 +1130,37 @@ async function loadHistory() {
 async function openRunDetail(runId) {
   try {
     const d = await apiFetch(`/eval/report/${runId}`);
-    const info = [
-      `run_id: ${d.run_id}`,
-      `status: ${d.status}`,
-      `review_status: ${d.review_status || '—'}`,
-      `score_total: ${d.score_total !== null && d.score_total !== undefined ? d.score_total : 'null (disagreement)'}`,
-      `human_review_required: ${d.human_review_required}`,
-      d.report?.reason_codes?.length ? `reason_codes: ${d.report.reason_codes.join(', ')}` : '',
-    ].filter(Boolean).join('\n');
-    alert(info);
+    const ps = getProviderSummary(d);
+    const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
+    const summary = getTimingSummary(d);
+    const progress = getStageProgress(d);
+    const body = document.getElementById('detail-modal-body');
+    body.innerHTML = `
+      <div class="space-y-2 text-xs font-mono text-gray-500">
+        <div>run_id: ${escapeHtml(runId)}</div>
+        <div>status: ${escapeHtml(d.status)} · review: ${escapeHtml(d.review_status || '—')}</div>
+        ${codes.length ? `<div>reason_codes: ${codes.map(escapeHtml).join(', ')}</div>` : ''}
+      </div>
+      <div class="text-sm border-t border-gray-100 pt-3">${formatScoreDisplay(d)}</div>
+      ${renderDiagnosticReportCard(d)}
+      ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
+      ${summary.phases && summary.phases.length ? `
+        <div class="border-t border-gray-100 pt-3">
+          <div class="text-xs font-semibold text-gray-700 mb-2">阶段耗时（T7 stage_timing）</div>
+          ${renderStageTimingPanel(summary)}
+        </div>` : ''}
+      ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, false)}</div>` : ''}
+      ${renderModelVotesFeedback(d, false)}
+      ${renderSkillSummaryCard(d, { collapsed: false })}
+    `;
+    document.getElementById('detail-modal').classList.remove('hidden');
   } catch(e) {
     toast('❌ ' + e.message, false);
   }
+}
+
+function closeRunDetail() {
+  document.getElementById('detail-modal').classList.add('hidden');
 }
 
 // ── Badge helpers ─────────────────────────────────────────────────────────────

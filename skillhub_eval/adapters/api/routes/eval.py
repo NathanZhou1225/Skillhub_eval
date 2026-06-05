@@ -8,6 +8,7 @@ Eval routes:
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -15,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.engine import EvaluationEngine
 from skillhub_eval.core.ports import Repository
+from skillhub_eval.core.stage_timing import summarize_stage_timings
 from skillhub_eval.core.schemas import BundleState, EvalRunRequest, EvaluationMode
 from skillhub_eval.providers.base import BaseLLMProvider
 
@@ -83,12 +85,40 @@ async def get_report(
     if run is None:
         raise HTTPException(status_code=404, detail=f"run_id '{run_id}' not found")
     report = repo.get_report(run_id)
+    reason_codes_raw = run.get("reason_codes")
+    try:
+        reason_codes = json.loads(reason_codes_raw) if reason_codes_raw else []
+    except (TypeError, json.JSONDecodeError):
+        reason_codes = []
+
+    provider_summary = None
+    if report and report.get("provider_summary"):
+        provider_summary = report["provider_summary"]
+
+    stage_timings = repo.get_stage_timings(run_id)
+    provider_errors = repo.get_provider_errors(run_id)
+    timing_summary = summarize_stage_timings(stage_timings) if stage_timings else {}
+    stage_progress = (
+        report.get("stage_progress")
+        if report and report.get("stage_progress")
+        else repo.get_stage_progress(run_id)
+    )
+
     return {
         "run_id": run_id,
         "status": run["status"],
         "review_status": run.get("review_status"),
         "score_total": run.get("score_total"),
+        "score_total_source": (
+            report.get("score_total_source") if report else run.get("score_total_source")
+        ),
+        "reason_codes": reason_codes,
         "human_review_required": bool(run.get("human_review_required")),
+        "provider_summary": provider_summary,
+        "provider_errors": provider_errors,
+        "stage_timings": stage_timings,
+        "timing_summary": timing_summary,
+        "stage_progress": stage_progress,
         "report": report,
     }
 
@@ -140,6 +170,13 @@ async def submit_review(
         preserved_votes=votes,
     )
     new_status = "pass" if body.action == "approve" else "fail"
+    repo.patch_report_after_human_review(
+        run_id=run_id,
+        action=body.action,
+        operator=body.operator,
+        comment=body.comment,
+        review_status=new_status,
+    )
     repo.update_status(run_id, "completed", review_status=new_status)
 
     return {

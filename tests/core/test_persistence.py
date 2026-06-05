@@ -124,3 +124,32 @@ def test_save_gaps_and_get_gaps(repo):
     repo.save_gaps(run_id, gaps)
     fetched = repo.get_gaps("skill.gaps")
     assert fetched["gaps"][0]["field_path"] == "description"
+
+
+def test_get_stage_progress(repo):
+    run_id = repo.create_run("s8", "/tmp/s8", "minimal", "capability_full")
+    repo.append_stage(run_id, "level0_checking")
+    repo.append_stage(run_id, "risk_locking")
+    repo.append_stage(run_id, "awaiting_confirm")
+    assert repo.get_stage_progress(run_id) == [
+        "level0_checking", "risk_locking", "awaiting_confirm",
+    ]
+
+
+def test_get_stage_timings_and_history_summary(repo):
+    run_id = repo.create_run("s9", "/tmp/s9", "confirmed", "capability_full")
+    repo.log_event(run_id, "stage_timing", {"stage": "level0_checking", "ms": 100})
+    repo.log_event(run_id, "stage_timing", {"stage": "model_judging", "ms": 5000})
+    repo.log_event(run_id, "stage_timing", {"stage": "case_judge", "case_id": "c01", "ms": 900})
+
+    timings = repo.get_stage_timings(run_id)
+    assert len(timings) == 3
+    assert timings[1]["stage"] == "model_judging"
+
+    summaries = repo.get_stage_timing_summaries([run_id])
+    assert summaries[run_id]["total_phase_ms"] == 5100
+    assert summaries[run_id]["model_judging_ms"] == 5000
+
+    history = repo.list_history(limit=5)
+    row = next(r for r in history if r["run_id"] == run_id)
+    assert row["timing_summary"]["total_phase_ms"] == 5100

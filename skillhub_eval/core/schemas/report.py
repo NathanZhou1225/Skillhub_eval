@@ -44,6 +44,25 @@ class HumanReview(BaseModel):
     override_allowed: bool = True
 
 
+class CaseScoreRow(BaseModel):
+    case_id: str
+    deepseek_score: float | None = None
+    gemini_score: float | None = None
+    gap: float | None = None
+    ds_suggested_status: str | None = None
+    gemini_suggested_status: str | None = None
+
+
+class ProviderSummary(BaseModel):
+    deepseek_score: float | None = None
+    gemini_score: float | None = None
+    score_gap: float | None = None
+    r5_triggered: bool = False
+    deepseek_bundle_status: str | None = None
+    gemini_bundle_status: str | None = None
+    per_case: list[CaseScoreRow] = Field(default_factory=list)
+
+
 class EvaluationReport(BaseModel):
     run_id: str
     skill_id: str
@@ -61,9 +80,13 @@ class EvaluationReport(BaseModel):
     reason_codes: list[str] = Field(default_factory=list)
     evidence: list[dict] = Field(default_factory=list)
     required_actions: list[str] = Field(default_factory=list)
+    gaps: list[dict] = Field(default_factory=list)
+    stage_progress: list[str] = Field(default_factory=list)
+    provider_summary: ProviderSummary | None = None
     model_votes: list[ModelVote] = Field(default_factory=list)
     assertion_results: list[AssertionResult] = Field(default_factory=list)
     human_review: HumanReview = Field(default_factory=HumanReview)
+    skill_summary: dict | None = None
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"
     started_at: datetime | None = None

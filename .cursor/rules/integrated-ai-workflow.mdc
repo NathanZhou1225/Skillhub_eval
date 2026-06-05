@@ -1,0 +1,47 @@
+---
+description: SkillHub — boundaries for OpenSpec, Superpowers, grill-me, and tiered-memory; default feature dev pipeline
+alwaysApply: true
+---
+
+# SkillHub · Integrated AI Workflow
+
+Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule adds **repo-specific** paths and constraints.
+
+## Document roles in this repo
+
+| Layer | Location | Purpose |
+|-------|----------|---------|
+| Program / sprint | `RECORD.md`, `.cursor_memory/active/SPRINT_*.md` | Phase goals, sprint checkboxes — **not** feature implementation tasks |
+| Published specs | `docs/specs/`, `docs/guides/` | Normative protocols (Skill metadata, eval standards) |
+| Active feature work | `openspec/changes/<change>/` | proposal, specs, design, **tasks.md** (implementation truth) |
+| Legacy superpowers docs | `docs/superpowers/plans/`, `docs/superpowers/specs/` | Reference only; **new work** → OpenSpec changes, do not fork parallel plans |
+
+## Default pipeline (SkillHub)
+
+1. **Align sprint** — read `RECORD.md` + active `SPRINT_*.md` (tiered-memory); do not duplicate into OpenSpec.
+2. **Direction** — `brainstorming` **or** `/opsx:explore` (one only).
+3. **Spec package** — `/opsx:propose "<kebab-change>"` → `openspec/changes/<change>/`.
+4. **Critique** — `/grill-me` on that change folder; no code until shared understanding.
+5. **Execute** — `subagent-driven-development`; each subagent = one `tasks.md` item; TDD required.
+6. **Verify** — `verification-before-completion` (pytest, eval CLI, etc.).
+7. **Close** — `/opsx:archive` then `finishing-a-development-branch`.
+
+## Conflict prevention
+
+- **OpenSpec** owns *what* to build (artifacts + `tasks.md`).
+- **Superpowers** owns *how* to build (TDD, subagents, debug, verify, merge).
+- **grill-me** owns *plan validation only* (between steps 3 and 5).
+- **tiered-memory** owns sprint backlog — never replace `tasks.md` with sprint items.
+
+## Project conventions (inject into OpenSpec artifacts)
+
+- Python package: `skillhub_eval/`; tests under `tests/`.
+- Normative references: `docs/specs/Skill元数据定义与编写规范.md`, `docs/specs/评估指标与准入标准.md`.
+- API/schema names in design must match existing specs (no ad-hoc renames).
+- Secrets: `.env` only — never commit credentials.
+
+## OpenSpec CLI
+
+Config: `openspec/config.yaml`. Status: `openspec status --change "<name>" --json`.
+
+When user says "开始实现" or picks subagent mode: confirm active change name and read `tasks.md` first.

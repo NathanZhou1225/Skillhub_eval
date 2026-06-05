@@ -10,10 +10,12 @@ from .enums import (
 )
 from .report import (
     AssertionResult,
+    CaseScoreRow,
     DimensionScores,
     EvaluationReport,
     HumanReview,
     ModelVote,
+    ProviderSummary,
 )
 
 __all__ = [
@@ -33,4 +35,6 @@ __all__ = [
     "AssertionResult",
     "HumanReview",
     "DimensionScores",
+    "ProviderSummary",
+    "CaseScoreRow",
 ]
