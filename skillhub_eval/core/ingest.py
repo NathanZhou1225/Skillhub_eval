@@ -29,48 +29,67 @@ def _parse_frontmatter(text: str) -> dict:
     return meta
 
 
-def _load_cases(eval_cases_dir: Path) -> list[dict]:
+def _load_cases(eval_cases_dir: Path) -> tuple[list[dict], list[dict]]:
     """
-    Parse eval_cases directory into a list of case dicts.
-    Uses PyYAML when available for full parsing (preserves `assertions` lists).
-    Falls back to line-by-line parsing for flat fields only.
+    Parse eval_cases directory into valid cases and malformed entries.
+
+    Returns:
+        (cases, malformed_cases) where each malformed item is
+        {"path": str, "reason": str}.
     """
     if not eval_cases_dir.exists():
-        return []
+        return [], []
+
     cases: list[dict] = []
+    malformed_cases: list[dict] = []
+
     for filepath in sorted(eval_cases_dir.iterdir()):
         if filepath.suffix not in (".yaml", ".yml", ".json"):
             continue
+
         text = filepath.read_text(encoding="utf-8")
-        case: dict = {"_path": str(filepath)}
+        path_str = str(filepath)
 
         if filepath.suffix == ".json":
             try:
                 parsed = json.loads(text)
-                if isinstance(parsed, dict):
-                    case.update(parsed)
-            except Exception:
-                pass
+            except Exception as exc:
+                malformed_cases.append(
+                    {"path": path_str, "reason": f"parse_error: {exc}"}
+                )
+                continue
         elif _YAML_AVAILABLE:
             try:
                 parsed = _yaml.safe_load(text)
-                if isinstance(parsed, dict):
-                    case.update(parsed)
-            except Exception:
-                # fallback to line-by-line
-                for line in text.splitlines():
-                    for key in ("id", "type", "user_intent"):
-                        if line.startswith(f"{key}:"):
-                            case[key] = line.split(":", 1)[1].strip()
+            except Exception as exc:
+                malformed_cases.append(
+                    {"path": path_str, "reason": f"parse_error: {exc}"}
+                )
+                continue
         else:
+            case: dict = {"_path": path_str}
             for line in text.splitlines():
                 for key in ("id", "type", "user_intent"):
                     if line.startswith(f"{key}:"):
                         case[key] = line.split(":", 1)[1].strip()
+            if "id" in case:
+                cases.append(case)
+            else:
+                malformed_cases.append({"path": path_str, "reason": "missing_id"})
+            continue
 
+        if not isinstance(parsed, dict):
+            malformed_cases.append({"path": path_str, "reason": "missing_id"})
+            continue
+
+        case = {"_path": path_str}
+        case.update(parsed)
         if "id" in case:
             cases.append(case)
-    return cases
+        else:
+            malformed_cases.append({"path": path_str, "reason": "missing_id"})
+
+    return cases, malformed_cases
 
 
 def load_sample_io(bundle_path: str, case_id: str) -> dict | None:
@@ -100,7 +119,7 @@ def ingest_bundle(bundle_path: str) -> dict:
 
     Returns:
         skill_id, bundle_path, has_skill_md, skill_meta (frontmatter),
-        risk_level_declared, eval_cases, n_cases,
+        risk_level_declared, eval_cases, malformed_cases, n_cases,
         has_sample_io, has_scripts, skill_md_text
     """
     root = Path(bundle_path)
@@ -113,7 +132,7 @@ def ingest_bundle(bundle_path: str) -> dict:
         skill_md_text = skill_md.read_text(encoding="utf-8")
         meta = _parse_frontmatter(skill_md_text)
 
-    cases = _load_cases(root / "eval_cases")
+    cases, malformed_cases = _load_cases(root / "eval_cases")
     has_sample_io = (root / "sample_io").exists()
 
     scripts_dir = root / "scripts"
@@ -131,6 +150,7 @@ def ingest_bundle(bundle_path: str) -> dict:
         "skill_md_text": skill_md_text,
         "risk_level_declared": meta.get("risk_level"),
         "eval_cases": cases,
+        "malformed_cases": malformed_cases,
         "n_cases": len(cases),
         "has_sample_io": has_sample_io,
         "has_scripts": has_scripts,

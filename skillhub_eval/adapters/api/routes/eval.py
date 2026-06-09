@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.engine import EvaluationEngine
 from skillhub_eval.core.ports import Repository
+from skillhub_eval.core.report_narrative import build_report_narrative
 from skillhub_eval.core.stage_timing import summarize_stage_timings
 from skillhub_eval.core.schemas import BundleState, EvalRunRequest, EvaluationMode
 from skillhub_eval.providers.base import BaseLLMProvider
@@ -170,12 +171,29 @@ async def submit_review(
         preserved_votes=votes,
     )
     new_status = "pass" if body.action == "approve" else "fail"
+    narrative_override = None
+    if body.action == "approve":
+        report_data = repo.get_report(run_id) or {}
+        ps = report_data.get("provider_summary") or {}
+        nar = build_report_narrative({
+            "review_status": "pass",
+            "reason_codes": [],
+            "required_actions": [],
+            "score_total": run.get("score_total"),
+        })
+        if ps.get("deepseek_score") is not None:
+            score_str = f"DS 参考分 {ps['deepseek_score']}"
+            if ps.get("gemini_score") is not None:
+                score_str += f" / GM 参考分 {ps['gemini_score']}"
+            nar = nar.model_copy(update={"score_display_zh": score_str})
+        narrative_override = nar
     repo.patch_report_after_human_review(
         run_id=run_id,
         action=body.action,
         operator=body.operator,
         comment=body.comment,
         review_status=new_status,
+        narrative_override=narrative_override,
     )
     repo.update_status(run_id, "completed", review_status=new_status)
 

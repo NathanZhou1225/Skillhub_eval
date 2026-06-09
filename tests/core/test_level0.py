@@ -83,9 +83,19 @@ def make_bundle(tmp_path, n_cases: int = 3, risk: str = "low", has_skill_md: boo
         )
     ec = tmp_path / "eval_cases"
     ec.mkdir(exist_ok=True)
+    # Generate a type sequence that satisfies W3 type coverage for the given risk level.
+    # Pattern: 3 happy_path, then 2 edge, 2 refusal, 2 adversarial (cycling for extras).
+    _type_sequence = [
+        "happy_path", "happy_path", "happy_path",
+        "edge", "edge",
+        "refusal", "refusal",
+        "adversarial", "adversarial",
+        "edge", "edge", "edge",  # extra slots for high-ceiling bundles
+    ]
     for i in range(n_cases):
+        ctype = _type_sequence[i] if i < len(_type_sequence) else "edge"
         (ec / f"case_{i:02d}.yaml").write_text(
-            f"id: case_{i:02d}\ntype: happy_path\nuser_intent: test intent\n",
+            f"id: case_{i:02d}\ntype: {ctype}\nuser_intent: test intent\n",
             encoding="utf-8",
         )
     return tmp_path
@@ -198,3 +208,129 @@ def test_risk_scan_elevates_from_medium_to_high():
     text = "此技能对客户账户执行下单与转账操作。"
     result = scan_risk(text, RiskLevel.medium)
     assert result == RiskLevel.high
+
+
+def test_high_risk_nine_case_mix_passes_gate(tmp_path):
+    """2.2 stock-radar quota: 3 happy + 2 edge + 2 refusal + 2 adversarial."""
+    (tmp_path / "SKILL.md").write_text(
+        "---\nname: stock-radar\nrisk_level: high\n---\n# Stock radar\n",
+        encoding="utf-8",
+    )
+    ec = tmp_path / "eval_cases"
+    ec.mkdir()
+    spec = [
+        ("h01", "happy_path"), ("h02", "happy_path"), ("h03", "happy_path"),
+        ("e01", "edge"), ("e02", "edge"),
+        ("r01", "refusal"), ("r02", "refusal"),
+        ("a01", "adversarial"), ("a02", "adversarial"),
+    ]
+    for cid, ctype in spec:
+        (ec / f"{cid}.yaml").write_text(
+            f"id: {cid}\ntype: {ctype}\nuser_intent: test\n",
+            encoding="utf-8",
+        )
+    bundle = ingest_bundle(str(tmp_path))
+    result = Level0Checker().check_case_gate(bundle)
+    assert result["passed"] is True
+
+
+# ─── W3 type coverage tests ───────────────────────────────────────────────────
+
+def test_check_case_gate_low_risk_missing_happy_path():
+    """low risk: needs 3 happy_path; fewer triggers MISSING_REQUIRED_CASE_TYPES"""
+    checker = Level0Checker()
+    bundle = {
+        "risk_level_declared": "low",
+        "n_cases": 3,
+        "eval_cases": [
+            {"id": "c1", "type": "edge"},
+            {"id": "c2", "type": "edge"},
+            {"id": "c3", "type": "edge"},
+        ],
+    }
+    result = checker.check_case_gate(bundle)
+    assert result["passed"] is False
+    assert "MISSING_REQUIRED_CASE_TYPES" in result["reason_codes"]
+
+
+def test_check_case_gate_medium_risk_complete():
+    """medium risk with 3 happy + 2 edge passes"""
+    checker = Level0Checker()
+    bundle = {
+        "risk_level_declared": "medium",
+        "n_cases": 5,
+        "eval_cases": [
+            {"id": "c1", "type": "happy_path"},
+            {"id": "c2", "type": "happy_path"},
+            {"id": "c3", "type": "happy_path"},
+            {"id": "c4", "type": "edge"},
+            {"id": "c5", "type": "edge"},
+        ],
+    }
+    result = checker.check_case_gate(bundle)
+    assert result["passed"] is True
+    assert "MISSING_REQUIRED_CASE_TYPES" not in result["reason_codes"]
+
+
+def test_check_case_gate_high_risk_missing_adversarial():
+    """high risk: missing adversarial type triggers MISSING_REQUIRED_CASE_TYPES"""
+    checker = Level0Checker()
+    bundle = {
+        "risk_level_declared": "high",
+        "n_cases": 9,
+        "eval_cases": (
+            [{"id": f"h{i}", "type": "happy_path"} for i in range(3)]
+            + [{"id": f"e{i}", "type": "edge"} for i in range(2)]
+            + [{"id": f"r{i}", "type": "refusal"} for i in range(2)]
+            + [{"id": f"x{i}", "type": "edge"} for i in range(2)]  # extra edge, no adversarial
+        ),
+    }
+    result = checker.check_case_gate(bundle)
+    assert result["passed"] is False
+    assert "MISSING_REQUIRED_CASE_TYPES" in result["reason_codes"]
+
+
+def test_check_case_gate_high_risk_complete():
+    """high risk with full type coverage passes"""
+    checker = Level0Checker()
+    bundle = {
+        "risk_level_declared": "high",
+        "n_cases": 9,
+        "eval_cases": (
+            [{"id": f"h{i}", "type": "happy_path"} for i in range(3)]
+            + [{"id": f"e{i}", "type": "edge"} for i in range(2)]
+            + [{"id": f"r{i}", "type": "refusal"} for i in range(2)]
+            + [{"id": f"a{i}", "type": "adversarial"} for i in range(2)]
+        ),
+    }
+    result = checker.check_case_gate(bundle)
+    assert result["passed"] is True
+
+
+def test_check_case_gate_type_missing_field_ignored():
+    """cases without type field are not counted toward required types"""
+    checker = Level0Checker()
+    bundle = {
+        "risk_level_declared": "low",
+        "n_cases": 3,
+        "eval_cases": [
+            {"id": "c1"},  # no type field
+            {"id": "c2"},
+            {"id": "c3"},
+        ],
+    }
+    result = checker.check_case_gate(bundle)
+    assert result["passed"] is False
+    assert "MISSING_REQUIRED_CASE_TYPES" in result["reason_codes"]
+
+
+def test_case_type_requirements_constant_structure():
+    """CASE_TYPE_REQUIREMENTS has correct structure for all risk levels"""
+    from skillhub_eval.core.schemas.enums import CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
+    assert set(CASE_TYPE_REQUIREMENTS.keys()) == {"low", "medium", "high"}
+    assert CASE_TYPE_REQUIREMENTS["low"]["happy_path"] == 3
+    assert CASE_TYPE_REQUIREMENTS["medium"]["edge"] == 2
+    assert CASE_TYPE_REQUIREMENTS["high"]["adversarial"] == 2
+    for types in CASE_TYPE_REQUIREMENTS.values():
+        for t in types:
+            assert t in VALID_CASE_TYPES

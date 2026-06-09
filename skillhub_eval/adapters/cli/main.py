@@ -268,7 +268,8 @@ def serve(
         typer.echo("Error: uvicorn is not installed. Run: pip install uvicorn[standard]", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Starting SkillHub Eval server at http://{host}:{port}/docs")
+    typer.echo(f"Starting SkillHub Eval server at http://{host}:{port}/ui/index.html")
+    typer.echo(f"API docs: http://{host}:{port}/docs")
     uvicorn.run(
         "skillhub_eval.adapters.api.app:app",
         host=host,

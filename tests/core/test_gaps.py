@@ -9,12 +9,20 @@ from skillhub_eval.core.ingest import ingest_bundle
 from skillhub_eval.core.schemas import BundleState
 
 
-def _write_skill(tmp_path: Path, *, risk: str | None = "low", description: str = "A test skill"):
+def _write_skill(
+    tmp_path: Path,
+    *,
+    risk: str | None = "low",
+    description: str = "A test skill",
+    category: str | None = None,
+):
     lines = ["---", "name: test-skill"]
     if description:
         lines.append(f"description: {description}")
     if risk is not None:
         lines.append(f"risk_level: {risk}")
+    if category is not None:
+        lines.append(f"category: {category}")
     lines.extend(["---", "# Test"])
     (tmp_path / "SKILL.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -158,3 +166,63 @@ def test_gaps_complete_l1_bundle_minimal_gaps(tmp_path):
 
     block_gaps = [g for g in result["gaps"] if g["severity"] == "block"]
     assert block_gaps == []
+
+
+def test_scan_gaps_malformed_case_warn(tmp_path):
+    _write_skill(tmp_path)
+    ec = tmp_path / "eval_cases"
+    ec.mkdir()
+    (ec / "valid.yaml").write_text(
+        "id: valid\ntype: happy_path\nuser_intent: ok\n",
+        encoding="utf-8",
+    )
+    (ec / "broken.yaml").write_text("not yaml: [[[\n", encoding="utf-8")
+
+    bundle = ingest_bundle(str(tmp_path))
+    result = scan_gaps(bundle, BundleState.minimal)
+
+    malformed_gaps = [
+        g for g in result["gaps"]
+        if g["field_path"].startswith("eval_cases.malformed.")
+    ]
+    assert len(malformed_gaps) == 1
+    gap = malformed_gaps[0]
+    assert gap["severity"] == "warn"
+    assert "broken.yaml" in gap["field_path"]
+    assert "broken.yaml" in gap["message"]
+    assert any("parse_error" in a for a in result["required_actions"])
+
+
+def test_scan_gaps_missing_category(tmp_path):
+    _write_skill(tmp_path)
+    bundle = ingest_bundle(str(tmp_path))
+    result = scan_gaps(bundle, BundleState.minimal)
+
+    gap = next(g for g in result["gaps"] if g["field_path"] == "category")
+    assert gap["severity"] == "warn"
+    assert gap["draft_value"] is None
+    assert any("category" in a for a in result["required_actions"])
+
+
+def test_scan_gaps_invalid_category_slug(tmp_path):
+    _write_skill(tmp_path, category="bogus/invalid-slug")
+    bundle = ingest_bundle(str(tmp_path))
+    result = scan_gaps(bundle, BundleState.minimal)
+
+    gap = next(g for g in result["gaps"] if g["field_path"] == "category")
+    assert gap["severity"] == "warn"
+    assert "bogus/invalid-slug" in gap["message"]
+    assert any("合法 slug" in a for a in result["required_actions"])
+
+
+def test_scan_gaps_valid_category_no_gap(tmp_path):
+    _write_skill(tmp_path, category="fin-research/quant-signal")
+    _add_cases(tmp_path, 3)
+    (tmp_path / "sample_io").mkdir()
+    (tmp_path / "sample_io" / "c00.json").write_text('{"response":"ok"}\n', encoding="utf-8")
+    bundle = ingest_bundle(str(tmp_path))
+    confirmed = frozenset(SECURITY_FIELDS)
+    result = scan_gaps(bundle, BundleState.minimal, confirmed_field_paths=confirmed)
+
+    paths = {g["field_path"] for g in result["gaps"]}
+    assert "category" not in paths

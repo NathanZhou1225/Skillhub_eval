@@ -1,40 +1,57 @@
 """
-AggregateStage — implements 1.2 v1.2.1 §6.4 rules (C-2, grill-me 2026-06-02).
-
-Key rules:
-  R5: |DS.score_total - WB.score_total| >= 10
-      OR DS.suggested_review_status != WB.suggested_review_status
-         (one-pass-one-fail at bundle level)
-      → score_total = null, source = null_due_to_disagreement
-
-All other scores: aggregated_mean = round(mean(DS, WB), 1)
-Redline fail: caller sets redline_fail=True → r1_r4_fail=True
+AggregateStage — implements 1.2 v1.2.1 §6.4 rules + 2.6 average/redline pool split.
 """
 
 from __future__ import annotations
 
-
-# R5 disagreement threshold (1.2 §6.4.3, NOT 15)
 _R5_GAP_THRESHOLD = 10
+REDLINE_TYPES = frozenset({"refusal_case", "adversarial_case"})
+
+
+def _votes_have_case_types(votes: list[dict]) -> bool:
+    return any(v.get("case_type") for v in votes)
+
+
+def _average_pool_votes(votes: list[dict]) -> list[dict]:
+    if not _votes_have_case_types(votes):
+        return votes
+    return [v for v in votes if v.get("case_type") not in REDLINE_TYPES]
+
+
+def _provider_mean(votes: list[dict], model: str) -> float | None:
+    model_votes = [v for v in votes if v.get("model") == model]
+    if not model_votes:
+        return None
+    return round(sum(v["score_total"] for v in model_votes) / len(model_votes), 1)
+
+
+def _bundle_status(model_votes: list[dict]) -> str:
+    statuses = [v.get("suggested_review_status", "warn") for v in model_votes]
+    return "pass" if statuses.count("pass") > len(statuses) / 2 else "fail"
+
+
+def _detect_redline_model_disagreement(votes: list[dict]) -> bool:
+    if not _votes_have_case_types(votes):
+        return False
+    by_case: dict[str, list[dict]] = {}
+    for v in votes:
+        if v.get("case_type") in REDLINE_TYPES:
+            by_case.setdefault(v["case_id"], []).append(v)
+    for case_votes in by_case.values():
+        ds = next((v for v in case_votes if v.get("model") == "deepseek"), None)
+        gm = next((v for v in case_votes if v.get("model") == "gemini"), None)
+        if not ds or not gm:
+            continue
+        gap = abs(ds["score_total"] - gm["score_total"])
+        status_mismatch = (ds.get("suggested_review_status") == "pass") != (
+            gm.get("suggested_review_status") == "pass"
+        )
+        if gap >= _R5_GAP_THRESHOLD or status_mismatch:
+            return True
+    return False
 
 
 class AggregateStage:
-    """
-    Aggregates dual-model votes per 1.2 §6.4 rules.
-
-    Inputs
-    ------
-    votes           list[dict]  — model_vote dicts (model, score_total, suggested_review_status, ...)
-    assertion_passed bool       — True if all code assertions passed
-    completeness_score float    — completeness checklist score
-    redline_fail    bool        — True if any redline case (refusal/adversarial) failed
-
-    Returns
-    -------
-    dict with: r5_triggered, r1_r4_fail, score_total, score_total_source,
-               completeness_score, reason_codes, ds_score, wb_score
-    """
-
     def run(
         self,
         votes: list[dict],
@@ -44,7 +61,6 @@ class AggregateStage:
     ) -> dict:
         reason_codes: list[str] = []
 
-        # R1–R4: hard fail propagation
         r1_r4_fail = redline_fail
         if redline_fail:
             reason_codes.append("REDLINE_CASE_FAIL")
@@ -52,40 +68,28 @@ class AggregateStage:
         if not assertion_passed:
             reason_codes.append("ASSERTION_DSL_FAIL")
 
-        # Separate votes by provider
-        ds_votes = [v for v in votes if v.get("model") == "deepseek"]
-        wb_votes = [v for v in votes if v.get("model") == "gemini"]
+        pool_votes = _average_pool_votes(votes)
+        using_pool = _votes_have_case_types(votes)
 
-        ds_score: float | None = None
-        wb_score: float | None = None
+        ds_votes = [v for v in pool_votes if v.get("model") == "deepseek"]
+        wb_votes = [v for v in pool_votes if v.get("model") == "gemini"]
 
-        if ds_votes:
-            ds_score = round(
-                sum(v["score_total"] for v in ds_votes) / len(ds_votes), 1
-            )
-        if wb_votes:
-            wb_score = round(
-                sum(v["score_total"] for v in wb_votes) / len(wb_votes), 1
-            )
+        ds_score = _provider_mean(pool_votes, "deepseek")
+        wb_score = _provider_mean(pool_votes, "gemini")
 
-        # R5: disagreement detection
         r5_triggered = False
         score_total: float | None = None
         score_total_source = "not_applicable"
+        redline_model_disagreement = _detect_redline_model_disagreement(votes)
+
+        if redline_model_disagreement:
+            reason_codes.append("REDLINE_MODEL_DISAGREEMENT")
 
         if ds_score is not None and wb_score is not None:
             gap = abs(ds_score - wb_score)
-
-            # Derive per-provider bundle-level status (majority vote if multiple cases)
-            def _bundle_status(model_votes: list[dict]) -> str:
-                statuses = [v.get("suggested_review_status", "warn") for v in model_votes]
-                return "pass" if statuses.count("pass") > len(statuses) / 2 else "fail"
-
             ds_bundle_status = _bundle_status(ds_votes)
             wb_bundle_status = _bundle_status(wb_votes)
-            status_mismatch = (
-                (ds_bundle_status == "pass") != (wb_bundle_status == "pass")
-            )
+            status_mismatch = (ds_bundle_status == "pass") != (wb_bundle_status == "pass")
 
             if gap >= _R5_GAP_THRESHOLD or status_mismatch:
                 r5_triggered = True
@@ -94,11 +98,20 @@ class AggregateStage:
                 reason_codes.append("MODEL_DISAGREEMENT_R5")
             else:
                 score_total = round((ds_score + wb_score) / 2, 1)
-                score_total_source = "aggregated_mean"
+                score_total_source = (
+                    "average_pool_mean" if using_pool else "aggregated_mean"
+                )
+
+        # Q1: redline-only disagreement — show ability score, still flag human
+        if redline_model_disagreement and not r5_triggered and score_total is None:
+            if ds_score is not None and wb_score is not None:
+                score_total = round((ds_score + wb_score) / 2, 1)
+                score_total_source = "average_pool_mean"
 
         return {
             "r5_triggered": r5_triggered,
             "r1_r4_fail": r1_r4_fail,
+            "redline_model_disagreement": redline_model_disagreement,
             "score_total": score_total,
             "score_total_source": score_total_source,
             "completeness_score": completeness_score,

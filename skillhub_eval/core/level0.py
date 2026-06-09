@@ -11,7 +11,7 @@ can apply them at different points in the pipeline:
                         degraded and pre-confirm paths skip the gate
 """
 
-from .schemas.enums import RiskLevel, CASE_COUNT_GATES
+from .schemas.enums import RiskLevel, CASE_COUNT_GATES, CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
 
 
 class Level0Checker:
@@ -41,7 +41,7 @@ class Level0Checker:
             reason_codes.append("LEVEL0_SCHEMA_FAIL")
             evidence.append({
                 "field": "SKILL.md",
-                "detail": "SKILL.md missing from bundle root",
+                "detail": "SKILL.md 文件缺失（需放置在包根目录）",
             })
             return {
                 "passed": False,
@@ -56,7 +56,7 @@ class Level0Checker:
             reason_codes.append("LEVEL0_SCHEMA_FAIL")
             evidence.append({
                 "field": "risk_level",
-                "detail": f"Unknown risk_level value: {risk_raw!r}",
+                "detail": f"risk_level 值无效：{risk_raw!r}，可选值为 low / high",
             })
             return {
                 "passed": False,
@@ -90,6 +90,7 @@ class Level0Checker:
 
         n = bundle.get("n_cases", 0)
         min_cases, ceiling = CASE_COUNT_GATES[risk]
+        type_counts: dict[str, int] = {}
 
         if n < min_cases:
             reason_codes.append("RISK_CASE_COUNT_INSUFFICIENT")
@@ -111,12 +112,31 @@ class Level0Checker:
                 ),
             })
 
+        # Type coverage check (W3 题型完整性门槛) — only run after count passes
+        if len(reason_codes) == 0:
+            for c in (bundle.get("eval_cases") or []):
+                t = c.get("type", "")
+                if t in VALID_CASE_TYPES:
+                    type_counts[t] = type_counts.get(t, 0) + 1
+            required_types = CASE_TYPE_REQUIREMENTS.get(risk.value, {})
+            missing_types = [t for t, min_n in required_types.items() if type_counts.get(t, 0) < min_n]
+            if missing_types:
+                reason_codes.append("MISSING_REQUIRED_CASE_TYPES")
+                evidence.append({
+                    "field": "eval_cases",
+                    "detail": (
+                        f"risk_level={risk.value} requires case types: {missing_types}. "
+                        f"Current counts: {type_counts}"
+                    ),
+                })
+
         return {
             "passed": len(reason_codes) == 0,
             "risk_level": risk.value,
             "n_cases": n,
             "reason_codes": reason_codes,
             "evidence": evidence,
+            "type_coverage": type_counts,
         }
 
     # ── check: backward-compat combined gate ─────────────────────────────────
@@ -136,4 +156,5 @@ class Level0Checker:
             "n_cases": g["n_cases"],
             "reason_codes": g["reason_codes"],
             "evidence": g["evidence"],
+            "type_coverage": g.get("type_coverage", {}),
         }

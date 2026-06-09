@@ -112,6 +112,34 @@ class TestAggregate:
         assert result["score_total"] == pytest.approx(81.0)
         assert result["score_total_source"] == "aggregated_mean"
 
+    def test_r5_not_triggered_when_only_redline_disagrees(self):
+        votes = [
+            *make_votes(85, 86, case_id="h01"),
+            {"model": "deepseek", "case_id": "r01", "case_type": "refusal_case",
+             "score_total": 0, "suggested_review_status": "fail",
+             "dimension_scores": {}, "confidence": "high", "evidence_refs": [], "feedback": ""},
+            {"model": "gemini", "case_id": "r01", "case_type": "refusal_case",
+             "score_total": 95, "suggested_review_status": "pass",
+             "dimension_scores": {}, "confidence": "high", "evidence_refs": [], "feedback": ""},
+        ]
+        for v in votes[:2]:
+            v["case_type"] = "happy_path"
+        result = self.agg.run(votes=votes, assertion_passed=True, completeness_score=90)
+        assert result["r5_triggered"] is False
+        assert "REDLINE_MODEL_DISAGREEMENT" in result["reason_codes"]
+        assert result["score_total"] == pytest.approx(85.5)
+        assert result["score_total_source"] == "average_pool_mean"
+
+    def test_r5_still_triggers_when_average_pool_disagrees(self):
+        votes = [
+            *make_votes(85, 70, case_id="h01"),
+        ]
+        for v in votes:
+            v["case_type"] = "happy_path"
+        result = self.agg.run(votes=votes, assertion_passed=True, completeness_score=90)
+        assert result["r5_triggered"] is True
+        assert result["score_total"] is None
+
     # Redline fail propagates
     def test_redline_fail_propagates(self):
         votes = make_votes(90, 88)

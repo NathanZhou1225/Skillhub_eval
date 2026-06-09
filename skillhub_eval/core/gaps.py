@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .schemas.enums import CASE_COUNT_GATES, BundleState, RiskLevel
+from .taxonomy import Taxonomy
 
 SECURITY_FIELDS: tuple[str, ...] = (
     "negative_prompts",
@@ -116,6 +117,45 @@ def scan_gaps(
         ))
         required_actions.append(
             f"从 eval_cases/ 中移除 {excess} 个用例（当前 {n_cases}/{ceiling}）"
+        )
+
+    # ── malformed eval case files ─────────────────────────────────────────────
+    for malformed in bundle.get("malformed_cases", []):
+        path_str = malformed.get("path", "")
+        reason = malformed.get("reason", "unknown")
+        filename = Path(path_str).name if path_str else "unknown"
+        gaps.append(_gap(
+            f"eval_cases.malformed.{filename}",
+            "warn",
+            f"用例文件损坏或无效：{path_str}（{reason}）",
+        ))
+        required_actions.append(
+            f"修复或移除损坏的用例文件 {path_str}（{reason}）"
+        )
+
+    # ── category (taxonomy) ───────────────────────────────────────────────────
+    category = meta.get("category")
+    taxonomy = Taxonomy()
+    if not category:
+        gaps.append(_gap(
+            "category",
+            "warn",
+            "SKILL.md frontmatter 缺少 category，建议补充业务场景分类",
+            draft_value=None,
+        ))
+        required_actions.append(
+            "在 SKILL.md frontmatter 中填写 category 字段"
+            "（二级场景 slug，如 fin-research/quant-signal）"
+        )
+    elif not taxonomy.is_valid_slug(category):
+        gaps.append(_gap(
+            "category",
+            "warn",
+            f"category 值无效：{category!r}，须为词表中的二级场景 slug",
+            draft_value=None,
+        ))
+        required_actions.append(
+            f"将 category 更正为词表中的合法 slug（当前值：{category}）"
         )
 
     # ── sample_io for L1 path (no Python scripts) ─────────────────────────────

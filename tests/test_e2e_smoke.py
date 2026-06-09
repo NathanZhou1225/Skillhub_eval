@@ -160,7 +160,7 @@ async def test_s1_full_confirmed_pipeline_produces_pass(tmp_path):
 
     # §14: score_total must be a number (no R5 disagreement here)
     assert report["score_total"] is not None
-    assert report["score_total_source"] == "aggregated_mean"
+    assert report["score_total_source"] in ("aggregated_mean", "average_pool_mean")
 
     # §14: report JSON written to disk
     report_file = Path(f"data/reports/{run_id}/evaluation_report.json")
@@ -356,7 +356,7 @@ async def test_s5_sec14_checklist_ds_wb_same_prompt_rubric_version(tmp_path):
 
     report = repo.get_report(run_id)
     assert report["rubric_version"] == "v1.2"
-    assert report["prompt_version"] == "review-agent-v0.2"
+    assert report["prompt_version"] == "review-agent-v0.3"
 
 
 @pytest.mark.asyncio

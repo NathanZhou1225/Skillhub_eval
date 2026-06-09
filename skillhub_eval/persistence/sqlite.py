@@ -78,10 +78,30 @@ CREATE TABLE IF NOT EXISTS analytics_events (
     payload_json TEXT DEFAULT '{}',
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS conversations (
+    conversation_id TEXT PRIMARY KEY,
+    skill_id TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    active_run_id TEXT,
+    auto_run_count INTEGER NOT NULL DEFAULT 0,
+    max_auto_runs INTEGER NOT NULL DEFAULT 5,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lui_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    run_id TEXT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
 class SqliteRepository:
+    SCHEMA_VERSION = 1
+
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
@@ -92,11 +112,205 @@ class SqliteRepository:
         return conn
 
     def init_db(self) -> None:
+        """Single-transaction schema init and migration (no executescript)."""
         with self._conn() as conn:
-            conn.executescript(DDL)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS evaluation_runs (
+                    run_id TEXT PRIMARY KEY,
+                    skill_id TEXT NOT NULL,
+                    skill_bundle_path TEXT NOT NULL,
+                    bundle_state TEXT NOT NULL,
+                    evaluation_mode TEXT NOT NULL,
+                    orchestration_mode TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    risk_level_locked TEXT,
+                    level_achieved TEXT,
+                    review_status TEXT,
+                    score_total REAL,
+                    score_total_source TEXT,
+                    completeness_score REAL,
+                    reason_codes TEXT DEFAULT '[]',
+                    report_json TEXT,
+                    human_review_required INTEGER DEFAULT 0,
+                    human_review_trigger_codes TEXT DEFAULT '[]',
+                    started_at TEXT,
+                    completed_at TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stage_transitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    entered_at TEXT NOT NULL,
+                    exited_at TEXT,
+                    metadata_json TEXT DEFAULT '{}'
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS model_votes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    vote_json TEXT NOT NULL,
+                    latency_ms INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gaps_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    skill_id TEXT NOT NULL,
+                    gaps_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS human_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    operator TEXT NOT NULL,
+                    comment TEXT DEFAULT '',
+                    preserved_votes_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bundle_confirmations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    skill_id TEXT NOT NULL,
+                    field_path TEXT NOT NULL,
+                    confirmed_value TEXT,
+                    confirmed_by TEXT NOT NULL,
+                    confirmed_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS analytics_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    event_name TEXT NOT NULL,
+                    payload_json TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversations (
+                    conversation_id TEXT PRIMARY KEY,
+                    skill_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    active_run_id TEXT,
+                    auto_run_count INTEGER NOT NULL DEFAULT 0,
+                    max_auto_runs INTEGER NOT NULL DEFAULT 5,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS lui_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    conversation_id TEXT NOT NULL,
+                    run_id TEXT,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+
+            version = cursor.execute("PRAGMA user_version").fetchone()[0]
+            if version < 1:
+                existing = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('evaluation_runs')"
+                    ).fetchall()
+                }
+                for col, typedef in [
+                    ("conversation_id", "TEXT"),
+                    ("parent_run_id", "TEXT"),
+                    ("superseded_by_run_id", "TEXT"),
+                ]:
+                    if col not in existing:
+                        cursor.execute(
+                            f"ALTER TABLE evaluation_runs ADD COLUMN {col} {typedef}"
+                        )
+                cursor.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
 
     def _now(self) -> str:
         return datetime.now(UTC).isoformat()
+
+    def create_conversation(
+        self,
+        skill_id: str,
+        source: str,
+        max_auto_runs: int = 5,
+    ) -> str:
+        conv_id = str(uuid.uuid4())
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO conversations
+                    (conversation_id, skill_id, source, max_auto_runs, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (conv_id, skill_id, source, max_auto_runs, self._now()),
+            )
+        return conv_id
+
+    def get_conversation(self, conversation_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_conversation_status(self, conversation_id: str, status: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET status=? WHERE conversation_id=?",
+                (status, conversation_id),
+            )
+
+    def append_lui_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        run_id: str | None = None,
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO lui_messages
+                    (conversation_id, run_id, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (conversation_id, run_id, role, content, self._now()),
+            )
 
     def create_run(
         self,
@@ -104,15 +318,19 @@ class SqliteRepository:
         skill_bundle_path: str,
         bundle_state: str,
         evaluation_mode: str,
+        conversation_id: str | None = None,
+        parent_run_id: str | None = None,
     ) -> str:
         run_id = str(uuid.uuid4())
         with self._conn() as conn:
-            conn.execute(
+            cursor = conn.cursor()
+            cursor.execute(
                 """
                 INSERT INTO evaluation_runs (
                     run_id, skill_id, skill_bundle_path, bundle_state,
-                    evaluation_mode, started_at, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    evaluation_mode, conversation_id, parent_run_id,
+                    started_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -120,10 +338,17 @@ class SqliteRepository:
                     skill_bundle_path,
                     bundle_state,
                     evaluation_mode,
+                    conversation_id,
+                    parent_run_id,
                     self._now(),
                     self._now(),
                 ),
             )
+            if conversation_id:
+                cursor.execute(
+                    "UPDATE conversations SET active_run_id=? WHERE conversation_id=?",
+                    (run_id, conversation_id),
+                )
         return run_id
 
     def update_status(self, run_id: str, status: str, **kwargs) -> None:
@@ -139,6 +364,7 @@ class SqliteRepository:
             "reason_codes",
             "orchestration_mode",
             "completed_at",
+            "superseded_by_run_id",
         }
         for key, value in kwargs.items():
             if key in allowed:
@@ -216,11 +442,18 @@ class SqliteRepository:
         operator: str,
         comment: str,
         review_status: str,
+        narrative_override=None,
     ) -> None:
         """T5/Q6: merge expert ruling into persisted report_json."""
         report = self.get_report(run_id)
         if not report:
             return
+        if narrative_override is not None:
+            report["narrative"] = (
+                narrative_override.model_dump()
+                if hasattr(narrative_override, "model_dump")
+                else dict(narrative_override)
+            )
         hr = report.get("human_review") or {}
         hr["reviewer_action"] = action
         hr["operator"] = operator
@@ -254,11 +487,11 @@ class SqliteRepository:
             "SELECT run_id, skill_id, status, review_status, score_total, "
             "score_total_source, reason_codes, bundle_state, evaluation_mode, "
             "human_review_required, created_at "
-            "FROM evaluation_runs"
+            "FROM evaluation_runs WHERE status != 'superseded'"
         )
         params: list = []
         if human_review_required is not None:
-            query += " WHERE human_review_required=?"
+            query += " AND human_review_required=?"
             params.append(1 if human_review_required else 0)
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)

@@ -1,6 +1,6 @@
 # RECORD — SkillHub MVP
 
-> 总账文档：记录项目目标、决策与状态。Sprint 任务见 `.cursor_memory/active/SPRINT_skillhub-mvp.md`。
+> 总账文档：记录项目目标、决策与状态。阶段二 Sprint 已归档：`.cursor_memory/archive/SPRINT_skillhub-mvp_completed.md`；阶段三待新建 `active/SPRINT_*.md`。
 
 ---
 
@@ -10,7 +10,7 @@
 
 **四阶段设计路线**：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ 前端交互与集市生态 → ④ 立项提案与商业价值呈现。
 
-**当前交付边界**：阶段一文档定标已完成；阶段二 **2.0 + Phase 1（T1–T13）工程已收官**（**206 tests passing**，T8/T12 live + runbook）。**下一窗口**接续 **Phase 1 收尾（T14 UI 勾选）** 与 **BACKLOG 2.2–2.4**（对抗集、Prompt 校准、上架后健康检查）；**不重写** 1.2 阈值与 1.3 状态闸门。第一版以 `SKILL.md` 为主契约；R5 红线 case 分歧缩小**已明确不做 P0**（保留人工复核 + `skill_summary` 辅助）。独立 Portal / LUI 后置阶段三。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0 基础设施** ✅（235 tests）、**W1 场景词表** ✅（250 tests）、**W2 安全门禁** ✅（292 tests）、**W3 Propagator + 题型门槛** ✅（328 tests）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：阶段三 Wave 4**（LUI Agent + 对话/卡片 UI）。阶段二可选收尾（方差报告导出、grill-me A2 环境隔离）**已取消**——由阶段三 eval_case 自动生成与场景联动覆盖。
 
 ---
 
@@ -56,22 +56,105 @@
 - [x] **T8** testskills 三样本 live 验收 + [`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md)
 - [x] **T9–T12** Post-T8 质量修复 + T12 live 复测（Q-10/Q-11 PASS）
 - [x] **T13** warn 原因码（`WARN_COMPLETENESS_LOW` / `WARN_SCORE_MIDRANGE`）+ `skill_summary` AI 诊断摘要 + UI 三处接入
+- [x] **T14** UI 浏览器手工复测（runbook §T13 + 原 UI 清单；用户 2026-06-05 确认收官）
 
-### To-Start（阶段二 · 下一窗口 — 按推荐顺序）
+### Completed（阶段二 · 剩余任务 2.1b–2.6 + 2.4）
 
-| 顺序 | 编号 | 内容 | 说明 |
-|------|------|------|------|
-| 0（可选收尾） | **T14** | UI 浏览器手工复测 | runbook §T13 + 原 UI 清单；`skillhub-eval serve` |
-| 1 | **2.1b** | 存量 Skill 补齐 → `confirmed` + 全量复评 | tiered-memory 等：补 `eval_cases` 后复评；grill-me 完整度 warn→pass 路径 |
-| 2 | **2.2** | 对抗性测试用例集 | 诱导偏差 / 不合规 Prompt；high-risk 样本验证拦截 |
-| 3 | **2.3** | 对抗集跑通 + **打分方差 / Prompt 校准** | 用 T8/T12 DB + `stage_timing`；R5 红线口径属校准范畴，非紧急改码 |
-| 4 | **2.4** | 自动分 vs 专家偏差 → 稳定阈值；上架后健康检查前瞻 | `eval_type: post_listing_health_check` 工程预留 |
-| — | **Q-04** | 扩充基准 Skill 清单（3→5+） | 不阻塞 2.2 设计，阻塞更多 live 矩阵 |
+- [x] **2.1b** tiered-memory 补齐（3 case + sample_io）→ `confirmed + capability_full` live（67s，`awaiting_human_review`/`warn`，`MODEL_DISAGREEMENT_R5`）
+- [x] **2.3b** `report_narrative.py` + `docs/guides/报告呈现规范.md` — `headline_zh` / `reasons_zh` 进 report + UI
+- [x] **2.3c** `disagreement_brief_zh` 确定性分歧卡 + UI `renderDisagreementCard`
+- [x] **2.2** stock-radar high-risk 9 case（h/e/r/a）落盘 + `adversarial_case.yaml.tpl`
+- [x] **2.3** `scripts/variance_report.py` + Prompt `case_type_hint` 强化（脚本已备；Markdown 导出**不做**，阶段三覆盖）
+- [x] **2.5** AI 风险复核 Step ③（**DeepSeek** `ds_provider`）；`max(自报,规则,AI)` + `RiskLockProvenance` UI
+- [x] **2.6** `average_pool` / `redline_pool` 拆分；`REDLINE_MODEL_DISAGREEMENT`；`score_total_source=average_pool_mean`
+- [x] **2.4** ADR `post-listing-health-check` + `scripts/expert_bias_table.py`
+- [x] **T8 live 复跑**（2026-06-05，`data/t8_validation.db`）：stock-radar 65.2s，R5 + 红线模型分歧 + Approve 回写
+- [x] **UI 入口修复**：`/` → `/ui/index.html` 重定向；启动提示区分确认台与 `/docs`
 
-### To-Start（阶段三 / 四）
+### Completed（阶段二 · UI 体验改进 `ui-ux-improvement`）
 
-- [ ] 场景分类、LUI、Trending（阶段三）
-- [ ] 立项矩阵与 Demo 材料（阶段四）
+- [x] **UI 手工验收**（2026-06-05）：用户确认无阻塞问题
+- [x] Level0 中文诊断详情 + `REASON_ZH` 原因码映射
+- [x] 专家台/历史模态：运营结论、分歧说明、风险溯源三张卡（per-case 表之前）
+- [x] Approve 后 `build_report_narrative` 重建 + DS/GM 参考分展示
+- [x] per-case 三维中文标签 + feedback 80 字截断折叠 + Gemini 不可用横幅
+- [x] `skill_summary` 视觉重构（亮点/不足双列）；报告 UI 隐藏阶段耗时
+- [x] Prompt v0.4：per-case reason/dimension_notes 中文简洁约束
+- [x] **220 tests passing**；change 归档至 `openspec/changes/archive/2026-06-05-ui-ux-improvement/`
+
+### Cancelled（阶段二 · 可选收尾 — 用户决定不做）
+
+| 编号 | 原内容 | 取消理由 |
+|------|--------|----------|
+| **2.3 导出** | `variance_report.py` → `docs/runbooks/variance-*.md` | 阶段三 eval_case 自动生成与校准回路将覆盖方差分析需求；脚本保留备查即可 |
+| **A2 环境** | grill-me 未落盘硬防线复测 | 阶段三自动生成 eval_case 后，手工「未落盘」场景不再作为验收主线 |
+
+### Completed（阶段三 · Wave 3 Staging Case Propagator `wave3-propagator`）
+
+- [x] **W3** Staging Case Propagator + 题型完整性门槛 + `POST /conversations/start`（OpenSpec 归档 `openspec/changes/archive/2026-06-09-wave3-propagator/`）
+  - `core/schemas/enums.py`：`VALID_CASE_TYPES` + `CASE_TYPE_REQUIREMENTS`（low=3 happy；medium=3h+2e；high=3h+2e+2r+2a）
+  - `core/level0.py`：`check_case_gate` 新增类型覆盖检查 → `MISSING_REQUIRED_CASE_TYPES`；返回 `type_coverage` 字段
+  - `core/schemas/report.py`：`EvaluationReport` 新增 `case_type_coverage: dict[str, int]`
+  - `core/case_sanitizer.py`：`CaseSanitizer`（损坏 case 移至 `_broken/`；type gap 计算；`invalid_type_count` 隔离无效类型）
+  - `core/propagator.py`：`CasePropagator`（ds_provider LLM 按类型生成 case YAML + sample_io stub；服务端强制 id；fallback 占位降级）
+  - `providers/deepseek.py`：新增 `generate(prompt)` async 方法
+  - `adapters/api/routes/conversations.py`：`POST /conversations/start`（Security→Sanitizer→Propagator→re-ingest→post-scan→R_101 degraded；202 Accepted）
+  - `core/engine.py`：ingest 后填充 `case_type_coverage`
+  - **328 tests passing**（+36 Wave 3 测试，零回归）
+  - grill-me 三题锁定：① adversarial 降级方案 A；② type check 留在 check_case_gate；③ invalid_type_count 不计入 existing_counts
+  - **Review 修复**：Propagator 后 re-ingest + 重跑 security_scan（blocked→422）；LLM case id 服务端分配；`level0.check()` 补 `type_coverage`
+
+### Completed（阶段三 · Wave 2 安全门禁）
+
+- [x] **W2** Security Intake Gate Level 0.5（并行窗口落地；待 OpenSpec 归档）
+  - `data/security_patterns.yaml`（5 类规则组：提示注入 / 危险命令 / 硬编码密钥 / 越权描述 / 外传网络）
+  - `core/security_scan.py`（`SecurityScanResult`；blocked / warning / passed）
+  - `core/output_sanitizer.py`（PII / 手机 / 身份证 / 邮箱 / API key 输出泄密检测）
+  - 引擎双注入：Level 0 后 `blocked` → `SECURITY_BLOCKED` FAIL；CodeAssert 后 `leak` → `SECURITY_OUTPUT_LEAK` FAIL；`warning` 继续并写入报告
+  - `EvaluationReport` 新增 `security_status` / `security_findings` / `output_sanitizer_status` / `output_sanitizer_findings`
+  - **292 tests passing**（+42 Wave 2 测试，零回归）
+
+### Completed（阶段三 · Wave 1 场景分类 `wave1-taxonomy`）
+
+- [x] **W1** Q-08 场景分类词表（OpenSpec 归档 `openspec/changes/archive/2026-06-09-wave1-taxonomy/`）
+  - `data/category_taxonomy.yaml`（3 Level1 / 7 Level2 金融业务骨架）
+  - `core/taxonomy.py` 加载 + slug 校验 + `to_tree_json()`
+  - `ingest` 升级：`malformed_cases` 损坏 case 检测
+  - `scan_gaps`：`case_file_malformed` warn + `category` 词表校验
+  - `GET /taxonomy/categories` API
+  - `testskills/` 三样本 `category` frontmatter 回填
+  - **250 tests passing**（+15 Wave 1 测试）
+
+### Completed（阶段三 · Wave 0 基础设施 `wave0-infra`）
+
+- [x] **W0** conversations / run lineage / staging / lui_messages DDL（OpenSpec 归档 `openspec/changes/archive/2026-06-09-wave0-infra/`；grill-me 4 项修正后落地）
+  - SQLite 单事务 `init_db()` + `PRAGMA user_version` 宏微观双重门控迁移（`conversation_id` / `parent_run_id` / `superseded_by_run_id`）
+  - `conversations` 表（会话、quota、`active_run_id`）+ `lui_messages` 表（LUI 对话历史）
+  - `RunStatus.superseded` 显式枚举；`list_history` 默认过滤 superseded runs
+  - `create_run` 原子回写 `conversations.active_run_id`（Session Lock 指针）
+  - `core/bundle_resolver.py`：领域语义 IO（`ensure_staging` 原子重命名、`BundleNotReadyError` 状态守卫）；`settings.staging_root`
+  - **235 tests passing**（+15 Wave 0 测试）
+
+### To-Start（阶段四）
+
+| 顺序 | 内容 | 说明 |
+|------|------|------|
+| — | **阶段四** | 立项矩阵与 Demo 材料 |
+
+---
+
+### In Progress（阶段三 · Wave 清单）
+
+| Wave | 内容 | 状态 |
+|------|------|------|
+| **W0** | 基础设施（conversations / run lineage / staging / lui_messages DDL） | ✅ 已收官（235 tests） |
+| **W1** | 3.1 Q-08 场景分类词表（taxonomy.yaml + ingest 校验 + malformed_cases） | ✅ 已收官（250 tests） |
+| **W2** | Security Intake Gate Level 0.5（静态规则 + sanitizer） | ✅ 已收官（292 tests） |
+| **W3** | Staging Case Propagator + 题型完整性门槛 + POST /conversations/start | ✅ 已收官（328 tests） |
+| **W4** | LUI Agent + 对话/卡片 UI（Session Lock / quota / 专家冻结 / confirm-cases） | 🟡 待启动 |
+| **W5** | 本地 Demo 验收（三剧本 + runbook） | 🟡 待启动 |
+| **W6** | 3.3 集市生态（listing / Trending / 消费者 NL 匹配 / publish Freeze） | 🟡 待启动 |
+| **W7** | 服务器彩排（release zip + smoke + deployment runbook） | 🟡 待启动 |
 
 ---
 
@@ -79,10 +162,11 @@
 
 | 事项 | 状态 |
 |------|------|
-| 阶段二 **2.0 + Phase 1（T1–T13）** | **✅ 工程收官**（206 tests；live runbook 已盖印） |
-| 阶段二 **T14** UI 手工复测 | **待下一窗口勾选**（runbook §T13） |
-| 阶段二 **2.2–2.4** | **待启动**（见上表；BACKLOG 与 Sprint 已对齐） |
-| 运营向说明文档 | `docs/guides/Skill准入与评估机制说明.md`（与 1.2/1.3 对齐，供业务阅读） |
+| 阶段二 **全量收官** | **✅**（220 tests；Sprint 归档 `SPRINT_skillhub-mvp_completed.md`） |
+| **阶段三 Wave 0** | **✅ 收官** — `wave0-infra` 落地；235 tests |
+| **阶段三 Wave 1** | **✅ 收官** — Q-08 场景分类词表（`wave1-taxonomy`）；250 tests |
+| **阶段三 Wave 2** | **✅ 收官** — Security Intake Gate Level 0.5；292 tests |
+| **阶段三 Wave 3** | **✅ 收官** — Case Propagator + 题型完整性门槛 + POST /conversations/start；328 tests |
 
 ---
 
@@ -97,13 +181,17 @@
 | Q-05 | 独立 Portal，当前不急 | P1 | **已确认** |
 | Q-06 | 保留人工抽检 | P2 | **已确认** |
 | Q-07 | 权重 40/30/30 | P2 | **暂定** |
-| Q-08 | 场景分类一级词表 | P2 | 待共创 |
+| Q-08 | 场景分类一级词表 | P2 | **骨架已落地（W1）**；`data/category_taxonomy.yaml` + API；PM 可扩展词条；Propagator（W3）待接入 |
 | Q-09 | 评估时延偏高导致 `EVAL_WORKFLOW_TIMEOUT` | P1 | **T8 复测通过**：stock-radar 9 case 全量 **48.8s**（high 预算 600s）；T7 Semaphore+分级 timeout 有效 |
 | Q-10 | **DeepSeek 所有 case 恒定打 85 分** | P0 | **T12 live 通过**：stock-radar DS 分 `0/79/80.5/82`；grill-me `91.4–92.6`；无大面积同分锁死 |
 | Q-11 | **三维打分字段全为 null**；`awaiting_confirm` / `degraded` 无诊断卡 | P1 | **T12 live 通过**：`model_votes.dimension_scores` 三维均有 0–100 值；A1 诊断卡 API + UI helper 验通 |
 | Q-12 | **warn 原因不明确**（完整度不足 vs 分数中等）；pass/warn 均无 Skill 整体摘要 | P2 | **已解决**（T13）：warn 原因码 + `skill_summary` + UI 摘要卡 |
-| Q-13 | **R5 频繁触发**（如 stock-radar DS/Gemini 红线 case 口径差）；增加人工复核负担 | P2 | **已决策暂缓工程改码**：用户确认不做 P0「缩小分歧」；2.3 Prompt 校准 + 人工 + `skill_summary` 为主路径 |
-| Q-14 | **high-risk 长包 UI 跑评** 偶发双模型全超时、无分数 | P1 | **已缓解**：90s provider timeout + `EVAL_PROVIDER_UNAVAILABLE` 面板；T14 浏览器再验 |
+| Q-13 | **R5 频繁触发**（如 stock-radar DS/Gemini 红线 case 口径差）；增加人工复核负担 | P2 | **2.6 已落地**：average/redline 池拆分 + `REDLINE_MODEL_DISAGREEMENT`；能力分可经 `average_pool_mean` 展示；真分歧仍人工 |
+| Q-14 | **high-risk 长包 UI 跑评** 偶发双模型全超时、无分数 | P1 | **已缓解 + T14 收官** |
+| Q-15 | **业务场景归类 + eval_case 自动生成**（与 Q-08 联动） | P2 | **W3 主线**；Q-08 词表已落地（W1）；Propagator 按 risk+category 生成分型 case（低=happy，中=happy+edge，高=happy+edge+refusal+adversarial）；利用 `category_taxonomy.yaml` 的 `case_template_hint` 定制场景 |
+| Q-16 | **风险 Step ③ AI 复核未落地**（仅 ① 自报 + ② 规则扫描） | P1 | **已解决（2.5）**：DeepSeek `review_risk_level` + `RiskLockProvenance`；失败降级为 ①+② |
+| Q-17 | **UI 业务可读性**（中文结论/分歧卡/专家台信息密度） | P1 | **已解决**（`ui-ux-improvement` 归档；用户 2026-06-05 验收通过） |
+| Q-18 | **grill-me A2 验收环境** | P2 | **取消**（2026-06-05）：阶段三 eval_case 自动生成覆盖；A2 手工未落盘场景不再追 |
 
 ---
 
@@ -149,12 +237,38 @@
 | **T5 `provider_summary` + 专家裁定回写** | 包级/per-case 双模型分；Δ≥15 浅红；`submit_review` 后 `report_json.human_review` 与 per-case 快照保留 | 仅 `score_total=null` 文案；裁定后丢弃分歧明细 |
 | **T7 时延控制（grill-me Q2）** | `Semaphore(3)` 共享并发；provider **45s**（high-risk **90s**）；429/503 指数退避 max 3× base 1s；workflow **low/medium 300s、high 600s**；`stage_timing` 埋点 | 无并发上限挤爆 API；180s 一刀切；5xx 全量重试拖垮时延 |
 | **warn 原因码与 Skill 摘要（T13）** | `DecisionStage.warn_reason_codes()` 区分完整度/分数 warn；Phase 5.5 Gemini 合成 `skill_summary`；UI `renderSkillSummaryCard` + `_warnReasonText` | 仅靠 `review_status=warn` 无文案；客户端拼接 feedback 无结构化摘要 |
-| **R5 分歧缩小不做 P0（Q-13）** | 红线 case 模型哲学差属校准范畴；人工复核 + per-case 表 + `skill_summary` 支撑决策 | 本阶段改聚合/均分掩盖分歧（与 1.2 R5 契约冲突） |
+| **R5 优化纳入 2.6（修订 Q-13）** | 1.2 已定义红线不参与能力均分，但 `aggregate.py` 当前用**全 case** 算包级分触发 R5；2.6 对齐 `average_pool`/`redline_pool` 拆分，减少「红线口径差」导致的无谓 null 分；真分歧仍 `score_total=null` + 人工 | **简单对 disagree 取平均**（掩盖分歧、违反 R5）；**调高 10 分阈值**（属改 1.2 阈值，本阶段不做） |
+| **报告运营解释层（2.3b）** | `headline_zh` / `reasons_zh` 进 `report`；UI 只读；便于业务观察 | 继续裸露 `reason_codes` 英文枚举 |
+| **分歧说明卡（2.3c）** | R5 必出确定性 `disagreement_brief_zh`；非 R5 仅 per-case Δ≥15 高亮 | 全 case 都出长文说明（信息过载） |
+| **AI 风险复核（2.5）** | 补齐 1.2/1.3 第三步；与规则扫描就高合并 | AI 单独下调 risk（违反就高不就低） |
+| **场景联动 eval_case（B 登记）** | 与 Q-08 词表、阶段三集市分类一致后再做自动生成 | 评估阶段无分类硬编码长尾规则（与 Project-Background 原则冲突） |
 | **T6 监控反射面：历史/详情消费 stage_timing** | `GET /eval/report` 暴露 `stage_timings` + `timing_summary`；历史表 `formatScoreCompact` + 耗时列；超时终态展示 `stage_progress` + 阶段条形图 | T8 live 数据仅落库、UI 静默（数据孤岛） |
 | **研发交接：四阶段 MVP 全部完成后才交接 + 编写交接文档** | 当前仍在 MVP Demo 阶段；过早交接徒增文档维护成本 | 立项演示后即交接（MVP 尚未完整） |
 | **Prompt 格式示例改用 `<integer 0-100>` 占位符，禁止照抄** | T8 live 实测发现 DeepSeek 字面遵循示例数值 85；占位符 + 评分段说明给模型语义锚定，无需具体数字 | 完全删除示例（缺结构引导→可能输出非法 JSON）；保留示例但只改数字（模型仍有锚定风险） |
 | **三维权重 40/30/30 硬编码在 `_extract_score`** | 与 1.2 协议 §3 权重统一，单一真源；fallback 保留平均逻辑向后兼容 mock provider | 由 prompt 动态传权重（增加变量，测试困难） |
 | **`check_providers.py` 同步修复示例分数** | 防止未来接入新模型时连通测试的示例值影响新模型打分锚定 | 不改（健康检查而已）|
+| **2.6-A：R5/能力分仅用 average_pool** | 对齐 1.2 `case_scoring`；红线分歧标 `REDLINE_MODEL_DISAGREEMENT` 不单独触发包级 R5；`score_total_source=average_pool_mean` | 全 case 混算 R5（放大无谓分歧）；R5 时强行均分（掩盖分歧） |
+| **红线模型分歧仍强制人工**（grill-me Q1） | `REDLINE_MODEL_DISAGREEMENT` → `awaiting_human_review`；能力分可展示但不 auto pass | 红线分歧自动 pass；红线参与能力均分 |
+| **AI 风险复核用 DeepSeek**（grill-me Q2） | 与主评审分工一致；Gemini 仅作双模型打分 | Gemini 做 risk-only（增加耦合与成本） |
+| **方差报告落盘路径**（grill-me Q5） | `docs/runbooks/variance-*.md` 可提交；便于 2.3 迭代对照 | 仅 stdout 临时输出 |
+| **确认台根路径重定向** | `/` → `/ui/index.html`；避免业务方访问 404 | 仅文档提示正确 URL（易踩坑） |
+| **UI 体验改进（ui-ux-improvement）** | 手工验收驱动：Level0 中文诊断、运营结论/分歧/风险溯源卡前置、Approve narrative 重建、per-case 中文标签与截断、Gemini 横幅、skill_summary 双列、隐藏阶段耗时；prompt v0.4 中文约束 | 仅改 prompt 不改阈值；旧 DB 记录 feedback 仍为英文（新跑生效）；进度条 dimension_notes（值为字符串无法驱动） |
+| **阶段二可选收尾取消** | 方差报告 Markdown 导出、grill-me A2 环境隔离**不做**；阶段三 eval_case 自动生成与场景联动承接 | 继续追 A2 手工隔离（阶段三后意义递减）；方差报告落盘（阶段三校准回路更系统） |
+| **3.2 LUI 重定义为「作者 Onboarding Agent」** | LUI 主线是评审流程中的对话式补全+代写+自动复评，不是「用自然语言找 Skill」；后者归 3.3 集市 | LUI = 消费者搜索（误解；导致 Propagator / staging / 专家冻结等核心能力无处安放） |
+| **B1 方案：Propagator 预生成 case 再 degraded 初评** | 上传后静默生成 1–2 条 happy path + 1 条 adversarial case，激活双模型评审得到 skill_summary；复用现有评审链，不新开评分逻辑 | B2（文档专用评审 Prompt）冗余代码多且三维分母在无 case 时崩溃；B3（R_101 无 summary）不满足「初评就要双模型总结」需求 |
+| **合成 case 身份隔离（原方案，已修订）**：`confirmed=false` 仅参与 degraded 初评 | 原意：堵死「靠 AI 伪造 case 刷分上架」漏洞 | **已被 W3 新方案取代**（见下方「W3 case 评估策略」决策行） |
+| **W3 case 评估策略：题型完整性门槛取代 confirmed 计数门槛** | 反作弊逻辑从「谁写的题」改为「包含了什么类型的题」：adversarial/refusal case 本身是天然反向压力，AI 生成合法；low=全 happy_path，medium=happy+edge，high=happy+edge+refusal+adversarial；上架仅需：题型完整 + 数量达标（3/5/9）+ 分数达标；`confirmed` 字段降级为可选透明度标注（listing 展示，非门槛） | 原 confirmed 计数（摩擦极高，无人手写 9 道 YAML；high-risk 作者放弃上架）；纯 AI 自问自答无类型约束（circular signal 风险） |
+| **conversation_id + 级联 run_id + superseded** | 一次上传创建 conversation；每次代写开新 run_id；旧 run 归档为 superseded；保留完整修改历史和回溯能力 | 单 run_id 聊到底（丢历史；超时后找不回及格分） |
+| **max_auto_runs=5 + Expert 操作后 quota reset=0** | 防止死循环烧 token；Expert Approve/Reject 后重置计数，给作者新的 5 次生命线 | 不设上限（无限 LLM 调用风险）；Expert 后不重置（作者永久卡死） |
+| **专家挂起时 LUI 只读冻结；Reject 解冻** | 防止作者在专家审 R_102 时偷跑到 R_104 导致审计快照失效；Reject 携带驳回意见重新激活 LUI | Expert 挂起时仍允许代写（专家审计与实际文件脱节） |
+| **Session Lock 409（mutation 前检查 active run 状态）** | `/chat` 和 `/confirm-cases` 在 staging mutation 前检查引擎是否 running；防止 LUI 聊天代写与 case confirm 并发冲突 | 无锁（前端并发导致 active_run_id 错乱） |
+| **上架物 Export Freeze（data/listings/ 物理快照）** | Pass 后将 staging 快照到 `data/listings/{skill_id}/{version}/`；集市只读归档目录；staging 变只读，断开 onboarding 影子沙盒与集市的物理纽带 | 集市软引用 staging 目录（上架后 LUI 继续代写会篡改已上架 Skill） |
+| **Security Intake Gate Level 0.5（静态规则 + adversarial case 复用）** | MVP 不新增独立 LLM 安全链路；静态规则扫描 + 后置 PII sanitizer；adversarial/refusal case 通过现有双模型评审覆盖动态安全测试 | 独立 LLM 安全评审 Agent（成本翻倍；与现有评分体系重复） |
+| **本地 Demo → 服务器彩排（release zip）→ 后续 Git/Docker** | Wave 5 纵切跑通后先 release zip 彩排，提前发现 Linux 路径/权限问题；不等阶段三全完才第一次部署 | 先迁服务器再开发阶段三（部署问题混入产品开发）；等阶段三全完再部署（彩排太晚） |
+| **Wave 0 DDL：单事务 cursor.execute + user_version + table_info 微观列检** | 消除 `executescript` 隐式 COMMIT 的 crash 窗口；migration 幂等可重跑 | 纯 `executescript`（crash 后 duplicate column）；仅 try/except ALTER（无版本追踪） |
+| **Wave 0 RunStatus.superseded 显式枚举** | UI/历史台仅凭 `status` 判断废弃 run，无需额外查 `superseded_by_run_id` | 隐式标记（每处渲染双重判断，状态机不完整） |
+| **Wave 0 BundleResolver 领域语义接口 + 原子重命名** | 屏蔽裸路径；`ensure_staging` tmp→rename 消除半复制中间态；`BundleNotReadyError` 替代 upload 模式 TypeError | 只返回路径 tuple（写穿透风险）；`exists()` 幂等跳过残缺 staging |
+| **Wave 0 create_run 原子回写 active_run_id** | Session Lock 指针与 run 插入同事务，W3 初评期间即有锁保护 | API 层显式两步（幽灵 run 窗口）；推迟到 W4（R_101 期间无锁） |
 
 ---
 
@@ -176,53 +290,52 @@
 
 ---
 
-## 下一窗口接续指引（阶段二 · 2.2–2.4 + T14）
+## 阶段二接续指引（2.1b–2.6）
 
-### 新窗口开场句（可复制）
+### 新窗口开场句（可复制 · 阶段三 Wave 3）
 
-> 阶段二 **2.0 + Phase 1（T1–T13）已收官**（**206 tests**，T8/T12 live runbook）。本窗口：**T14** runbook UI 勾选（可选）→ **2.1b** 存量补齐复评 → **2.2** 对抗集 → **2.3** 方差/Prompt 校准 → **2.4** 上架后健康检查前瞻。必读 `RECORD.md`「当前状态·To-Start」、Sprint、[`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md)。**不重写** 1.2 阈值；**不做** R5 聚合改码（Q-13）。
+> 阶段三 **W0/W1/W2 已收官**（292 tests）。本窗口主线：**Wave 3** — Staging Case Propagator + Case Sanitizer + `POST /conversations/start` + R_101 `degraded` 初评 + `confirmed=false` 合成 case 防线。必读 `RECORD.md`、`.cursor_memory/active/SPRINT_phase3-marketplace.md` §Wave 3。**不重写** 1.2 阈值。W2 安全门禁已落地（Level 0.5 静态扫描 + 输出脱敏）；W3 上传入口需复用 `security_scan`。合成 case 仅参与初评，**不得**计入 `capability_full` PASS 数量门槛。
+
+### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
+
+**现象（stock-radar）**：红线题上 DeepSeek 打 0、Gemini 打 90+ → 包级分差 ≥10 → 触发 R5 → `score_total=null` → 整包必进人工。
+
+**1.2 本意**：红线 case **一票否决**，**不参与** happy/edge 能力均分（JSON 字段 `case_scoring.redline_pool` / `average_pool`）。
+
+**当前实现缺口**：`aggregate.py` 用**全部 case** 的模型均分算 R5，红线低分与高分题混在一起，放大无谓 R5。
+
+**2.6 推荐方向（2.3 有方差数据后 grill-me 选型）**：
+
+| 方案 | 做法 | 效果 |
+|------|------|------|
+| **2.6-A（首选）** | R5 分差与 `score_total` 聚合**仅用 average_pool**（happy+edge）；红线单独二元否决 + 可选「红线模型分歧」子原因 | 能力分可展示；红线真分歧仍人工 |
+| **2.6-B** | 红线 case 仅当**双模型均判 fail** 才 veto；单模型 fail → 标 `REDLINE_DISAGREEMENT` + 人工，不直接 FAIL | 减少误杀；需 1.3 运营话术 |
+| **2.6-C（2.3 重叠）** | 仅 Prompt 校准红线 rubric，不改 `aggregate.py` | 软收敛，不保证结构性修复 |
+
+**明确不做**：分歧时强行 `mean(DS,WB)` 出综合分；调高 R5 的 10 分阈值（改 1.2）。
 
 ### 已完成（勿重复实现）
 
 | 范围 | 证据 |
 |------|------|
-| **2.0** 评估引擎 + UI + CLI | `skillhub_eval/` 六边形单仓；206 tests |
-| **Phase 1 T1–T13** | gaps、R5 可视化、T7 时延、Post-T8 prompt、T13 warn 文案 + `skill_summary` |
-| **2.1 首版样本** | `testskills/` 三样本 + T8/T12 矩阵 |
-| **2.3a 时延** | 已并入 T7（非独立待办） |
-
-### 必读（按顺序）
-
-1. 本 `RECORD.md` — 「当前状态」「待解决问题」「已做决策」
-2. [`.cursor_memory/active/SPRINT_skillhub-mvp.md`](.cursor_memory/active/SPRINT_skillhub-mvp.md)
-3. [`.cursor_memory/backlog/BACKLOG.md`](.cursor_memory/backlog/BACKLOG.md)
-4. [`docs/runbooks/testskills-phase1-validation.md`](docs/runbooks/testskills-phase1-validation.md) — T14 §T13
-5. [`docs/specs/评审Agent工作流与Prompt骨架.md`](docs/specs/评审Agent工作流与Prompt骨架.md) v0.2
-6. [`docs/specs/评估指标与准入标准.md`](docs/specs/评估指标与准入标准.md) v1.2.1
-7. [`docs/guides/Skill准入与评估机制说明.md`](docs/guides/Skill准入与评估机制说明.md) — 业务向
-
-### 推荐执行顺序
-
-| 步骤 | 任务 | 验收 |
-|------|------|------|
-| 0 | **T14** UI 手工复测（可选） | runbook §T13 + 原 UI 清单全部 `[x]` |
-| 1 | **2.1b** | tiered-memory / grill-me 补齐 `eval_cases` → confirmed 全量 → pass 或可追溯 warn |
-| 2 | **2.2** | 对抗 case YAML + 接入 `eval_cases`；high-risk 可演示拦截 |
-| 3 | **2.3** | 跑对抗集；方差报告；Prompt 迭代（含红线 `case_type_hint`，**不改 R5 聚合**） |
-| 4 | **2.4** | 专家偏差表；`post_listing_health_check` 数据模型/API 草图 |
+| **2.0** 评估引擎 + UI + CLI | `skillhub_eval/`；214 tests |
+| **Phase 1 T1–T14** | gaps、R5 可视化、T7、T13、T14 |
+| **2.1b–2.6 + 2.4** | `report_narrative`/`risk_review`/`aggregate` 池拆分；T8 live 矩阵 |
+| **2.3a 时延** | T7 |
 
 ### 硬约束（仍有效）
 
 1. **PASS** 仅 `confirmed` + `capability_full`。
-2. **R5** → `score_total = null`，禁止均分掩盖。
-3. **降级**未确认 draft 不参与 CodeAssert 失败。
-4. 校准结论写入文档/配置，**不**在 2.3 中静默改 1.2 正文。
+2. **真分歧**仍 `score_total = null`，禁止简单均分掩盖。
+3. **风险锁定**只抬不降：`max(自报, 规则, AI)`。
+4. 校准结论进 report/运营配置，**不**静默改 1.2 阈值正文。
 
-### 勿做
+### 勿做（Wave 3 窗口）
 
-- 重复 Phase 1 工程（T1–T13）。
-- P0 级「强制缩小 R5 分差」改聚合（Q-13）。
-- 阶段三 Portal / LUI / Q-08 词表。
+- 重复 W0/W1/W2 工程实现（conversations DDL、taxonomy、security_scan / output_sanitizer 已通）。
+- 静默修改 1.2 阈值或 R5 10 分线。
+- 合成 case `confirmed=false` 参与 `capability_full` PASS 数量判定（防线漏洞）。
+- Wave 4 LUI 全量 UI（W3 只做 Propagator + conversation start API + confirmed 防线；LUI 对话归 W4）。
 
 ---
 
@@ -242,11 +355,19 @@
 | **阶段二工程化设计 Spec** | `docs/superpowers/specs/2026-06-02-phase2-eval-engine-design.md` |
 | 竞品调研 | `docs/research/Skill数据定义与编写规范调研.md` |
 | 架构 | `.cursor_memory/global/ARCHITECTURE.md` |
-| Active Sprint | `.cursor_memory/active/SPRINT_skillhub-mvp.md` |
+| 已归档 Sprint | `.cursor_memory/archive/SPRINT_skillhub-mvp_completed.md` |
+| Active Sprint | `.cursor_memory/active/SPRINT_phase3-marketplace.md` |
+| Wave 0 change | `openspec/changes/archive/2026-06-09-wave0-infra/` |
+| Wave 1 change | `openspec/changes/archive/2026-06-09-wave1-taxonomy/` |
+| Wave 3 change | `openspec/changes/archive/2026-06-09-wave3-propagator/` |
 | Backlog | `.cursor_memory/backlog/BACKLOG.md` |
 | Skill 样例参考 | `../个股诊断/Skill/stock-radar-V6.2/` |
 | **Phase 1 实现计划** | `docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md` |
+| **阶段二剩余实施计划** | `docs/superpowers/plans/2026-06-05-phase2-eval-remaining.md` |
+| **报告呈现规范（业务向）** | `docs/guides/报告呈现规范.md` |
+| Post-Listing Health Check ADR | `docs/superpowers/specs/2026-06-05-post-listing-health-check-adr.md` |
 | testskills 样本库 | `testskills/`（stock-radar-V6.2、grill-me、tiered-memory-sprint-manager） |
+| Live 验收 DB | `data/t8_validation.db`、`data/acceptance_2_1b.db` |
 
 ---
 
@@ -278,3 +399,19 @@
 | 2026-06-03 | **T12 live 收官**：`t8_live_validation.py` 矩阵复跑（stock-radar 58.8s，R5+Approve）；`t12_audit.py` Q-10/Q-11 **PASS**；`t12_ui_smoke.py` Fix-4 **PASS**；Phase 1 工程收官 |
 | 2026-06-03 | **T13 交付**：P2 warn 原因码 + `skill_summary` Phase 5.5 合成 + UI 诊断摘要卡；provider 全失败显式 `EVAL_PROVIDER_UNAVAILABLE`；high-risk 90s call timeout；**206 tests** |
 | 2026-06-03 | **阶段二 Phase 1 Handoff**：RECORD/Sprint/BACKLOG 对齐；下一窗口 **T14（可选）→ 2.1b → 2.2 → 2.3 → 2.4**；Q-13 R5 缩小暂缓；Handoff 节重写；增补 `Skill准入与评估机制说明.md` 引用 |
+| 2026-06-05 | **需求对齐**：T14 收官；Q-A～E 默认锁定；新增 **2.3b/c**（报告规范 + 分歧说明卡）、**2.5**（AI 风险复核）、**2.6**（R5 聚合优化，修订 Q-13）；**Q-15** 场景联动 eval_case 登记后续（依赖 Q-08）；本窗主线 **2.1b** |
+| 2026-06-05 | **实施计划落盘**：[`docs/superpowers/plans/2026-06-05-phase2-eval-remaining.md`](docs/superpowers/plans/2026-06-05-phase2-eval-remaining.md) — Task 1–9（2.1b→2.3b/c→2.2→2.3→2.5→2.6→2.4）；文末 grill-me 决策表待挑刺 |
+| 2026-06-05 | **阶段二剩余 Task 1–9 首版执行**：`report_narrative`/`risk_review`(DS)/aggregate 池拆分/`REDLINE_MODEL_DISAGREEMENT`/UI 中文卡/tiered-memory 2.1b 补全包/ADR+方差脚本；**214 tests**；Q1–Q5 锁定 |
+| 2026-06-05 | **T8 live 复跑收官**：`t8_live_validation.py` ~236s；stock-radar `REDLINE_MODEL_DISAGREEMENT`+R5+Approve；tiered 2.1b 67s warn；`/`→UI 重定向 |
+| 2026-06-05 | **UI 体验改进收官**：OpenSpec `ui-ux-improvement` 实现 + 手工验收通过；**220 tests**；归档至 `openspec/changes/archive/2026-06-05-ui-ux-improvement/`；**阶段二收官** |
+| 2026-06-05 | **Sprint 归档**：`SPRINT_skillhub-mvp` → `archive/SPRINT_skillhub-mvp_completed.md`；方差导出 + A2 环境**取消**；**下一窗口阶段三**（eval_case 自动生成纳入主线） |
+| 2026-06-09 | **阶段三 Scope 定标**：LUI 重定义为「作者 Onboarding Agent」（B1 Propagator + conversation/run lineage + staging + 专家冻结 + quota 熔断）；Security Intake Gate Level 0.5（静态规则 + adversarial case 复用）；上架物 Export Freeze；消费者 NL 匹配归 3.3 集市；eval_case 自动生成并入 3.2 Propagator；Q-08 金融业务词表骨架确定；部署路线：本地 Demo → 服务器彩排（release zip）→ Git/Docker |
+| 2026-06-09 | **阶段三 Sprint 创建**：`.cursor_memory/active/SPRINT_phase3-marketplace.md`（Wave 0–7，42 个子任务，含 4 个工程漏洞补丁）；RECORD.md 推进至进行中 |
+| 2026-06-09 | **Wave 0 收官**：OpenSpec `wave0-infra` grill-me 4 项修正后 subagent 落地；conversations/lui_messages DDL、run lineage、BundleResolver、Session Lock 指针；**235 tests**；Sprint W0-1～W0-5 勾选；下一 Wave 1（Q-08 taxonomy） |
+| 2026-06-09 | **Wave 1 收官**：OpenSpec `wave1-taxonomy`；金融业务词表 + taxonomy 模块 + malformed_cases + category gaps + API + testskills 三样本回填；**250 tests**；Q-08 骨架落地；下一 Wave 2/3 |
+| 2026-06-09 | **Wave 1 归档**：`openspec/changes/wave1-taxonomy` → `archive/2026-06-09-wave1-taxonomy/`；无 delta specs 需 sync |
+| 2026-06-09 | **Wave 0 归档**：`openspec/changes/wave0-infra` → `archive/2026-06-09-wave0-infra/`；无 delta specs 需 sync |
+| 2026-06-09 | **Wave 2 收官**（并行窗口）：Security Intake Gate Level 0.5 落地；data/security_patterns.yaml（5 类规则组）+ core/security_scan.py（SecurityScanResult）+ core/output_sanitizer.py（PII/手机/身份证/API key 检测）；引擎双注入（Level 0 后 blocked→SECURITY_BLOCKED FAIL；CodeAssert 后 leak→SECURITY_OUTPUT_LEAK FAIL）；EvaluationReport 新增 4 个安全字段；**292 tests**（+42） |
+| 2026-06-09 | **W3 设计方向锁定（脑暴）**：废弃「confirmed=true 计数门槛」；改为「题型完整性门槛」——Propagator 按 risk 生成分型 case 套餐（low=3 happy；medium=3 happy+2 edge；high=3 happy+2 edge+2 refusal+2 adversarial）；adversarial/refusal 本身是天然反向压力，AI 生成合法；`confirmed` 字段降级为透明度标注；PASS 门槛改为：题型完整 + 数量达标 + 分数达标；W3 需先 grill-me 后执行 |
+| 2026-06-09 | **Wave 3 收官**：OpenSpec `wave3-propagator`；grill-me 3 题锁定；subagent 5 tasks 执行；**328 tests**（+36）；Q-15 场景联动 eval_case 自动生成已落地 |
+| 2026-06-09 | **Wave 3 Review 修复 + 归档**：Propagator 后 re-ingest + post-scan（合成 case blocked→422）；服务端强制 case id；OpenSpec → `archive/2026-06-09-wave3-propagator/`；**328 tests** 全绿 |

@@ -215,6 +215,17 @@ const SECURITY_PLACEHOLDERS = {
   security_notes: '其他安全敏感约束',
 };
 
+const REASON_ZH = {
+  'MODEL_DISAGREEMENT_R5': '双模型评审存在明显分歧，综合分暂不展示',
+  'REDLINE_MODEL_DISAGREEMENT': '红线用例上模型判断不一致，需人工复核',
+  'WARN_COMPLETENESS_LOW': '元数据完整度未达 90',
+  'WARN_SCORE_MIDRANGE': '综合分处于中等档（70–84）',
+  'LEVEL0_SCHEMA_FAIL': 'Skill 包结构校验失败',
+  'RISK_CASE_COUNT_INSUFFICIENT': '当前风险等级用例数量不足',
+  'EVAL_WORKFLOW_TIMEOUT': '评估超时',
+  'EVAL_PROVIDER_UNAVAILABLE': '双模型 API 均未返回有效分数',
+};
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(name) {
   ['author','expert','history'].forEach(t => {
@@ -341,6 +352,7 @@ function formatScoreCompact(d) {
 }
 
 function formatTimingSummaryCell(summary) {
+  // stage_timing helper — used by history table cell
   if (!summary || !summary.total_phase_ms) {
     return '<span class="text-gray-400">—</span>';
   }
@@ -427,11 +439,20 @@ function renderSkillSummaryCard(d, opts = {}) {
   if (!ss || typeof ss !== 'object') return '';
   const { collapsed = true } = opts;
 
-  const verdict = ss.overall_verdict ? `<p class="text-sm font-medium text-gray-800 mb-2">${escapeHtml(ss.overall_verdict)}</p>` : '';
-  const strengths = (ss.strengths || []).map(s =>
-    `<li class="text-xs text-green-800 py-0.5">✓ ${escapeHtml(s)}</li>`).join('');
-  const weaknesses = (ss.weaknesses || []).map(w =>
-    `<li class="text-xs text-red-800 py-0.5">✗ ${escapeHtml(w)}</li>`).join('');
+  const verdict = ss.overall_verdict
+    ? `<div class="bg-slate-100 rounded-lg px-3 py-2 text-base font-semibold text-slate-800 mb-2">${escapeHtml(ss.overall_verdict)}</div>`
+    : '';
+
+  const strItems = (ss.strengths || []).map(s =>
+    `<div class="text-xs bg-green-50 text-green-800 rounded-md px-2 py-1">✓ ${escapeHtml(s)}</div>`).join('');
+  const weakItems = (ss.weaknesses || []).map(w =>
+    `<div class="text-xs bg-red-50 text-red-800 rounded-md px-2 py-1">✗ ${escapeHtml(w)}</div>`).join('');
+  const swGrid = (strItems || weakItems) ? `
+    <div class="grid grid-cols-2 gap-2 mb-2">
+      <div>${strItems ? `<div class="text-xs font-semibold text-green-700 mb-1">亮点</div>${strItems}` : ''}</div>
+      <div>${weakItems ? `<div class="text-xs font-semibold text-red-700 mb-1">不足</div>${weakItems}` : ''}</div>
+    </div>` : '';
+
   const dims = ss.dimension_notes || {};
   const dimRows = Object.entries({
     instruction_following: '指令遵循',
@@ -440,20 +461,14 @@ function renderSkillSummaryCard(d, opts = {}) {
   }).map(([k, label]) => dims[k]
     ? `<div class="text-xs text-gray-600 py-0.5"><span class="font-medium text-gray-700">${label}：</span>${escapeHtml(dims[k])}</div>`
     : '').join('');
+
   const rec = ss.recommendation
-    ? `<div class="mt-2 pt-2 border-t border-indigo-100 text-xs text-indigo-700"><span class="font-medium">建议：</span>${escapeHtml(ss.recommendation)}</div>`
+    ? `<div class="bg-blue-50 border-l-4 border-blue-400 px-3 py-2 text-xs text-blue-800 mt-2">
+        <span class="font-medium">💡 建议：</span>${escapeHtml(ss.recommendation)}
+       </div>`
     : '';
 
-  const body = `
-    <div class="space-y-2">
-      ${verdict}
-      <div class="grid grid-cols-2 gap-2">
-        ${strengths ? `<div><div class="text-xs font-semibold text-green-700 mb-1">亮点</div><ul>${strengths}</ul></div>` : ''}
-        ${weaknesses ? `<div><div class="text-xs font-semibold text-red-700 mb-1">不足</div><ul>${weaknesses}</ul></div>` : ''}
-      </div>
-      ${dimRows ? `<div class="mt-1">${dimRows}</div>` : ''}
-      ${rec}
-    </div>`;
+  const body = `<div class="space-y-1">${verdict}${swGrid}${dimRows ? `<div class="mt-1">${dimRows}</div>` : ''}${rec}</div>`;
 
   return `
     <details class="mt-3 border border-indigo-200 rounded-lg bg-indigo-50"${collapsed ? '' : ' open'}>
@@ -462,6 +477,82 @@ function renderSkillSummaryCard(d, opts = {}) {
       </summary>
       <div class="px-3 pb-3">${body}</div>
     </details>`;
+}
+
+function renderLevel0Evidence(d) {
+  const ev = (getReportPayload(d).evidence || []).filter(e => e.field && e.detail);
+  if (!ev.length) return '';
+  const items = ev.map(e =>
+    `<li class="text-xs text-red-800"><code class="text-red-600">${escapeHtml(e.field)}</code> — ${escapeHtml(e.detail)}</li>`
+  ).join('');
+  return `<div class="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+    <div class="text-xs font-medium text-red-800 mb-1">Level0 诊断详情</div>
+    <ul class="list-disc list-inside space-y-0.5">${items}</ul>
+  </div>`;
+}
+
+function renderNarrativeCard(d) {
+  const report = getReportPayload(d);
+  const nar = report.narrative;
+  if (!nar || !nar.headline_zh) return '';
+  const reasons = (nar.reasons_zh || []).map(r =>
+    `<li class="text-xs text-gray-700 py-0.5">${escapeHtml(r)}</li>`).join('');
+  const actions = (nar.next_actions_zh || []).map(a =>
+    `<li class="text-xs text-blue-800 py-0.5">${escapeHtml(a)}</li>`).join('');
+  return `
+    <div class="mt-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      <div class="text-xs font-semibold text-slate-500 mb-1">📋 运营结论</div>
+      <div class="text-sm font-semibold text-slate-900">${escapeHtml(nar.headline_zh)}</div>
+      ${nar.score_display_zh ? `<div class="text-xs text-slate-600 mt-1">${escapeHtml(nar.score_display_zh)}</div>` : ''}
+      ${reasons ? `<ul class="mt-2 list-disc list-inside">${reasons}</ul>` : ''}
+      ${actions ? `<div class="mt-2 text-xs font-medium text-slate-700">建议下一步</div><ul class="list-disc list-inside">${actions}</ul>` : ''}
+    </div>`;
+}
+
+function renderDisagreementCard(d) {
+  const db = getReportPayload(d).disagreement_brief;
+  if (!db || !db.triggered) return '';
+  const hints = (db.stage_hints_zh || []).map(h =>
+    `<li class="text-xs text-amber-800 py-0.5">${escapeHtml(h)}</li>`).join('');
+  const cases = (db.focused_cases || []).map(c =>
+    `<li class="text-xs text-gray-700 py-0.5">${escapeHtml(c.case_id)}：DS ${c.deepseek_score ?? '—'} / GM ${c.gemini_score ?? '—'}（Δ ${c.gap ?? '—'}）· ${escapeHtml(c.hint_zh || '')}</li>`
+  ).join('');
+  return `
+    <details class="mt-3 border border-amber-300 rounded-lg bg-amber-50" open>
+      <summary class="cursor-pointer px-3 py-2 text-sm font-semibold text-amber-900">⚖ 模型分歧说明（业务向）▼</summary>
+      <div class="px-3 pb-3 space-y-2">
+        <p class="text-sm text-amber-950">${escapeHtml(db.summary_zh || '')}</p>
+        ${hints ? `<ul class="list-disc list-inside">${hints}</ul>` : ''}
+        ${cases ? `<div class="text-xs font-medium text-gray-700 mt-1">分歧集中用例</div><ul class="list-disc list-inside">${cases}</ul>` : ''}
+      </div>
+    </details>`;
+}
+
+function renderRiskLockCard(d) {
+  const rp = getReportPayload(d).risk_lock_provenance;
+  if (!rp || !rp.locked) return '';
+  const chain = [
+    `自报 <strong>${escapeHtml(rp.declared)}</strong>`,
+    `规则 <strong>${escapeHtml(rp.rule_scanned)}</strong>`,
+    rp.ai_reviewed ? `AI <strong>${escapeHtml(rp.ai_reviewed)}</strong>` : null,
+    `锁定 <strong class="text-green-900">${escapeHtml(rp.locked)}</strong>`,
+  ].filter(Boolean).join(' → ');
+  return `<div class="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+    <div class="text-xs font-semibold text-green-800 mb-1">🔒 风险溯源</div>
+    <div class="text-xs text-green-900">${chain}</div>
+    ${rp.ai_evidence_zh ? `<div class="text-xs text-gray-600 mt-1">${escapeHtml(rp.ai_evidence_zh)}</div>` : ''}
+  </div>`;
+}
+
+function renderHumanReviewVerdict(d) {
+  const hr = (getReportPayload(d).human_review) || {};
+  if (!hr.reviewer_action) return '';
+  const label = hr.reviewer_action === 'approve' ? '批准通过' : '驳回';
+  return `<div class="mt-2 p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs text-indigo-800">
+    <span class="font-medium">专家裁定：${label}</span>
+    ${hr.operator ? ` · ${escapeHtml(hr.operator)}` : ''}
+    ${hr.comment ? ` <span class="text-indigo-600">${escapeHtml(hr.comment)}</span>` : ''}
+  </div>`;
 }
 
 function _warnReasonText(codes) {
@@ -496,7 +587,6 @@ function formatScoreDisplay(d) {
     return `<div class="space-y-2">
       <span class="text-red-600 font-medium">评估超时</span>
       ${renderStageProgressList(progress)}
-      ${renderStageTimingPanel(summary, { compact: true })}
     </div>`;
   }
   if (src === 'null_due_to_disagreement') {
@@ -517,6 +607,12 @@ function formatScoreDisplay(d) {
 function renderProviderSummaryBars(ps, opts = {}) {
   if (!ps) return '';
   const { showR5Headline = false, compact = false } = opts;
+  let geminiBanner = '';
+  if (ps.gemini_score == null && ps.deepseek_score != null) {
+    geminiBanner = `<div class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+    ⚠ Gemini 本次不可用（API 限流），仅 DeepSeek 有效评审，结论仅供参考
+  </div>`;
+  }
   const ds = ps.deepseek_score != null ? ps.deepseek_score : '—';
   const gm = ps.gemini_score != null ? ps.gemini_score : '—';
   const gap = ps.score_gap != null ? ps.score_gap : '—';
@@ -526,6 +622,7 @@ function renderProviderSummaryBars(ps, opts = {}) {
     : '';
   const pad = compact ? 'p-2' : 'p-3';
   return `
+    ${geminiBanner}
     ${headline}
     <div class="grid grid-cols-3 gap-2 text-sm mt-1">
       <div class="bg-blue-50 rounded ${pad} text-center border border-blue-100">
@@ -604,7 +701,19 @@ function renderDiagnosticReportCard(d) {
 function formatDimensionTriple(dim) {
   if (!dim) return '—';
   const fmt = (v) => (v != null && v !== undefined) ? v : '—';
-  return `IF ${fmt(dim.instruction_following)} · OC ${fmt(dim.output_compliance)} · BR ${fmt(dim.business_resolution)}`;
+  return `指令遵循 ${fmt(dim.instruction_following)} · 输出合规 ${fmt(dim.output_compliance)} · 业务解决 ${fmt(dim.business_resolution)}`;
+}
+
+const MAX_FB = 80;
+function truncateFb(s) {
+  if (!s || s === '—') return '—';
+  const safe = escapeHtml(s);
+  if (s.length <= MAX_FB) return safe;
+  const uid = 'fb' + Math.random().toString(36).slice(2, 7);
+  return `${escapeHtml(s.slice(0, MAX_FB))}<span class="text-gray-400">…</span>`
+    + `<span id="${uid}-full" class="hidden text-gray-600"> ${safe}</span>`
+    + `<button onclick="document.getElementById('${uid}-full').classList.toggle('hidden');this.textContent=this.textContent==='[展开]'?'[收起]':'[展开]'" `
+    + `class="text-blue-400 text-xs ml-1 hover:underline">[展开]</button>`;
 }
 
 function renderModelVotesFeedback(d, collapsed = true) {
@@ -623,8 +732,8 @@ function renderModelVotesFeedback(d, collapsed = true) {
   const rows = Object.entries(byCase).map(([caseId, pair]) => {
     const ds = pair.deepseek;
     const gm = pair.gemini;
-    const dsFb = ds && ds.feedback ? escapeHtml(ds.feedback) : '—';
-    const gmFb = gm && gm.feedback ? escapeHtml(gm.feedback) : '—';
+    const dsFb = truncateFb(ds?.feedback);
+    const gmFb = truncateFb(gm?.feedback);
     const dsDim = ds && ds.dimension_scores ? formatDimensionTriple(ds.dimension_scores) : '—';
     const gmDim = gm && gm.dimension_scores ? formatDimensionTriple(gm.dimension_scores) : '—';
     return `
@@ -706,7 +815,10 @@ async function pollStatus(runId) {
       : (d.reason_codes || []);
     let reasonHtml = '';
     if (reasonCodes.length) {
-      reasonHtml = `<div class="text-xs text-gray-500">reason_codes: ${reasonCodes.join(', ')}</div>`;
+      const zhReasons = reasonCodes.map(c => REASON_ZH[c] || c).filter(Boolean);
+      reasonHtml = zhReasons.length
+        ? `<div class="text-xs text-amber-700 mt-1">${zhReasons.map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>`
+        : '';
     }
 
     let humanHtml = '';
@@ -724,16 +836,15 @@ async function pollStatus(runId) {
         <span class="text-gray-400 text-xs">${runId.slice(0,8)}…</span>
       </div>
       <div class="text-sm">分数：${scoreStr}</div>
+      ${terminal ? renderNarrativeCard(d) : ''}
+      ${terminal ? renderDisagreementCard(d) : ''}
+      ${terminal ? renderRiskLockCard(d) : ''}
       ${reasonHtml}
+      ${renderLevel0Evidence(d)}
       ${humanHtml}
       ${renderProviderErrorPanel(d)}
       ${(terminal && (d.status === 'awaiting_confirm' || (getReportPayload(d).gaps && getReportPayload(d).gaps.length)))
         ? renderDiagnosticReportCard(d) : ''}
-      ${(terminal && getTimingSummary(d).total_phase_ms) ? `
-        <div class="mt-2 border-t border-gray-100 pt-2">
-          <div class="text-xs font-medium text-gray-600 mb-1">阶段耗时（stage_timing）</div>
-          ${renderStageTimingPanel(getTimingSummary(d), { compact: true })}
-        </div>` : ''}
       ${terminal && getReportPayload(d).model_votes && getReportPayload(d).model_votes.length
         ? renderModelVotesFeedback(d, true) : ''}
       ${terminal ? renderSkillSummaryCard(d, { collapsed: true }) : ''}
@@ -1012,9 +1123,12 @@ function renderExpertCard(run, detail) {
       ${scoreHtml}
     </div>
 
-    ${modelBlock}
     ${r5Notice}
-    ${detail ? renderSkillSummaryCard(detail, { collapsed: false }) : ''}
+    ${detail ? renderNarrativeCard(detail) : ''}
+    ${detail ? renderDisagreementCard(detail) : ''}
+    ${detail ? renderRiskLockCard(detail) : ''}
+    ${modelBlock}
+    ${detail ? renderSkillSummaryCard(detail, { collapsed: true }) : ''}
 
     <div class="flex gap-3 items-center pt-1 flex-wrap">
       <input type="text" id="expert-${run.run_id}" placeholder="专家姓名"
@@ -1139,18 +1253,17 @@ async function openRunDetail(runId) {
       <div class="space-y-2 text-xs font-mono text-gray-500">
         <div>run_id: ${escapeHtml(runId)}</div>
         <div>status: ${escapeHtml(d.status)} · review: ${escapeHtml(d.review_status || '—')}</div>
-        ${codes.length ? `<div>reason_codes: ${codes.map(escapeHtml).join(', ')}</div>` : ''}
+        ${codes.length ? `<div class="text-xs text-amber-700 mt-1">${codes.map(c => REASON_ZH[c] || c).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
       </div>
       <div class="text-sm border-t border-gray-100 pt-3">${formatScoreDisplay(d)}</div>
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
-      ${summary.phases && summary.phases.length ? `
-        <div class="border-t border-gray-100 pt-3">
-          <div class="text-xs font-semibold text-gray-700 mb-2">阶段耗时（T7 stage_timing）</div>
-          ${renderStageTimingPanel(summary)}
-        </div>` : ''}
       ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, false)}</div>` : ''}
       ${renderModelVotesFeedback(d, false)}
+      ${renderNarrativeCard(d)}
+      ${renderDisagreementCard(d)}
+      ${renderRiskLockCard(d)}
+      ${renderHumanReviewVerdict(d)}
       ${renderSkillSummaryCard(d, { collapsed: false })}
     `;
     document.getElementById('detail-modal').classList.remove('hidden');

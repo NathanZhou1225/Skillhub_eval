@@ -33,7 +33,11 @@ from .latency import (
     workflow_timeout_seconds,
 )
 from .level0 import Level0Checker
-from .risk_lock import scan_risk
+from .output_sanitizer import run_output_sanitizer
+from .report_narrative import build_disagreement_brief, build_report_narrative
+from .risk_lock import scan_risk_rule_only
+from .security_scan import security_scan
+from .risk_review import merge_risk_levels, review_risk_level
 from .schemas import (
     BundleState,
     DimensionScores,
@@ -44,6 +48,8 @@ from .schemas import (
     RunStatus,
     RiskLevel,
 )
+from .schemas.enums import VALID_CASE_TYPES
+from .schemas.report import RiskLockProvenance
 
 # 1.2 §3 rubric weights for bundle score_total derivation from sub_scores
 _DIMENSION_WEIGHTS: dict[str, float] = {
@@ -126,6 +132,13 @@ class EvaluationEngine:
         repo.append_stage(run_id, "level0_checking")
         bundle = ingest_bundle(skill_bundle_path)
 
+        # Compute case type coverage for transparency (W3-5)
+        type_coverage: dict[str, int] = {}
+        for _case in bundle.get("eval_cases", []):
+            _t = _case.get("type", "")
+            if _t in VALID_CASE_TYPES:
+                type_coverage[_t] = type_coverage.get(_t, 0) + 1
+
         # ── Phase 1b: Level 0 structure gate ─────────────────────────────────
         # Only validates SKILL.md presence + risk_level parsability.
         # Case count gate (X1) is deferred to post-confirm phase for confirmed
@@ -139,6 +152,22 @@ class EvaluationEngine:
             return
         self._log_stage_timing(run_id, "level0_checking", t_level0)
 
+        # ── Phase 1b+: Security Scan (Level 0.5, W2) ─────────────────────────
+        skill_text = bundle.get("skill_md_text", "")
+        sec_result = security_scan(skill_text)
+        if sec_result.status == "blocked":
+            self._save_fail(
+                run_id, bundle, bundle_state, evaluation_mode,
+                ["SECURITY_BLOCKED"],
+                [
+                    {"field": f.group_id, "detail": f.finding_type,
+                     "matched_text": f.matched_text}
+                    for f in sec_result.findings
+                ],
+            )
+            return
+        # "warning" or "passed" → carry result through pipeline
+
         # ── Phase 1c: Risk Lock (C-6: ①+②, ③ TODO 2.1) ──────────────────────
         t_risk = time.monotonic()
         repo.update_status(run_id, RunStatus.risk_locking.value)
@@ -146,15 +175,27 @@ class EvaluationEngine:
 
         declared_raw = bundle.get("risk_level_declared")
         declared = RiskLevel(declared_raw) if declared_raw else RiskLevel.low
-        risk_locked = scan_risk(bundle.get("skill_md_text", ""), declared)
-        self._workflow_timeout = float(workflow_timeout_seconds(risk_locked))
-        judge_timeout = (
-            PROVIDER_CALL_TIMEOUT_HIGH_RISK_S
-            if risk_locked == RiskLevel.high
-            else PROVIDER_CALL_TIMEOUT_S
+        rule_scanned = scan_risk_rule_only(bundle.get("skill_md_text", ""))
+        risk_locked = merge_risk_levels(declared, rule_scanned, None)
+        risk_provenance = RiskLockProvenance(
+            declared=declared.value,
+            rule_scanned=rule_scanned.value,
+            ai_reviewed=None,
+            locked=risk_locked.value,
+            ai_evidence_zh=None,
         )
-        self.ds.timeout = judge_timeout
-        self.wb.timeout = judge_timeout
+
+        def _apply_risk_timeouts(level: RiskLevel) -> None:
+            self._workflow_timeout = float(workflow_timeout_seconds(level))
+            judge_timeout = (
+                PROVIDER_CALL_TIMEOUT_HIGH_RISK_S
+                if level == RiskLevel.high
+                else PROVIDER_CALL_TIMEOUT_S
+            )
+            self.ds.timeout = judge_timeout
+            self.wb.timeout = judge_timeout
+
+        _apply_risk_timeouts(risk_locked)
         repo.update_status(run_id, RunStatus.risk_locking.value,
                            risk_level_locked=risk_locked.value)
         self._log_stage_timing(run_id, "risk_locking", t_risk)
@@ -169,6 +210,8 @@ class EvaluationEngine:
         if not is_confirmed and not is_degraded:
             self._park_awaiting_confirm(
                 run_id, bundle, bundle_state, evaluation_mode, risk_locked,
+                security_status=sec_result.status,
+                security_findings=[f.__dict__ for f in sec_result.findings],
             )
             return
 
@@ -181,6 +224,24 @@ class EvaluationEngine:
                 return
         # degraded: case gate intentionally skipped; 0-case bundles produce
         # a completeness-driven WARN via aggregate stage
+
+        # ── Phase 1d: AI risk review Step ③ (DeepSeek) — only on eval path ───
+        ai_level, ai_evidence = await review_risk_level(
+            bundle.get("skill_md_text", ""), self.ds,
+        )
+        risk_locked = merge_risk_levels(declared, rule_scanned, ai_level)
+        risk_provenance = RiskLockProvenance(
+            declared=declared.value,
+            rule_scanned=rule_scanned.value,
+            ai_reviewed=ai_level.value if ai_level else None,
+            locked=risk_locked.value,
+            ai_evidence_zh=ai_evidence,
+        )
+        _apply_risk_timeouts(risk_locked)
+        repo.update_status(
+            run_id, RunStatus.risk_locking.value,
+            risk_level_locked=risk_locked.value,
+        )
 
         # ── Phase 2: Normalize (degraded / minor gaps) ────────────────────────
         repo.update_status(run_id, RunStatus.normalizing.value)
@@ -227,6 +288,20 @@ class EvaluationEngine:
                         "reason": result.get("detail", ""),
                     })
         self._log_stage_timing(run_id, "code_asserting", t_code_assert)
+
+        # ── Phase 4+: Output Sanitizer (PII / secret leak, W2) ───────────────
+        san_result = run_output_sanitizer(cases, load_sample_io, skill_bundle_path)
+        if san_result.status == "leak":
+            self._save_fail(
+                run_id, bundle, bundle_state, evaluation_mode,
+                ["SECURITY_OUTPUT_LEAK"],
+                [
+                    {"field": f.source, "detail": f.finding_type,
+                     "matched_text": f.matched_text}
+                    for f in san_result.findings
+                ],
+            )
+            return
 
         # ── Phase 5: Model Judging (T7: Semaphore-limited parallel cases) ────
         t_model_judge = time.monotonic()
@@ -288,6 +363,11 @@ class EvaluationEngine:
         warn_codes = self._dec.warn_reason_codes(dec_ctx)
         human_required = self._dec.requires_human_review(dec_ctx, review_status)
 
+        if agg.get("redline_model_disagreement"):
+            human_required = True
+            if review_status == "pass":
+                review_status = "warn"
+
         all_reason_codes = agg["reason_codes"] + warn_codes
         if human_required:
             repo.set_human_review_required(run_id, True, all_reason_codes)
@@ -322,6 +402,16 @@ class EvaluationEngine:
 
         provider_summary = build_provider_summary(all_votes, agg)
 
+        narrative = build_report_narrative({
+            "review_status": review_status,
+            "reason_codes": all_reason_codes,
+            "required_actions": bundle.get("required_actions") or [],
+            "score_total": agg["score_total"],
+        })
+        disagreement_brief = build_disagreement_brief(
+            provider_summary, agg, all_votes,
+        )
+
         # ── Phase 5.5: Skill Summary (non-blocking LLM synthesis) ─────────────
         skill_summary = await self._generate_skill_summary(
             bundle=bundle,
@@ -350,12 +440,20 @@ class EvaluationEngine:
             model_votes=model_votes_obj,
             provider_summary=provider_summary,
             skill_summary=skill_summary,
+            narrative=narrative,
+            disagreement_brief=disagreement_brief,
+            risk_lock_provenance=risk_provenance,
+            security_status=sec_result.status,
+            security_findings=[f.__dict__ for f in sec_result.findings],
+            output_sanitizer_status=san_result.status,
+            output_sanitizer_findings=[f.__dict__ for f in san_result.findings],
+            case_type_coverage=type_coverage,
             human_review=HumanReview(
                 required=human_required,
                 trigger_codes=all_reason_codes if human_required else [],
             ),
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.2",
+            prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -418,8 +516,9 @@ class EvaluationEngine:
                 votes.append({
                     "model": provider_name,
                     "model_version": "unknown",
-                    "prompt_version": "review-agent-v0.3",
+                    "prompt_version": "review-agent-v0.4",
                     "case_id": case_id,
+                    "case_type": case.get("type", "happy_path"),
                     "dimension_scores": raw.get("sub_scores", {}),
                     "score_total": score,
                     "suggested_review_status": status,
@@ -466,7 +565,7 @@ class EvaluationEngine:
             evidence=evidence,
             stage_progress=self.repo.get_stage_progress(run_id),
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.2",
+            prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -517,7 +616,7 @@ class EvaluationEngine:
                 "high-risk 包已自动使用 90s 单 call 超时。"
             ),
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.3",
+            prompt_version="review-agent-v0.4",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -536,6 +635,9 @@ class EvaluationEngine:
         bundle_state: BundleState,
         evaluation_mode: EvaluationMode,
         risk_locked: RiskLevel,
+        *,
+        security_status: str | None = None,
+        security_findings: list[dict] | None = None,
     ) -> None:
         """T4: persist awaiting_confirm with lightweight self-contained report."""
         self.repo.update_status(run_id, RunStatus.awaiting_confirm.value)
@@ -563,8 +665,10 @@ class EvaluationEngine:
             gaps=gaps_json["gaps"],
             required_actions=gaps_json["required_actions"],
             stage_progress=self.repo.get_stage_progress(run_id),
+            security_status=security_status,
+            security_findings=security_findings or [],
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.2",
+            prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -622,7 +726,7 @@ class EvaluationEngine:
             stage_progress=self.repo.get_stage_progress(run_id),
             error_detail=f"Workflow exceeded {self._workflow_timeout}s timeout",
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.2",
+            prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -684,9 +788,9 @@ class EvaluationEngine:
             + "\n".join(case_lines) + "\n"
             "\n请输出合法 JSON（禁止 markdown 围栏）："
             "{\n"
-            '  "overall_verdict": "<1句话总结该技能当前质量>",\n'
-            '  "strengths": ["<优势1>", "<优势2>"],\n'
-            '  "weaknesses": ["<不足1>", "<不足2>"],\n'
+            '  "overall_verdict": "<1句话总结，不超过20字>",\n'
+            '  "strengths": ["<优势，不超过15字>", "<优势，不超过15字>"],\n'
+            '  "weaknesses": ["<不足，不超过15字>", "<不足，不超过15字>"],\n'
             '  "dimension_notes": {'
             '"instruction_following": "<该维度总体表现>", '
             '"output_compliance": "<总体表现>", '
@@ -760,7 +864,7 @@ class EvaluationEngine:
             f"evaluation_mode: {evaluation_mode}\n"
             f"user_intent: {case.get('user_intent', '')}\n"
             f"rubric_version: v1.2\n"
-            f"prompt_version: review-agent-v0.3\n"
+            f"prompt_version: review-agent-v0.4\n"
             "\n【技能正文摘录】\n"
             f"{skill_excerpt or '(无 SKILL.md 正文)'}\n"
             "\n【评分规则】根据本 case 与技能正文真实评估，给出 0–100 整数分。"
@@ -772,17 +876,18 @@ class EvaluationEngine:
             "\n【三维子项】instruction_following（指令遵循 40%）、"
             "output_compliance（输出合规 30%）、"
             "business_resolution（业务解决 30%）。\n"
+            "\n请用简洁中文填写所有 reason、dimension_notes 字段，每项不超过 30 字，禁止技术术语。\n"
             "\n【输出格式】仅输出合法 JSON，勿 markdown 围栏。"
             "score/pass/reason 须反映真实评估；<...> 为待填占位，勿原样输出：\n"
             '{"sub_scores":{'
             '"instruction_following":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<brief>","evidence_refs":[]},'
+            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]},'
             '"output_compliance":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<brief>","evidence_refs":[]},'
+            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]},'
             '"business_resolution":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<brief>","evidence_refs":[]}},'
+            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]}},'
             '"confidence":"<low|medium|high>",'
-            '"dimension_notes":"<optional per-case feedback>"}'
+            '"dimension_notes":"<中文，≤30字，总结本用例的核心表现>"}'
         )
 
     def _extract_score(self, raw: dict) -> float:

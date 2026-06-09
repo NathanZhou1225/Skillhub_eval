@@ -9,11 +9,14 @@ without touching global state.
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from skillhub_eval.adapters.api.routes.eval import router as eval_router
 from skillhub_eval.adapters.api.routes.bundle import router as bundle_router
+from skillhub_eval.adapters.api.routes.taxonomy import router as taxonomy_router
+from skillhub_eval.adapters.api.routes.conversations import router as conversations_router
 
 
 def create_app() -> FastAPI:
@@ -36,6 +39,13 @@ def create_app() -> FastAPI:
     # ── routers ───────────────────────────────────────────────────────────────
     app.include_router(eval_router)
     app.include_router(bundle_router)
+    app.include_router(taxonomy_router)
+    app.include_router(conversations_router, prefix="/conversations", tags=["conversations"])
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        """确认台入口；根路径无页面，避免 404。"""
+        return RedirectResponse(url="/ui/index.html")
 
     # ── health ────────────────────────────────────────────────────────────────
     @app.get("/health", tags=["meta"])

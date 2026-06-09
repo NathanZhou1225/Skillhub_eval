@@ -50,3 +50,27 @@ class DeepSeekProvider(BaseLLMProvider):
             return json.loads(raw_content)
         except (json.JSONDecodeError, KeyError) as exc:
             raise RuntimeError(f"DeepSeek invalid response: {exc}") from exc
+
+    async def generate(self, prompt: str) -> str:
+        """Send a single user message and return raw text content (not parsed)."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+        }
+        try:
+            resp = await post_with_retry(
+                url=f"{self.base_url}/chat/completions",
+                headers=headers,
+                json_payload=payload,
+                timeout=self.timeout,
+                max_retries=self.max_retries,
+                provider_label="DeepSeek",
+            )
+            return resp.json()["choices"][0]["message"]["content"]
+        except KeyError as exc:
+            raise RuntimeError(f"DeepSeek generate invalid response: {exc}") from exc

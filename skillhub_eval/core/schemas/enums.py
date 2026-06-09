@@ -46,6 +46,7 @@ class RunStatus(str, Enum):
     awaiting_human_review = "awaiting_human_review"
     completed = "completed"
     failed = "failed"
+    superseded = "superseded"
 
 
 # Case count gate (X1): low/medium/high → (min_cases, mvp_ceiling)
@@ -53,4 +54,15 @@ CASE_COUNT_GATES: dict[RiskLevel, tuple[int, int]] = {
     RiskLevel.low: (3, 6),
     RiskLevel.medium: (5, 8),
     RiskLevel.high: (9, 12),
+}
+
+# Valid case types recognized by the evaluation engine
+VALID_CASE_TYPES: frozenset[str] = frozenset({"happy_path", "edge", "refusal", "adversarial"})
+
+# Case type requirements per risk level (W3 题型完整性门槛)
+# Keys are case type strings; values are minimum required counts
+CASE_TYPE_REQUIREMENTS: dict[str, dict[str, int]] = {
+    "low":    {"happy_path": 3},
+    "medium": {"happy_path": 3, "edge": 2},
+    "high":   {"happy_path": 3, "edge": 2, "refusal": 2, "adversarial": 2},
 }

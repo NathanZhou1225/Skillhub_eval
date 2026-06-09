@@ -53,6 +53,29 @@ class CaseScoreRow(BaseModel):
     gemini_suggested_status: str | None = None
 
 
+class ReportNarrative(BaseModel):
+    headline_zh: str = ""
+    reasons_zh: list[str] = Field(default_factory=list)
+    next_actions_zh: list[str] = Field(default_factory=list)
+    score_display_zh: str | None = None
+
+
+class DisagreementBrief(BaseModel):
+    triggered: bool = False
+    trigger_kind: str | None = None
+    summary_zh: str = ""
+    focused_cases: list[dict] = Field(default_factory=list)
+    stage_hints_zh: list[str] = Field(default_factory=list)
+
+
+class RiskLockProvenance(BaseModel):
+    declared: str
+    rule_scanned: str
+    ai_reviewed: str | None = None
+    locked: str
+    ai_evidence_zh: str | None = None
+
+
 class ProviderSummary(BaseModel):
     deepseek_score: float | None = None
     gemini_score: float | None = None
@@ -87,6 +110,15 @@ class EvaluationReport(BaseModel):
     assertion_results: list[AssertionResult] = Field(default_factory=list)
     human_review: HumanReview = Field(default_factory=HumanReview)
     skill_summary: dict | None = None
+    narrative: ReportNarrative | None = None
+    disagreement_brief: DisagreementBrief | None = None
+    risk_lock_provenance: RiskLockProvenance | None = None
+    security_status: str | None = None       # "passed" | "warning" | "blocked"
+    security_findings: list[dict] = Field(default_factory=list)
+    output_sanitizer_status: str | None = None   # "passed" | "leak"
+    output_sanitizer_findings: list[dict] = Field(default_factory=list)
+    case_type_coverage: dict[str, int] = Field(default_factory=dict)
+    # e.g. {"happy_path": 3, "edge": 2, "refusal": 0, "adversarial": 0}
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"
     started_at: datetime | None = None

@@ -13,7 +13,35 @@ class Repository(Protocol):
         skill_bundle_path: str,
         bundle_state: str,
         evaluation_mode: str,
+        conversation_id: str | None = None,
+        parent_run_id: str | None = None,
     ) -> str: ...
+
+    def create_conversation(
+        self,
+        skill_id: str,
+        source: str,
+        max_auto_runs: int = 5,
+    ) -> str: ...
+
+    def get_conversation(
+        self,
+        conversation_id: str,
+    ) -> dict | None: ...
+
+    def update_conversation_status(
+        self,
+        conversation_id: str,
+        status: str,
+    ) -> None: ...
+
+    def append_lui_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        run_id: str | None = None,
+    ) -> None: ...
 
     def update_status(self, run_id: str, status: str, **kwargs) -> None: ...
 

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     gemini_model: str = "gemini-2.0-flash"
     eval_db_path: str = "data/skillhub_eval.db"
+    staging_root: str = "data/staging"
     eval_llm_mode: str = "live"
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"
