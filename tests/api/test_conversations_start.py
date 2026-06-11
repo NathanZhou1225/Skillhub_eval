@@ -25,8 +25,12 @@ from skillhub_eval.core.security_scan import SecurityScanResult
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 _VALID_BUNDLE = {
-    "skill_md_text": "# Test Skill\nA simple test.",
-    "skill_meta": {"category": "document.docx"},
+    "skill_md_text": "---\nname: test-skill\n---\n# Test Skill\n" + ("x" * 200),
+    "skill_meta": {
+        "name": "test-skill",
+        "category": "fin-research/quant-signal",
+        "description": "这是一个足够长的 Skill 描述，用于在 complete cases 测试中跳过 L0 purpose 澄清门槛。",
+    },
     "risk_level_declared": "low",
     "eval_cases": [{"id": "c1", "type": "happy_path"}],
     "n_cases": 1,
@@ -41,6 +45,12 @@ def _make_repo(conv_id: str = _MOCK_CONV_ID, run_id: str = _MOCK_RUN_ID) -> Magi
     repo.create_conversation.return_value = conv_id
     repo.create_run.return_value = run_id
     repo.update_conversation_status.return_value = None
+    repo.get_conversation.return_value = {
+        "status": "active",
+        "auto_run_count": 0,
+        "max_auto_runs": 5,
+    }
+    repo.get_lui_messages.return_value = []
     return repo
 
 
@@ -220,13 +230,14 @@ def test_security_warning_still_creates_run(client):
     assert body["security_status"] == "warning"
     assert body["run_id"] == _MOCK_RUN_ID
     repo.create_run.assert_called_once()
-    # conversation must NOT be blocked
-    repo.update_conversation_status.assert_not_called()
+    # conversation must NOT be blocked (active on run start is OK)
+    for call in repo.update_conversation_status.call_args_list:
+        assert call[0][1] != "security_blocked"
 
 
-# ── test 4: needs_propagation → propagator_used=True ─────────────────────────
+# ── test 4: needs_propagation → deferred (W5.2), propagator NOT called on /start ─
 
-def test_needs_propagation_calls_propagator(client):
+def test_needs_propagation_defers_bootstrap(client):
     test_client, repo, tmp_path = client
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
@@ -275,14 +286,16 @@ def test_needs_propagation_calls_propagator(client):
 
     assert resp.status_code == 202
     body = resp.json()
-    assert body["propagator_used"] is True
-    assert body["propagator_fallback"] is False
-    mock_propagator.propagate.assert_called_once()
+    assert body["run_id"] is None
+    assert body["propagation_deferred"] is True
+    assert body["propagator_used"] is False
+    mock_propagator.propagate.assert_not_called()
+    repo.create_run.assert_not_called()
 
 
-# ── test 5: propagator fallback → propagator_fallback=True ───────────────────
+# ── test 5: needs_propagation defer — propagator not invoked on /start (W5.2) ──
 
-def test_propagator_fallback_reported(client):
+def test_needs_propagation_no_immediate_propagator(client):
     test_client, repo, tmp_path = client
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
@@ -331,13 +344,14 @@ def test_propagator_fallback_reported(client):
 
     assert resp.status_code == 202
     body = resp.json()
-    assert body["propagator_used"] is True
-    assert body["propagator_fallback"] is True
+    assert body["propagation_deferred"] is True
+    assert body["propagator_used"] is False
+    mock_propagator.propagate.assert_not_called()
 
 
-# ── test 7: post-propagator security blocked → 422, no run ───────────────────
+# ── test 7: needs_propagation defers — no run until user confirms (W5.2) ─────
 
-def test_post_propagator_security_blocked(client):
+def test_needs_propagation_no_run_on_start(client):
     test_client, repo, tmp_path = client
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
@@ -346,12 +360,6 @@ def test_post_propagator_security_blocked(client):
     blocked_result = SecurityScanResult(status="blocked", findings=[])
     sanitizer_result = _make_sanitizer_result(needs_propagation=True)
     prop_result = _make_prop_result(used_fallback=False)
-
-    post_prop_bundle = {
-        **_VALID_BUNDLE,
-        "eval_cases": _VALID_BUNDLE["eval_cases"] + [{"id": "prop_happy_01", "type": "happy_path"}],
-        "n_cases": 2,
-    }
 
     mock_propagator = MagicMock()
     mock_propagator.propagate = AsyncMock(return_value=prop_result)
@@ -363,12 +371,12 @@ def test_post_propagator_security_blocked(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            side_effect=[_VALID_BUNDLE, post_prop_bundle],
-        ) as mock_ingest,
+            return_value=_VALID_BUNDLE,
+        ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.security_scan",
-            side_effect=[passed_result, blocked_result],
-        ) as mock_scan,
+            return_value=passed_result,
+        ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer",
             return_value=MagicMock(run=MagicMock(return_value=sanitizer_result)),
@@ -391,14 +399,11 @@ def test_post_propagator_security_blocked(client):
             },
         )
 
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["security_status"] == "blocked"
-    assert mock_ingest.call_count == 2
-    assert mock_scan.call_count == 2
+    assert resp.status_code == 202
+    assert resp.json()["propagation_deferred"] is True
+    assert resp.json()["run_id"] is None
     repo.create_run.assert_not_called()
-    repo.update_conversation_status.assert_called_once_with(
-        _MOCK_CONV_ID, "security_blocked"
-    )
+    mock_propagator.propagate.assert_not_called()
 
 
 # ── test 6: local_ref source creates staging from source path ─────────────────

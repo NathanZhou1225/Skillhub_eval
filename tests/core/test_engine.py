@@ -362,9 +362,8 @@ async def test_minimal_capability_full_stops_at_awaiting_confirm(tmp_path):
 @pytest.mark.asyncio
 async def test_degraded_minimal_zero_cases_completes_with_warn(tmp_path):
     """
-    T1 fix (Q1-B): degraded + minimal + 0 eval_cases must skip case gate,
-    run through empty case_exec, and produce a terminal status (completed/warn),
-    NOT fail with RISK_CASE_COUNT_INSUFFICIENT.
+    W5.2 GQ12 R2: degraded readiness path executes case gate, but still
+    ends terminal with completed/warn (no heavy judging stages).
     """
     bundle_path = str(tmp_path / "deg_bundle")
     (tmp_path / "deg_bundle").mkdir()
@@ -395,7 +394,7 @@ async def test_degraded_minimal_zero_cases_completes_with_warn(tmp_path):
     )
     import json
     codes = json.loads(run.get("reason_codes") or "[]")
-    assert "RISK_CASE_COUNT_INSUFFICIENT" not in codes
+    assert "RISK_CASE_COUNT_INSUFFICIENT" in codes
     # Degraded mode must never produce pass
     assert run.get("review_status") in ("warn", "fail", None)
 
@@ -904,6 +903,65 @@ async def test_skill_summary_field_populated_on_pass(tmp_path):
     report = repo.get_report(run_id)
     assert report is not None
     ss = report.get("skill_summary")
-    # summary may be None if wb_provider returned judge vote for summary call
-    # (provider is shared), just assert field exists in schema
     assert "skill_summary" in report
+    assert ss is not None
+    assert ss.get("overall_verdict") == "技能文档质量良好"
+
+
+@pytest.mark.asyncio
+async def test_skill_summary_uses_deepseek_not_gemini(tmp_path):
+    """skill_summary synthesis must call ds_provider; wb only judges cases."""
+
+    class DsWithSummary(BaseLLMProvider):
+        async def judge(self, prompt: str) -> dict:
+            if "质量诊断摘要" in prompt:
+                return {
+                    "overall_verdict": "DS 摘要",
+                    "strengths": ["A"],
+                    "weaknesses": ["B"],
+                    "dimension_notes": {},
+                    "recommendation": "ok",
+                }
+            return {
+                "sub_scores": {
+                    "instruction_following": {"score": 90, "pass": True},
+                    "output_compliance": {"score": 88, "pass": True},
+                    "business_resolution": {"score": 92, "pass": True},
+                },
+                "confidence": "high",
+                "dimension_notes": "",
+            }
+
+    class GeminiCaseOnly(BaseLLMProvider):
+        async def judge(self, prompt: str) -> dict:
+            assert "质量诊断摘要" not in prompt
+            return {
+                "sub_scores": {
+                    "instruction_following": {"score": 85, "pass": True},
+                    "output_compliance": {"score": 85, "pass": True},
+                    "business_resolution": {"score": 85, "pass": True},
+                },
+                "confidence": "high",
+                "dimension_notes": "",
+            }
+
+    bundle_path = make_confirmed_low_bundle(tmp_path / "bundle_ss_ds", n_cases=3)
+    engine, repo = make_engine(
+        tmp_path,
+        ds_provider=DsWithSummary(),
+        wb_provider=GeminiCaseOnly(),
+    )
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle_path,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle_path,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+    report = repo.get_report(run_id)
+    assert report["skill_summary"]["overall_verdict"] == "DS 摘要"

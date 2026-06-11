@@ -107,6 +107,7 @@ async def get_report(
 
     return {
         "run_id": run_id,
+        "conversation_id": run.get("conversation_id"),
         "status": run["status"],
         "review_status": run.get("review_status"),
         "score_total": run.get("score_total"),
@@ -136,6 +137,29 @@ async def list_history(
         human_review_required=True if human_review_only else None,
     )
     return {"total": len(runs), "runs": runs}
+
+
+@router.get("/history/{run_id}/conversation")
+async def get_history_conversation(
+    run_id: str,
+    repo: Annotated[Repository, Depends(get_repo)],
+) -> dict:
+    """Return full conversation messages linked to a run (D7)."""
+    run = repo.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"run_id '{run_id}' not found")
+    conversation_id = run.get("conversation_id")
+    if not conversation_id:
+        raise HTTPException(
+            status_code=404,
+            detail="This run has no linked conversation archive.",
+        )
+    messages = repo.get_lui_messages(conversation_id)
+    return {
+        "conversation_id": conversation_id,
+        "messages": messages,
+        "message_count": len(messages),
+    }
 
 
 @router.post("/review/{run_id}")
@@ -196,6 +220,29 @@ async def submit_review(
         narrative_override=narrative_override,
     )
     repo.update_status(run_id, "completed", review_status=new_status)
+    conv_id = run.get("conversation_id")
+    if conv_id:
+        repo.reset_auto_run_count(conv_id)
+        if body.action == "approve":
+            repo.append_lui_message(
+                conv_id,
+                role="system",
+                content=(
+                    f"专家已批准本次评估。review_status: {new_status}"
+                    + (f"（操作者：{body.operator}）" if body.operator else "")
+                ),
+            )
+        elif body.action == "reject":
+            repo.update_conversation_status(conv_id, "active")
+            repo.set_conversation_auto_confirmed(conv_id, False)
+            repo.append_lui_message(
+                conv_id,
+                role="system",
+                content=(
+                    f"专家已驳回本次评估。\n驳回意见：{body.comment or '（无）'}\n"
+                    "你已获得新的 5 次修改机会，可继续改进 Skill。"
+                ),
+            )
 
     return {
         "run_id": run_id,

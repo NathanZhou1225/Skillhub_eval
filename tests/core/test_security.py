@@ -472,17 +472,26 @@ class TestEngineSecurityIntegration:
             "---\nrisk_level: low\n---\n# Test\ndescription: test",
             encoding="utf-8",
         )
+        eval_dir = skill_dir / "eval_cases"
+        eval_dir.mkdir()
+        for i in range(3):
+            (eval_dir / f"c{i}.yaml").write_text(
+                f"id: c{i}\ntype: happy_path\nuser_intent: x\ninput_template: x\nexpected_behavior: x\n",
+                encoding="utf-8",
+            )
+            (skill_dir / "sample_io").mkdir(exist_ok=True)
+            (skill_dir / "sample_io" / f"c{i}.json").write_text('{"input":"x"}', encoding="utf-8")
 
         with (
             patch("skillhub_eval.core.engine.security_scan", return_value=clean_sec),
             patch("skillhub_eval.core.engine.run_output_sanitizer", return_value=leak_san),
+            patch("skillhub_eval.core.engine.review_risk_level", new_callable=AsyncMock, return_value=(None, "")),
         ):
             await engine.run_async(
                 run_id="test-run-003",
                 skill_bundle_path=str(skill_dir),
-                # minimal + degraded: is_degraded=True skips case gate, reaches sanitizer
-                bundle_state=BundleState.minimal,
-                evaluation_mode=EvaluationMode.degraded,
+                bundle_state=BundleState.confirmed,
+                evaluation_mode=EvaluationMode.capability_full,
             )
 
         saved_reports = repo.save_report.call_args_list

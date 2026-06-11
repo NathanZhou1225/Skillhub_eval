@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SkillHub 极简确认台</title>
+  <title>SkillHub 对话评估</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -37,11 +37,21 @@
     <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">S</div>
     <div>
       <span class="font-bold text-gray-900 text-lg">SkillHub</span>
-      <span class="ml-2 text-gray-400 text-sm">极简确认台 v0.1</span>
+      <span class="ml-2 text-gray-400 text-sm">对话评估</span>
     </div>
   </div>
-  <div class="flex items-center gap-4">
+  <div class="flex items-center gap-3">
+    <div class="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+      <button id="btn-perspective-author" type="button" onclick="setPerspective('author')"
+        class="px-3 py-1.5 bg-blue-600 text-white font-medium">作者</button>
+      <button id="btn-perspective-expert" type="button" onclick="setPerspective('expert')"
+        class="px-3 py-1.5 bg-white text-gray-600 relative">
+        专家<span id="expert-pending-dot" class="hidden absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full"></span>
+      </button>
+    </div>
+    <button type="button" onclick="toggleDemoMode()" id="btn-demo-mode" class="text-xs text-gray-400 hover:text-blue-600">Demo</button>
     <span id="api-status" class="text-xs text-gray-400">连接中…</span>
+    <button onclick="toggleDebugPanel()" class="hidden text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border rounded-md hover:border-blue-300 transition">Debug</button>
     <button onclick="location.reload()" class="text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border rounded-md hover:border-blue-300 transition">刷新</button>
     <a href="/docs" target="_blank" class="text-xs text-blue-600 hover:underline">Swagger →</a>
   </div>
@@ -50,11 +60,7 @@
 <!-- ── Tab Bar ───────────────────────────────────────────────────────────────── -->
 <nav class="bg-white border-b border-gray-200 px-6 flex gap-6">
   <button id="tab-author" class="tab-active py-3 text-sm transition" onclick="switchTab('author')">
-    📝 作者补全台
-  </button>
-  <button id="tab-expert" class="tab-inactive py-3 text-sm transition" onclick="switchTab('expert')">
-    🔍 专家审核台
-    <span id="review-badge" class="ml-1 badge bg-red-100 text-red-700 hidden">0</span>
+    💬 对话评估
   </button>
   <button id="tab-history" class="tab-inactive py-3 text-sm transition" onclick="switchTab('history')">
     📋 评估历史
@@ -62,103 +68,133 @@
 </nav>
 
 <!-- ── Main ─────────────────────────────────────────────────────────────────── -->
-<main class="max-w-5xl mx-auto px-4 py-6 space-y-6">
+<main class="max-w-6xl mx-auto px-4 py-4 space-y-4">
 
-  <!-- ══ Tab 1: Author ══════════════════════════════════════════════════════ -->
-  <div id="panel-author" class="fade-in space-y-6">
+  <!-- ══ Tab 1: Chat ══════════════════════════════════════════════════════════ -->
+  <div id="panel-author" class="fade-in">
+    <div class="flex gap-4 min-h-[620px]">
+      <aside class="w-56 shrink-0 bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden">
+        <div class="p-3 border-b border-gray-100">
+          <button type="button" onclick="createNewSession()"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2 rounded-lg">+ 新对话</button>
+        </div>
+        <div id="session-list" class="flex-1 overflow-y-auto p-2 space-y-1 text-sm">
+          <p class="text-xs text-gray-400 text-center py-4">加载会话…</p>
+        </div>
+      </aside>
 
-    <!-- Trigger new run -->
-    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-      <h2 class="font-semibold text-gray-900 mb-1">发起评估任务</h2>
-      <p class="text-sm text-gray-500 mb-4">填写 Skill 包路径，选择状态和模式，立即触发异步评估</p>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Skill ID</label>
-          <input id="inp-skill-id" type="text" placeholder="e.g. skill.attendance" value=""
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+      <section class="flex-1 flex flex-col bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-w-0">
+        <div class="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 flex-wrap text-sm">
+          <code id="chat-conversation-id" class="text-xs text-gray-500">未选择会话</code>
+          <span id="chat-run-badge" class="badge bg-blue-100 text-blue-700">0/5</span>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Bundle 路径</label>
-          <input id="inp-bundle-path" type="text" placeholder="e.g. /data/skills/attendance"
-            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        <div id="chat-status-banner" class="hidden px-4 py-2 text-xs"></div>
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-3 min-h-[420px]">
+          <p class="text-sm text-gray-400 text-center py-16">点击「新对话」开始，或上传 ZIP 评估 Skill</p>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Bundle State</label>
-          <select id="inp-bundle-state" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-            <option value="confirmed">confirmed（完整确认）</option>
-            <option value="draft_enriched">draft_enriched（草稿）</option>
-            <option value="minimal">minimal（最小结构）</option>
-          </select>
+        <div class="px-4 py-3 border-t border-gray-100 bg-gray-50 space-y-2">
+          <div id="demo-path-wrap" class="hidden">
+            <input id="demo-local-path" type="text" placeholder="Demo 本地路径（仅 Demo 模式）"
+              class="w-full border border-amber-200 rounded-lg px-3 py-1.5 text-xs mb-2 focus:outline-none focus:ring-2 focus:ring-amber-300" />
+          </div>
+          <div class="flex gap-2 items-end">
+            <label class="shrink-0 cursor-pointer bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-700">
+              📎 ZIP
+              <input id="chat-zip-file" type="file" accept=".zip" class="hidden" onchange="onZipSelected()" />
+            </label>
+            <span id="chat-zip-name" class="text-xs text-gray-400 shrink-0 max-w-[100px] truncate"></span>
+            <input id="chat-input" type="text" placeholder="输入消息（可含 skill_id）…"
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            <button type="button" onclick="sendChatMessage()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg shrink-0">发送</button>
+          </div>
+          <div id="chat-send-msg" class="text-xs text-gray-500"></div>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-700 mb-1">Evaluation Mode</label>
-          <select id="inp-eval-mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-            <option value="capability_full">capability_full（全量评审）</option>
-            <option value="degraded">degraded（摸底评审）</option>
-            <option value="structural_only">structural_only（仅结构）</option>
-          </select>
-        </div>
-      </div>
-      <div class="mt-4 flex gap-3 items-center">
-        <button onclick="triggerRun()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
-          ▶ 发起评估
-        </button>
-        <span id="run-msg" class="text-sm text-gray-500"></span>
-      </div>
+      </section>
     </div>
 
-    <!-- Live status of last run -->
-    <div id="run-status-card" class="hidden bg-white rounded-xl border border-gray-200 p-6 shadow-sm fade-in">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-gray-900">运行状态</h3>
-        <button onclick="stopPolling()" class="text-xs text-gray-400 hover:text-gray-600">停止轮询</button>
+    <div id="debug-panel" class="hidden mt-4 bg-white rounded-xl border border-dashed border-gray-300 p-6 shadow-sm space-y-6">
+      <div>
+        <h2 class="font-semibold text-gray-900 mb-1">Debug：旧版手工触发</h2>
+        <p class="text-sm text-gray-500 mb-4">保留旧入口（手填路径 + POST /eval/run）用于联调，不作为默认流程</p>
       </div>
-      <div id="run-status-body" class="text-sm text-gray-700 space-y-2"></div>
-    </div>
 
-    <!-- Confirm gaps form -->
-    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-      <h2 class="font-semibold text-gray-900 mb-1">确认 Gap 字段</h2>
-      <p class="text-sm text-gray-500 mb-4">查询最新缺口清单，按模板补全 Bundle 文件并确认安全字段</p>
-      <div class="flex gap-3 mb-4">
-        <input id="inp-confirm-skill-id" type="text" placeholder="Skill ID"
-          class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
-        <button onclick="loadGaps()" class="bg-gray-100 hover:bg-gray-200 text-sm px-4 py-2 rounded-lg transition border border-gray-300">
-          查询 Gaps
-        </button>
-      </div>
-      <div id="gaps-list" class="space-y-3"></div>
-      <div id="confirm-form" class="hidden mt-4 space-y-3">
-        <div class="grid grid-cols-2 gap-3" id="confirm-fields-grid"></div>
-        <div class="flex gap-3 items-center pt-2 border-t border-gray-100">
-          <input id="inp-operator" type="text" placeholder="操作人姓名" value="author"
-            class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-300" />
-          <button onclick="submitConfirm()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
-            ✅ 确认提交
+      <!-- Trigger new run -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="font-semibold text-gray-900 mb-1">发起评估任务</h2>
+        <p class="text-sm text-gray-500 mb-4">填写 Skill 包路径，选择状态和模式，立即触发异步评估</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Skill ID</label>
+            <input id="inp-skill-id" type="text" placeholder="e.g. skill.attendance" value=""
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Bundle 路径</label>
+            <input id="inp-bundle-path" type="text" placeholder="e.g. /data/skills/attendance"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Bundle State</label>
+            <select id="inp-bundle-state" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+              <option value="confirmed">confirmed（完整确认）</option>
+              <option value="draft_enriched">draft_enriched（草稿）</option>
+              <option value="minimal">minimal（最小结构）</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Evaluation Mode</label>
+            <select id="inp-eval-mode" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+              <option value="capability_full">capability_full（全量评审）</option>
+              <option value="degraded">degraded（摸底评审）</option>
+              <option value="structural_only">structural_only（仅结构）</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-4 flex gap-3 items-center">
+          <button onclick="triggerRun()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
+            ▶ 发起评估
           </button>
-          <span id="confirm-msg" class="text-sm text-gray-500"></span>
+          <span id="run-msg" class="text-sm text-gray-500"></span>
+        </div>
+      </div>
+
+      <!-- Live status of last run -->
+      <div id="run-status-card" class="hidden bg-white rounded-xl border border-gray-200 p-6 shadow-sm fade-in">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-gray-900">运行状态</h3>
+          <button onclick="stopPolling()" class="text-xs text-gray-400 hover:text-gray-600">停止轮询</button>
+        </div>
+        <div id="run-status-body" class="text-sm text-gray-700 space-y-2"></div>
+      </div>
+
+      <!-- Confirm gaps form -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <h2 class="font-semibold text-gray-900 mb-1">确认 Gap 字段</h2>
+        <p class="text-sm text-gray-500 mb-4">查询最新缺口清单，按模板补全 Bundle 文件并确认安全字段</p>
+        <div class="flex gap-3 mb-4">
+          <input id="inp-confirm-skill-id" type="text" placeholder="Skill ID"
+            class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          <button onclick="loadGaps()" class="bg-gray-100 hover:bg-gray-200 text-sm px-4 py-2 rounded-lg transition border border-gray-300">
+            查询 Gaps
+          </button>
+        </div>
+        <div id="gaps-list" class="space-y-3"></div>
+        <div id="confirm-form" class="hidden mt-4 space-y-3">
+          <div class="grid grid-cols-2 gap-3" id="confirm-fields-grid"></div>
+          <div class="flex gap-3 items-center pt-2 border-t border-gray-100">
+            <input id="inp-operator" type="text" placeholder="操作人姓名" value="author"
+              class="border border-gray-300 rounded-lg px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-300" />
+            <button onclick="submitConfirm()" class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-5 py-2 rounded-lg transition">
+              ✅ 确认提交
+            </button>
+            <span id="confirm-msg" class="text-sm text-gray-500"></span>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ══ Tab 2: Expert ══════════════════════════════════════════════════════ -->
-  <div id="panel-expert" class="hidden fade-in space-y-4">
-    <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h2 class="font-semibold text-gray-900">待审核队列</h2>
-          <p class="text-sm text-gray-500 mt-0.5">以下 Run 触发了 R5 模型分歧或 R7 中等质量告警，需专家复核</p>
-        </div>
-        <button onclick="loadExpertQueue()" class="text-xs text-blue-600 hover:underline">刷新列表</button>
-      </div>
-      <div id="expert-queue" class="space-y-4">
-        <p class="text-sm text-gray-400 text-center py-6">加载中…</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ Tab 3: History ═════════════════════════════════════════════════════ -->
+  <!-- ══ Tab 2: History ═════════════════════════════════════════════════════ -->
   <div id="panel-history" class="hidden fade-in">
     <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">
@@ -200,6 +236,252 @@ let _pollTimer = null;
 let _currentRunId = null;
 let _confirmSkillId = null;
 let _lastGapsSnapshot = null;
+let _conversationPollTimer = null;
+let _activeConversationId = null;
+let _activeRunId = null;
+let _latestConversationStatus = null;
+let _messagesCache = [];
+let _lastRenderedMessageKeys = [];
+let _openingTriggeredRunId = null;
+const CONV_STORAGE_KEY = 'skillhub_active_conversation_id';
+const PERSPECTIVE_KEY = 'skillhub_perspective';
+const DEMO_MODE_KEY = 'skillhub_demo_local_ref';
+let _pendingZipFile = null;
+let _optimisticPending = false;
+let _optimisticPendingLabel = '';
+
+const ACTION_PROPAGATE = '__ACTION_PROPAGATE__';
+const ACTION_MANUAL_UPLOAD = '__ACTION_MANUAL_UPLOAD__';
+const ACTION_DRAFT_MODE = '__ACTION_DRAFT_MODE__';
+const ACTION_DRAFT_CONFIRM = '__ACTION_DRAFT_CONFIRM__';
+const ACTION_CONFIRM_SKILL = '__ACTION_CONFIRM_SKILL__';
+const ACTION_DRAFT_WRITE_FILE = '__ACTION_DRAFT_WRITE_FILE__';
+const ACTION_SCENE_PROPAGATE = '__ACTION_SCENE_PROPAGATE__';
+const ACTION_START_FORMAL = '__ACTION_START_FORMAL__';
+const ACTION_READINESS_DRAFT = '__ACTION_READINESS_DRAFT__';
+
+const SECURITY_STATUS_ZH = { passed: '通过', warning: '警告', blocked: '已拦截', unknown: '未知' };
+const RISK_LEVEL_ZH = { low: '低', medium: '中', high: '高' };
+
+function isInternalUserMessage(text) {
+  const t = String(text || '').trim();
+  return t.startsWith('__ACTION_') || t.startsWith('__SYSTEM_') || t.startsWith('__TRIGGER_');
+}
+
+function activityPhaseForAction(payloadText) {
+  const t = String(payloadText || '').trim();
+  if (t === ACTION_CONFIRM_SKILL) return 'checking_requirements';
+  if (t === ACTION_PROPAGATE) return 'propagating';
+  if (t === ACTION_DRAFT_WRITE_FILE) return 'writing_draft';
+  return 'thinking';
+}
+
+function formatSecurityZh(payload, field) {
+  if (field === 'security') {
+    return payload.security_status_zh || SECURITY_STATUS_ZH[payload.security_status] || payload.security_status || '—';
+  }
+  return payload.risk_level_locked_zh || RISK_LEVEL_ZH[payload.risk_level_locked] || payload.risk_level_locked || '—';
+}
+
+const STAGE_ZH = {
+  pending: '排队中',
+  level0_checking: '检查包结构',
+  risk_locking: '锁定风险等级',
+  normalizing: '整理评估条件',
+  case_executing: '运行样例题',
+  code_asserting: '校验输出',
+  model_judging: '双模型评估中',
+  aggregating: '汇总结果',
+};
+
+function activityPhaseLabel(phase) {
+  const map = {
+    thinking: '正在理解你的意思，请稍候…',
+    enriching_plan: '正在分析 Skill 并生成补题计划，请稍候…',
+    checking_requirements: '正在分析 Skill 并检查是否满足评估需求，请稍候…',
+    propagating: '正在自动生成评估题目，请稍候（约 1–2 分钟）…',
+    initial_eval: '正在进行初评体检，请稍候（约 1–3 分钟）…',
+    formal_eval: '正在进行正式双模型评估，请稍候…',
+    writing_draft: '正在生成修改草案，请稍候…',
+  };
+  return map[phase] || map.thinking;
+}
+
+const KEEP_PENDING_PHASES = new Set([
+  'checking_requirements', 'enriching_plan', 'propagating', 'initial_eval', 'formal_eval', 'writing_draft',
+]);
+
+function syncPendingFromRunStatus(statusObj) {
+  const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], '');
+  if (RUNNING_STATUSES.has(String(runStatus))) {
+    _optimisticPending = true;
+    const stages = getStatusValue(statusObj, ['stage_progress'], []);
+    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
+    const stageZh = last && STAGE_ZH[last] ? STAGE_ZH[last] : '评估';
+    _optimisticPendingLabel = `正在${stageZh}，请稍候…`;
+    return;
+  }
+  if (!_optimisticPending) {
+    _optimisticPendingLabel = '';
+  }
+}
+
+function renderFlowStepBar(flowStep) {
+  if (!flowStep || !flowStep.label_zh) return '';
+  const cur = flowStep.current || 1;
+  const total = flowStep.total || 3;
+  return `
+    <div class="mb-2 px-2 py-1.5 rounded-lg bg-amber-100/80 border border-amber-200 text-xs text-amber-900">
+      第 ${cur}/${total} 步 · ${escapeHtml(flowStep.label_zh)}
+    </div>`;
+}
+
+function formatRedlineCell(row) {
+  const isRedline = row.redline === true || row.redline === 'true'
+    || row.type === 'refusal' || row.type === 'adversarial';
+  if (!isRedline) return '非红线题型';
+  const note = (row.redline_note || '').trim();
+  if (note) return `红线题型（一票否决） · ${escapeHtml(note)}`;
+  return '红线题型（一票否决） · 须明确拒绝边界与越权防护';
+}
+
+function formatGapCell(row) {
+  const n = row.gap_count ?? row.gap;
+  return n != null && n !== '' ? String(n) : '—';
+}
+
+function getPerspective() {
+  try { return localStorage.getItem(PERSPECTIVE_KEY) || 'author'; } catch (_) { return 'author'; }
+}
+
+function setPerspective(p) {
+  try { localStorage.setItem(PERSPECTIVE_KEY, p); } catch (_) {}
+  const authorBtn = document.getElementById('btn-perspective-author');
+  const expertBtn = document.getElementById('btn-perspective-expert');
+  if (authorBtn && expertBtn) {
+    authorBtn.className = p === 'author'
+      ? 'px-3 py-1.5 bg-blue-600 text-white font-medium'
+      : 'px-3 py-1.5 bg-white text-gray-600';
+    expertBtn.className = p === 'expert'
+      ? 'px-3 py-1.5 bg-blue-600 text-white font-medium relative'
+      : 'px-3 py-1.5 bg-white text-gray-600 relative';
+  }
+  renderMessages(_messagesCache);
+  updateComposerState();
+  if (_latestConversationStatus) updateChatStatusBanner(_latestConversationStatus);
+}
+
+function toggleDemoMode() {
+  const on = localStorage.getItem(DEMO_MODE_KEY) !== 'true';
+  try { localStorage.setItem(DEMO_MODE_KEY, on ? 'true' : 'false'); } catch (_) {}
+  document.getElementById('demo-path-wrap').classList.toggle('hidden', !on);
+  toast(on ? 'Demo 模式已开启（可填本地路径）' : 'Demo 模式已关闭');
+}
+
+function onZipSelected() {
+  const input = document.getElementById('chat-zip-file');
+  _pendingZipFile = input.files?.[0] || null;
+  document.getElementById('chat-zip-name').textContent = _pendingZipFile ? _pendingZipFile.name : '';
+}
+
+async function createNewSession() {
+  try {
+    const data = await apiFetch('/conversations/new', { method: 'POST' });
+    await selectSession(data.conversation_id);
+    await loadSessionList();
+    toast('✅ 新对话已创建');
+  } catch (e) {
+    toast('❌ ' + e.message, false);
+  }
+}
+
+async function loadSessionList() {
+  const el = document.getElementById('session-list');
+  try {
+    const data = await apiFetch('/conversations?limit=50');
+    const convs = data.conversations || [];
+    if (!convs.length) {
+      el.innerHTML = '<p class="text-xs text-gray-400 text-center py-4">暂无会话</p>';
+      return;
+    }
+    el.innerHTML = convs.map(c => {
+      const active = c.conversation_id === _activeConversationId;
+      const pending = c.human_review_pending;
+      const label = c.skill_id || c.last_message_preview?.slice(0, 20) || c.conversation_id.slice(0, 8);
+      return `<button type="button" onclick="selectSession('${c.conversation_id}')"
+        class="w-full text-left px-2 py-2 rounded-lg text-xs ${active ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'hover:bg-gray-50 text-gray-700'}">
+        <div class="font-medium truncate">${escapeHtml(label)}</div>
+        <div class="text-gray-400 truncate">${escapeHtml((c.last_message_preview || '').slice(0, 40))}${pending ? ' · ⚠待审' : ''}</div>
+      </button>`;
+    }).join('');
+    const anyPending = convs.some(c => c.human_review_pending);
+    document.getElementById('expert-pending-dot')?.classList.toggle('hidden', !anyPending);
+  } catch (e) {
+    el.innerHTML = `<p class="text-xs text-red-400 py-4">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function selectSession(convId) {
+  _activeConversationId = convId;
+  persistConversationId(convId);
+  document.getElementById('chat-conversation-id').textContent = convId;
+  startConversationPolling();
+  await pollConversation();
+  await loadSessionList();
+}
+
+function persistConversationId(convId) {
+  if (convId) {
+    try { localStorage.setItem(CONV_STORAGE_KEY, convId); } catch (_) {}
+  }
+}
+
+function readStoredConversationId() {
+  try { return localStorage.getItem(CONV_STORAGE_KEY) || null; } catch (_) { return null; }
+}
+
+function clearStoredConversationId() {
+  try { localStorage.removeItem(CONV_STORAGE_KEY); } catch (_) {}
+}
+
+async function resumeConversation(convId, runIdHint) {
+  if (!convId) return false;
+  try {
+    const statusObj = await apiFetch(`/conversations/${encodeURIComponent(convId)}/status`);
+    _activeConversationId = convId;
+    _activeRunId = runIdHint || statusObj.active_run_id || null;
+    persistConversationId(convId);
+    document.getElementById('chat-conversation-id').textContent = convId.slice(0, 12) + '…';
+    const maxRuns = statusObj.max_auto_runs || 5;
+    const autoRuns = statusObj.auto_run_count || 0;
+    document.getElementById('chat-run-badge').textContent = `${autoRuns}/${maxRuns}`;
+    switchTab('author');
+    startConversationPolling();
+    await pollConversation();
+    toast('✅ 已恢复会话');
+    return true;
+  } catch (e) {
+    if (e.status === 404) clearStoredConversationId();
+    toast('❌ 无法恢复会话：' + (e.message || '未知错误'), false);
+    return false;
+  }
+}
+
+async function resumeStoredConversation() {
+  const convId = readStoredConversationId();
+  if (!convId) {
+    toast('没有可恢复的会话', false);
+    return;
+  }
+  await resumeConversation(convId);
+}
+
+async function offerResumeBanner() { /* legacy no-op — session list handles resume */ }
+
+const RUNNING_STATUSES = new Set([
+  'pending', 'level0_checking', 'risk_locking', 'normalizing',
+  'case_executing', 'code_asserting', 'model_judging', 'aggregating'
+]);
 
 const SECURITY_FIELDS = ['negative_prompts', 'error_handling', 'permission_scope', 'security_notes'];
 const SECURITY_LABELS = {
@@ -228,26 +510,846 @@ const REASON_ZH = {
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
 function switchTab(name) {
-  ['author','expert','history'].forEach(t => {
+  ['author','history'].forEach(t => {
     document.getElementById('panel-'+t).classList.toggle('hidden', t !== name);
     const btn = document.getElementById('tab-'+t);
-    btn.className = (t === name ? 'tab-active' : 'tab-inactive') + ' py-3 text-sm transition';
+    if (btn) btn.className = (t === name ? 'tab-active' : 'tab-inactive') + ' py-3 text-sm transition';
   });
-  if (name === 'expert')  loadExpertQueue();
   if (name === 'history') loadHistory();
 }
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 async function apiFetch(path, opts={}) {
-  const res = await fetch(API + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  const headers = { ...(opts.headers || {}) };
+  const body = opts.body;
+  if (!(body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(API + path, { ...opts, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || res.statusText);
+    const ex = new Error(err.detail || res.statusText);
+    ex.status = res.status;
+    throw ex;
   }
   return res.json();
+}
+
+function toggleDebugPanel() {
+  document.getElementById('debug-panel').classList.toggle('hidden');
+}
+
+function resetConversationView() {
+  _activeConversationId = null;
+  _activeRunId = null;
+  _latestConversationStatus = null;
+  _messagesCache = [];
+  _openingTriggeredRunId = null;
+  stopConversationPolling();
+  const cidEl = document.getElementById('chat-conversation-id');
+  if (cidEl) cidEl.textContent = '未选择会话';
+}
+
+function startConversationPolling() {
+  stopConversationPolling();
+  _conversationPollTimer = setInterval(() => pollConversation(), 3000);
+}
+
+function stopConversationPolling() {
+  if (_conversationPollTimer) {
+    clearInterval(_conversationPollTimer);
+    _conversationPollTimer = null;
+  }
+}
+
+function getStatusValue(status, keys, fallback = null) {
+  for (const key of keys) {
+    if (status && status[key] !== undefined && status[key] !== null) {
+      return status[key];
+    }
+  }
+  return fallback;
+}
+
+function isRunCompleted(statusObj) {
+  const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], null);
+  return !runStatus || !RUNNING_STATUSES.has(String(runStatus));
+}
+
+async function fetchConversationStatus() {
+  if (!_activeConversationId) return null;
+  try {
+    return await apiFetch(`/conversations/${encodeURIComponent(_activeConversationId)}/status`);
+  } catch (_) {
+    try {
+      return await apiFetch(`/status?conversation_id=${encodeURIComponent(_activeConversationId)}`);
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+async function fetchConversationMessages() {
+  if (!_activeConversationId) return [];
+  let data = null;
+  try {
+    data = await apiFetch(`/conversations/${encodeURIComponent(_activeConversationId)}/messages`);
+  } catch (_) {
+    try {
+      data = await apiFetch(`/messages?conversation_id=${encodeURIComponent(_activeConversationId)}`);
+    } catch (_) {
+      data = await apiFetch('/messages').catch(() => ({ messages: [] }));
+    }
+  }
+  const raw = Array.isArray(data) ? data : (data.messages || data.items || []);
+  return raw.filter(m => {
+    const cid = m.conversation_id || m.session_id || _activeConversationId;
+    return cid === _activeConversationId;
+  });
+}
+
+function normalizeMessageRole(msg) {
+  const role = String(msg.role || msg.sender || msg.type || '').toLowerCase();
+  if (role.includes('assistant') || role.includes('agent')) return 'agent';
+  if (role.includes('system')) return 'system';
+  return 'user';
+}
+
+function normalizeMessageText(msg) {
+  return msg.content || msg.message || msg.text || '';
+}
+
+function _messageDomKey(m) {
+  const id = m.id != null ? String(m.id) : '';
+  const runId = m.run_id || (m.payload_json && m.payload_json.run_id) || '';
+  const mtype = m.message_type || 'text';
+  return `${mtype}:${runId}:${id}:${normalizeMessageText(m).slice(0, 40)}`;
+}
+
+function renderMessages(messages) {
+  const container = document.getElementById('chat-messages');
+  if (!messages.length) {
+    container.innerHTML = '<p class="text-sm text-gray-400 text-center py-16">暂无消息</p>';
+    _lastRenderedMessageKeys = [];
+    return;
+  }
+  const latestPlanIndex = messages.reduce((best, msg, idx) => {
+    if ((msg.message_type || 'text') !== 'propagation_plan') return best;
+    const version = Number((msg.payload_json || {}).plan_version || 0);
+    if (best === -1) return idx;
+    const bestVersion = Number(((messages[best] || {}).payload_json || {}).plan_version || 0);
+    return version >= bestVersion ? idx : best;
+  }, -1);
+  const keys = messages.map((m, idx) => {
+    const base = _messageDomKey(m);
+    if ((m.message_type || 'text') === 'propagation_plan') {
+      const ver = (m.payload_json || {}).plan_version;
+      return `${base}:plan-v${ver}:${idx === latestPlanIndex ? 'latest' : 'hist'}`;
+    }
+    return base;
+  });
+  if (
+    _lastRenderedMessageKeys.length === keys.length
+    && _lastRenderedMessageKeys.every((k, i) => k === keys[i])
+  ) {
+    return;
+  }
+  _lastRenderedMessageKeys = keys;
+  container.innerHTML = messages.map((m, idx) => {
+    const role = normalizeMessageRole(m);
+    const text = normalizeMessageText(m);
+    const mtype = m.message_type || 'text';
+    if (mtype === 'propagation_plan') {
+      const isLatest = idx === latestPlanIndex;
+      const inner = renderPropagationPlanHtml(m.payload_json || {}, { showActions: isLatest });
+      const histCls = isLatest ? 'border-amber-200 bg-amber-50/70' : 'border-amber-100 bg-amber-50/40 opacity-95';
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border ${histCls} p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'propagation_summary') {
+      const inner = renderPropagationSummaryHtml(m.payload_json || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'propagation_fork') {
+      const inner = renderPropagationForkHtml(m.payload_json || {}, text);
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'draft_preview') {
+      const inner = renderDraftPreviewHtml(m.payload_json || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'draft_failed') {
+      const inner = renderDraftFailedHtml(m.payload_json || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-red-200 bg-red-50/70 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'readiness_result' || mtype === 'assessment_gate_result') {
+      const inner = renderAssessmentGateHtml(m.payload_json || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'rich_report' && m.payload_json) {
+      const inner = renderReportHtml(m.payload_json, _latestConversationStatus || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (role === 'system') {
+      return `<div class="text-center text-xs text-gray-500 px-4">${escapeHtml(text)}</div>`;
+    }
+    const isUser = role === 'user';
+    if (isUser && isInternalUserMessage(text)) return '';
+    const st = _latestConversationStatus || {};
+    const awaitingSkill = getStatusValue(st, ['status', 'conversation_status'], '') === 'awaiting_skill_id_confirm';
+    const skillChips = (!isUser && awaitingSkill && text.includes('请回复') && text.includes('确认'))
+      ? renderSkillIdConfirmChips(st.skill_id || '')
+      : '';
+    return `
+      <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
+        <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${isUser ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}">
+          ${escapeHtml(text)}
+          ${skillChips}
+        </div>
+      </div>`;
+  }).join('');
+  if (_optimisticPending) {
+    container.innerHTML += `
+      <div class="flex justify-start" id="agent-pending-bubble">
+        <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm bg-gray-100 text-gray-500 italic animate-pulse">
+          ${escapeHtml(_optimisticPendingLabel || activityPhaseLabel('thinking'))}
+        </div>
+      </div>`;
+  }
+  container.scrollTop = container.scrollHeight;
+  updateComposerState();
+}
+
+function renderActionChips(actions, runId, opts = {}) {
+  if (!actions || !actions.length) return '';
+  const { excludeOpenDetail = false } = opts;
+  const perspective = getPerspective();
+  return `<div class="flex flex-wrap gap-2 mt-3 pt-2 border-t border-gray-200">${actions.map(a => {
+    const aid = a.id || a.action || '';
+    if (excludeOpenDetail && (aid === 'openRunDetail' || aid === 'open_run_detail')) return '';
+    if (a.visible_in === 'expert' && perspective !== 'expert') return '';
+    if (a.visible_in === 'author' && perspective !== 'author') return '';
+    const disabled = !a.enabled;
+    const cls = disabled
+      ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-500'
+      : 'bg-white hover:bg-gray-50 text-gray-800 border-gray-300 cursor-pointer';
+    return `<button type="button" ${disabled ? 'disabled' : ''}
+      onclick="handleReportAction('${a.id}', '${runId}')"
+      class="text-xs px-3 py-1.5 rounded-lg border ${cls}">${escapeHtml(a.label)}</button>`;
+  }).join('')}</div>`;
+}
+
+function renderPropagationActionChips() {
+  return `
+    <div class="flex flex-wrap gap-2 mt-3 pt-2 border-t border-amber-200">
+      <button type="button" onclick="handlePropagationAction('confirm')"
+        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+        自动出题
+      </button>
+      <button type="button" onclick="handlePropagationAction('manual')"
+        class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+        我自己补
+      </button>
+      <button type="button" onclick="handlePropagationAction('chat')"
+        class="text-xs px-3 py-1.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100">
+        对话里补
+      </button>
+    </div>`;
+}
+
+function renderForkActionChips(fork) {
+  if (fork === 'mode_choice') {
+    return `<div class="flex flex-wrap gap-2 mt-2">
+      <button type="button" onclick="sendConversationMessage('${ACTION_PROPAGATE}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800">系统自动出题</button>
+      <button type="button" onclick="sendConversationMessage('我想描述使用场景', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-800">先描述场景</button>
+    </div>`;
+  }
+  if (fork === 'scene_choice') {
+    return `<div class="flex flex-wrap gap-2 mt-2">
+      <button type="button" onclick="sendConversationMessage('${ACTION_DRAFT_WRITE_FILE}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-800">写进文件确认</button>
+      <button type="button" onclick="sendConversationMessage('${ACTION_SCENE_PROPAGATE}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800">理解后自动出题</button>
+    </div>`;
+  }
+  return '';
+}
+
+function renderSkillIdConfirmChips(skillId) {
+  const label = skillId ? `确认「${skillId}」` : '确认继续';
+  return `<div class="flex flex-wrap gap-2 mt-2">
+    <button type="button" onclick="sendConversationMessage('${ACTION_CONFIRM_SKILL}', true)"
+      class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800">${escapeHtml(label)}</button>
+    <button type="button" onclick="document.getElementById('chat-input').focus()"
+      class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white text-gray-700">名称不对，我打字说明</button>
+  </div>`;
+}
+
+function renderDraftPreviewHtml(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const files = Array.isArray(payload.files_to_write) ? payload.files_to_write : [];
+  const cases = Array.isArray(payload.cases_preview) ? payload.cases_preview : [];
+  return `
+    ${renderFlowStepBar(payload.flow_step)}
+    <div class="text-sm font-semibold text-indigo-900">修改草案预览</div>
+    ${payload.next_hint_zh ? `<p class="mt-1 text-xs text-gray-600">${escapeHtml(payload.next_hint_zh)}</p>` : ''}
+    <div class="mt-2 text-xs">
+      <div class="font-medium text-gray-700">将写入</div>
+      <ul class="list-disc list-inside text-gray-600">${files.length ? files.map(f => `<li>${escapeHtml(f)}</li>`).join('') : '<li>—</li>'}</ul>
+      ${cases.length ? `<div class="mt-2 font-medium text-gray-700">题目摘要</div>
+        <ul class="list-disc list-inside text-gray-600 space-y-1">${cases.map(c => `<li>${escapeHtml(c.id || '')} · ${escapeHtml(c.user_intent || '')}</li>`).join('')}</ul>` : ''}
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3 pt-2 border-t border-indigo-200">
+      <button type="button" onclick="sendConversationMessage('${ACTION_DRAFT_CONFIRM}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800">确认写入</button>
+      <button type="button" onclick="document.getElementById('chat-input').focus()"
+        class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white text-gray-700">继续修改</button>
+    </div>`;
+}
+
+function renderDraftFailedHtml(payload) {
+  return `
+    <div class="text-sm font-semibold text-red-800">草案生成未成功</div>
+    <p class="mt-1 text-xs text-gray-600">${escapeHtml(payload?.next_hint_zh || '请选择下一步')}</p>
+    <div class="flex flex-wrap gap-2 mt-2">
+      <button type="button" onclick="sendConversationMessage('再试一次', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white">再试一次</button>
+      <button type="button" onclick="sendConversationMessage('${ACTION_MANUAL_UPLOAD}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white">手动上传 ZIP</button>
+      <button type="button" onclick="sendConversationMessage('${ACTION_PROPAGATE}', true)"
+        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800">自动出题</button>
+    </div>`;
+}
+
+function renderL0QuestionHtml(q) {
+  if (typeof q === 'string') {
+    return `<li class="text-amber-900">${escapeHtml(q)}</li>`;
+  }
+  const label = q.label_zh || q.question_zh || q.key || '待澄清项';
+  const question = q.question_zh && q.label_zh ? q.question_zh : '';
+  const why = q.why_zh || '';
+  const example = q.example_zh || '';
+  const options = Array.isArray(q.options) ? q.options : [];
+  const optionsHtml = options.length
+    ? `<div class="mt-1 text-amber-700/90">可参考：${options.map(o => escapeHtml(o)).join(' · ')}</div>`
+    : '';
+  return `
+    <li class="space-y-1 py-1 border-b border-amber-100 last:border-0">
+      <div class="font-medium text-amber-950">${escapeHtml(label)}</div>
+      ${question ? `<div class="text-amber-900">${escapeHtml(question)}</div>` : ''}
+      ${why ? `<div class="text-amber-800/80">作用：${escapeHtml(why)}</div>` : ''}
+      ${example ? `<div class="text-amber-700/90 italic">${escapeHtml(example)}</div>` : ''}
+      ${optionsHtml}
+    </li>`;
+}
+
+function renderPropagationPlanHtml(payload, opts = {}) {
+  if (!payload || typeof payload !== 'object') return '';
+  const showActions = opts.showActions !== false;
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const questions = Array.isArray(payload.l0_questions) ? payload.l0_questions : [];
+  const isHistorical = !showActions;
+  const planVersion = payload.plan_version != null
+    ? `<span class="badge bg-amber-100 text-amber-800">v${escapeHtml(payload.plan_version)}</span>`
+    : '';
+  const histBadge = isHistorical
+    ? '<span class="text-xs font-normal text-gray-500 ml-1">（历史版本，仅供参考）</span>'
+    : '';
+  const degraded = payload.enrichment_status === 'degraded'
+    ? `<p class="mt-1 text-xs text-amber-700">${escapeHtml(payload.enrichment_degraded_hint || '业务说明为通用模板')}</p>`
+    : '';
+  const table = rows.length ? `
+    <div class="overflow-x-auto mt-2">
+      <table class="w-full text-xs border border-amber-200 rounded-lg overflow-hidden">
+        <thead class="bg-amber-50 text-amber-900">
+          <tr>
+            <th class="px-2 py-1 text-left font-medium">评估场景</th>
+            <th class="px-2 py-1 text-left font-medium">尚需补齐</th>
+            <th class="px-2 py-1 text-left font-medium">建议补测什么</th>
+            <th class="px-2 py-1 text-left font-medium">业务上期望什么</th>
+            <th class="px-2 py-1 text-left font-medium">红线说明</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white">
+          ${rows.map((row) => `
+            <tr class="border-t border-amber-100">
+              <td class="px-2 py-1 align-top text-gray-900">${escapeHtml(row.type_zh || '—')}</td>
+              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(formatGapCell(row))}</td>
+              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(row.tests_what || '—')}</td>
+              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(row.business_expectation || '—')}</td>
+              <td class="px-2 py-1 align-top text-gray-700">${formatRedlineCell(row)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>` : '<p class="mt-2 text-xs text-gray-500">暂无补题计划明细</p>';
+  const l0Section = questions.length ? `
+    <div class="mt-3 p-2 rounded-lg bg-white border border-amber-200">
+      <div class="text-xs font-medium text-amber-900 mb-1">待澄清（评估需求）</div>
+      <p class="text-xs text-amber-800/90 mb-2">请直接在下方对话框回复；补充后系统会刷新补题计划。</p>
+      <ul class="list-none text-xs space-y-0.5">
+        ${questions.map(q => renderL0QuestionHtml(q)).join('')}
+      </ul>
+    </div>` : '';
+  return `
+    ${renderFlowStepBar(payload.flow_step)}
+    <div class="text-sm font-semibold text-amber-900 flex items-center flex-wrap gap-2">
+      补题计划
+      ${planVersion}
+      ${histBadge}
+    </div>
+    ${degraded}
+    ${table}
+    ${l0Section}
+    ${showActions ? renderPropagationActionChips() : ''}
+  `;
+}
+
+function renderPropagationForkHtml(payload, text) {
+  const fork = payload?.fork || '';
+  return `
+    ${renderFlowStepBar(payload?.flow_step)}
+    <div class="text-sm text-gray-800 whitespace-pre-wrap">${escapeHtml(text || '')}</div>
+    ${payload?.next_hint_zh ? `<p class="mt-1 text-xs text-gray-500">${escapeHtml(payload.next_hint_zh)}</p>` : ''}
+    ${renderForkActionChips(fork)}
+  `;
+}
+
+function summarizeCasesByType(caseIds) {
+  const patterns = [
+    ['happy', '正常场景'],
+    ['edge', '边界场景'],
+    ['refusal', '拒绝场景'],
+    ['adv', '对抗场景'],
+  ];
+  const counts = {};
+  for (const raw of caseIds) {
+    const lower = String(raw).toLowerCase();
+    let label = '其他';
+    for (const [pat, zh] of patterns) {
+      if (lower.includes(pat)) { label = zh; break; }
+    }
+    counts[label] = (counts[label] || 0) + 1;
+  }
+  return Object.entries(counts).map(([typeZh, count]) => ({ type_zh: typeZh, count }));
+}
+
+function renderPropagationSummaryHtml(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const casesWritten = Array.isArray(payload.cases_written) ? payload.cases_written : [];
+  const typeSummary = Array.isArray(payload.type_summary) && payload.type_summary.length
+    ? payload.type_summary
+    : summarizeCasesByType(casesWritten);
+  const nAdded = payload.n_added ?? casesWritten.length;
+  const fallbackNote = payload.used_fallback
+    ? '<p class="mt-1 text-xs text-amber-700">部分题目使用了模板兜底。</p>'
+    : '';
+  const typeLines = typeSummary.length
+    ? typeSummary.map((row) => `<li>${escapeHtml(row.type_zh || '其他')} ×${row.count ?? 0}</li>`).join('')
+    : '<li>—</li>';
+  const techDetails = casesWritten.length
+    ? `<details class="mt-2 text-xs">
+        <summary class="cursor-pointer text-emerald-800 font-medium">技术明细（题目 ID）</summary>
+        <ul class="list-disc list-inside text-gray-600 mt-1 space-y-0.5">${casesWritten.map(v => `<li>${escapeHtml(v)}</li>`).join('')}</ul>
+      </details>`
+    : '';
+  return `
+    <div class="text-sm font-semibold text-emerald-900">补题已完成</div>
+    <p class="mt-1 text-xs text-gray-700">共生成 <strong>${nAdded}</strong> 道评估题。</p>
+    ${fallbackNote}
+    <div class="mt-2 p-2 bg-white border border-emerald-200 rounded-lg text-xs">
+      <div class="font-medium text-emerald-800 mb-1">题型分布</div>
+      <ul class="list-disc list-inside text-gray-700 space-y-0.5">${typeLines}</ul>
+    </div>
+    ${techDetails}
+  `;
+}
+
+function renderOptionalImprovementChips(show) {
+  if (!show) return '';
+  return `
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button type="button" onclick="sendConversationMessage('${ACTION_READINESS_DRAFT}', true)"
+        class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs hover:bg-indigo-700">对话补充说明</button>
+      <button type="button" onclick="sendConversationMessage('${ACTION_MANUAL_UPLOAD}', true)"
+        class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs hover:bg-slate-50">我自己改 ZIP</button>
+    </div>
+    <p class="mt-2 text-xs text-slate-500">以上为可选改进；评估需求满足后将自动开始正式评估。</p>`;
+}
+
+function renderAssessmentGateHtml(payload) {
+  if (!payload || typeof payload !== 'object') return '';
+  const blocking = Array.isArray(payload.blocking_gaps) ? payload.blocking_gaps : [];
+  const optional = Array.isArray(payload.optional_gaps)
+    ? payload.optional_gaps
+    : (Array.isArray(payload.gaps) ? payload.gaps.filter((g) => g.severity === 'warn' || g.severity === 'info') : []);
+  const score = payload.completeness_score;
+  const security = formatSecurityZh(payload, 'security');
+  const riskLocked = formatSecurityZh(payload, 'risk');
+  const caseGate = payload.case_gate || {};
+  const gateLabel = caseGate.passed === true ? '通过' : (caseGate.passed === false ? '未通过' : '—');
+  const optionalOnly = payload.can_enter_formal && (payload.optional_gaps || []).length > 0;
+  const showChoices = optionalOnly
+    && !RUNNING_STATUSES.has(String(getStatusValue(_latestConversationStatus || {}, ['run_status', 'status'], '')));
+  const optionalBlock = optional.length
+    ? `<details class="mt-1"><summary class="cursor-pointer text-slate-600 font-medium">可选改进（${optional.length} 项，不阻断正式评估）</summary>
+        <p class="text-xs text-slate-500 mt-1 pl-1">展开可查看详情；不影响直接点「开始正式评估」。</p>
+        <ul class="list-disc list-inside text-gray-700 mt-1 space-y-0.5 pl-1">
+          ${optional.map((g) => `<li>${escapeHtml(g.message || g.hint || g.field_path || 'gap')}</li>`).join('')}
+        </ul></details>`
+    : '';
+  const blockingBlock = blocking.length
+    ? `<div class="p-2 border border-amber-200 rounded-lg bg-amber-50/50">
+        <div class="font-medium text-amber-900">须先处理</div>
+        <ul class="list-disc list-inside text-gray-700 mt-1 space-y-0.5">
+          ${blocking.map((g) => `<li>${escapeHtml(g.message || g.field_path || 'gap')}</li>`).join('')}
+        </ul></div>`
+    : '';
+  return `
+    <div class="text-sm font-semibold text-slate-900 flex items-center gap-2">
+      ${escapeHtml(payload.headline_zh || '评估条件检查')}
+      ${payload.gate_version ? `<span class="text-xs font-normal text-slate-500">v${escapeHtml(payload.gate_version)}</span>` : ''}
+    </div>
+    <div class="mt-2 space-y-2 text-xs">
+      <div class="p-2 border border-slate-200 rounded-lg bg-white">
+        <div class="font-medium text-slate-700">完整度</div>
+        <div class="text-gray-700 mt-1">分数：${score != null ? escapeHtml(String(score)) : '—'}</div>
+      </div>
+      <div class="p-2 border border-slate-200 rounded-lg bg-white">
+        <div class="font-medium text-slate-700">安全 / 风险</div>
+        <div class="text-gray-700 mt-1">安全：${escapeHtml(String(security))} · 风险锁定：${escapeHtml(String(riskLocked))}</div>
+      </div>
+      <div class="p-2 border border-slate-200 rounded-lg bg-white">
+        <div class="font-medium text-slate-700">评估条件门槛</div>
+        <div class="text-gray-700 mt-1">${escapeHtml(gateLabel)}</div>
+      </div>
+      ${blockingBlock}
+      ${optionalBlock}
+      ${renderOptionalImprovementChips(showChoices)}
+    </div>
+  `;
+}
+
+async function handlePropagationAction(action) {
+  if (action === 'confirm') {
+    await sendConversationMessage(ACTION_PROPAGATE, true);
+    return;
+  }
+  if (action === 'manual') {
+    await sendConversationMessage(ACTION_MANUAL_UPLOAD, true);
+    return;
+  }
+  if (action === 'chat') {
+    await sendConversationMessage(ACTION_DRAFT_MODE, true);
+  }
+}
+
+async function handleReportAction(actionId, runId) {
+  if (actionId === 'confirm_all') {
+    await sendConversationMessage('__SYSTEM_ACTION_CONFIRM_ALL__', true);
+    return;
+  }
+  if (actionId === 'expert_approve') {
+    try {
+      await apiFetch(`/eval/review/${runId}`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'approve', operator: 'self', comment: 'UI approve' }),
+      });
+      setPerspective('author');
+      toast('✅ 已批准');
+      await pollConversation();
+      await loadSessionList();
+    } catch (e) { toast('❌ ' + e.message, false); }
+    return;
+  }
+  if (actionId === 'expert_reject') {
+    const comment = prompt('驳回意见（可选）') || '';
+    try {
+      await apiFetch(`/eval/review/${runId}`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'reject', operator: 'self', comment }),
+      });
+      setPerspective('author');
+      toast('已驳回，会话已解冻');
+      await pollConversation();
+      await loadSessionList();
+    } catch (e) { toast('❌ ' + e.message, false); }
+  }
+}
+
+function openReportFromChat(runId) {
+  if (!runId) return;
+  switchTab('history');
+  openRunDetail(runId);
+}
+
+function renderReportHtml(apiDetail, statusObj) {
+  if (!apiDetail) return '';
+  const phase = apiDetail.report_phase || 'formal';
+  const headline = apiDetail.headline_zh || '评估结果';
+  const summary = apiDetail.summary_one_liner || '';
+  const scoreLine = apiDetail.score_line_html;
+  const runId = apiDetail.run_id || '';
+  const verdict = apiDetail.verdict_zh || '';
+  const nextAction = apiDetail.next_action_zh || '';
+  const isFormal = phase === 'formal' || phase === 'formal_pending_review';
+  const verdictBadgeClass = verdict.includes('通过')
+    ? 'bg-green-100 text-green-700'
+    : (verdict.includes('失败') || verdict.includes('拒绝')
+      ? 'bg-red-100 text-red-700'
+      : 'bg-amber-100 text-amber-800');
+  const verdictBadge = (isFormal && verdict)
+    ? `<span class="badge ${verdictBadgeClass}">${escapeHtml(verdict)}</span>`
+    : '';
+  const actions = apiDetail.actions || [];
+  const scoreBlock = scoreLine
+    ? `<div class="mt-2 text-sm text-gray-800">${scoreLine}</div>`
+    : '';
+  const cta = runId && isFormal
+    ? `<button type="button" onclick="openReportFromChat('${escapeHtml(runId)}')"
+        class="mt-2 text-xs text-indigo-700 hover:text-indigo-900 font-medium">
+        查看完整报告 →
+      </button>`
+    : '';
+  const expertChips = phase === 'formal_pending_review'
+    ? renderActionChips(actions, runId, { excludeOpenDetail: true })
+    : '';
+  return `
+    <div class="text-sm font-semibold text-indigo-900 flex items-center gap-2">${escapeHtml(headline)}${verdictBadge}</div>
+    ${summary ? `<p class="mt-1 text-xs text-gray-700 leading-relaxed">${escapeHtml(summary)}</p>` : ''}
+    ${(isFormal && nextAction) ? `<p class="mt-1 text-xs text-indigo-800">下一步：${escapeHtml(nextAction)}</p>` : ''}
+    ${scoreBlock}
+    ${cta}
+    ${expertChips}
+  `;
+}
+
+function renderReportSkeleton() {
+  return `
+    <div class="animate-pulse space-y-3">
+      <div class="h-5 bg-gray-200 rounded w-2/3"></div>
+      <div class="h-4 bg-gray-200 rounded"></div>
+      <div class="h-4 bg-gray-200 rounded"></div>
+      <div class="h-20 bg-gray-100 rounded"></div>
+    </div>
+    <p class="text-xs text-blue-500">评估进行中，正在刷新报告…</p>
+  `;
+}
+
+function renderCompletenessStatusCard(statusObj, apiDetail) {
+  const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], apiDetail?.status || '');
+  const gapZero = !!getStatusValue(statusObj, ['gap_zero'], false);
+  const caseGatePassed = !!getStatusValue(statusObj, ['case_gate_passed'], false);
+  const autoConfirmed = !!getStatusValue(statusObj, ['auto_confirmed'], false);
+
+  if (runStatus === 'awaiting_confirm') {
+    return `
+      <div class="p-3 border border-amber-200 rounded-lg bg-amber-50 text-sm">
+        <div class="text-xs text-amber-700 mb-1">补全状态</div>
+        <div class="font-medium text-amber-900">需要补全 — 尚未进入双模型质量评审</div>
+        <p class="text-xs text-amber-800 mt-1">请按下方缺口清单修改 staging 后重新评估。</p>
+      </div>`;
+  }
+
+  const lines = [];
+  lines.push(gapZero
+    ? '<span class="text-green-700">✓ 结构缺口已清零</span>'
+    : '<span class="text-amber-800">○ 尚有结构缺口（见缺口列表）</span>');
+  lines.push(caseGatePassed
+    ? '<span class="text-green-700">✓ 题型门禁已通过</span>'
+    : '<span class="text-amber-800">○ 题型门禁未通过</span>');
+  if (autoConfirmed) {
+    lines.push('<span class="text-green-700">✓ 已整包确认</span>');
+  } else if (gapZero && caseGatePassed) {
+    lines.push('<span class="text-blue-700">→ 可点击「整包确认」解锁 capability_full</span>');
+  }
+
+  if (runStatus === 'awaiting_human_review') {
+    lines.push('<span class="text-amber-800">⚠ 需专家复核，会话可能已冻结</span>');
+  }
+
+  return `
+    <div class="p-3 border border-gray-200 rounded-lg bg-white text-sm">
+      <div class="text-xs text-gray-500 mb-2">补全状态</div>
+      <div class="space-y-1 text-xs">${lines.join('<br>')}</div>
+    </div>`;
+}
+
+function securityStatusBadge(secStatus) {
+  const cls = {
+    passed: 'bg-green-100 text-green-700',
+    warning: 'bg-amber-100 text-amber-800',
+    blocked: 'bg-red-100 text-red-700',
+    fail: 'bg-red-100 text-red-700',
+  }[secStatus] || 'bg-gray-100 text-gray-600';
+  const label = { passed: '通过', warning: '警告', blocked: '阻断', fail: '失败' }[secStatus] || secStatus;
+  return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function renderReportCards(apiDetail, statusObj) {
+  const target = document.getElementById('author-report-cards');
+  if (!target) return;
+  if (!apiDetail) {
+    target.innerHTML = '<p class="text-sm text-gray-400 text-center py-12">暂无报告数据</p>';
+    return;
+  }
+  target.innerHTML = renderReportHtml(apiDetail, statusObj);
+}
+
+function updateComposerState() {
+  const input = document.getElementById('chat-input');
+  const zipInput = document.getElementById('chat-zip-file');
+  const hintEl = document.getElementById('chat-send-msg');
+  if (!input) return;
+  const st = _latestConversationStatus || {};
+  const frozen = st.status === 'frozen';
+  const humanPending = st.run_status === 'awaiting_human_review';
+  const authorBlocked = frozen || (humanPending && getPerspective() === 'author');
+  input.disabled = authorBlocked;
+  if (zipInput) zipInput.disabled = authorBlocked;
+  if (hintEl) {
+    hintEl.textContent = st.run_status === 'awaiting_propagation_confirm'
+      ? '可回复：确认 / 我自己补 / 帮我在对话里补'
+      : '';
+  }
+}
+
+function updateChatStatusBanner(statusObj) {
+  const banner = document.getElementById('chat-status-banner');
+  const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], '');
+  const frozen = getStatusValue(statusObj, ['conversation_status', 'status'], '') === 'frozen' || !!statusObj?.frozen;
+  const humanPending = runStatus === 'awaiting_human_review';
+  const autoRuns = getStatusValue(statusObj, ['auto_run_count'], 0);
+  const maxRuns = getStatusValue(statusObj, ['max_auto_runs'], 5);
+
+  banner.className = 'hidden px-4 py-2 text-xs';
+  if (frozen || humanPending) {
+    banner.className = 'px-4 py-2 text-xs bg-amber-50 text-amber-800 border-b border-amber-100';
+    banner.textContent = humanPending && getPerspective() === 'author'
+      ? '需人工复核 — 作者视角只读。请切换到【专家】视角进行裁定。'
+      : '会话已冻结，暂不可修改。';
+  } else if (RUNNING_STATUSES.has(String(runStatus))) {
+    banner.className = 'px-4 py-2 text-xs bg-blue-50 text-blue-700 border-b border-blue-100';
+    const stages = getStatusValue(statusObj, ['stage_progress'], []);
+    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : runStatus;
+    const stageZh = STAGE_ZH[last] || last;
+    banner.textContent = `评估进行中…（${stageZh}）`;
+  }
+  document.getElementById('chat-run-badge').textContent = `${autoRuns}/${maxRuns}`;
+  updateComposerState();
+}
+
+function updateConfirmButton(_statusObj) { /* chips in rich_report */ }
+
+async function refreshReport(_statusObj) { /* reports in message stream */ }
+
+async function triggerOpeningIfNeeded(statusObj) {
+  const runId = getStatusValue(statusObj, ['active_run_id', 'run_id'], null);
+  if (!runId || _openingTriggeredRunId === runId) return;
+  if (!isRunCompleted(statusObj)) return;
+  const agentCount = _messagesCache.filter(m => normalizeMessageRole(m) === 'agent').length;
+  if (agentCount > 0) return;
+  _openingTriggeredRunId = runId;
+  await sendConversationMessage('__TRIGGER_AGENT_OPENING__', true);
+}
+
+async function pollConversation() {
+  if (!_activeConversationId) return;
+  const statusObj = await fetchConversationStatus();
+  if (!statusObj) return;
+  _latestConversationStatus = statusObj;
+  _activeRunId = statusObj.active_run_id || _activeRunId;
+  updateChatStatusBanner(statusObj);
+  syncPendingFromRunStatus(statusObj);
+  _messagesCache = await fetchConversationMessages();
+  if (isRunCompleted(statusObj)) {
+    _optimisticPending = false;
+    _optimisticPendingLabel = '';
+  }
+  renderMessages(_messagesCache);
+  await loadSessionList();
+}
+
+async function sendConversationMessage(text, silent = false, displayLabel = null) {
+  if (!_activeConversationId) {
+    toast('请先创建或选择会话', false);
+    return;
+  }
+  const input = document.getElementById('chat-input');
+  const payloadText = text || input.value.trim();
+  const displayText = displayLabel || payloadText;
+  if (!text && input) {
+    input.value = '';
+  }
+  const zipFile = _pendingZipFile;
+  const demoOn = localStorage.getItem(DEMO_MODE_KEY) === 'true';
+  const demoPath = document.getElementById('demo-local-path')?.value.trim() || '';
+  if (!payloadText && !zipFile && !(demoOn && demoPath)) return;
+  if (!silent && displayText) {
+    _messagesCache = [..._messagesCache, { role: 'user', content: displayText, message_type: 'text' }];
+    _optimisticPending = true;
+    _optimisticPendingLabel = activityPhaseLabel('thinking');
+    renderMessages(_messagesCache);
+  } else if (silent && isInternalUserMessage(payloadText)) {
+    _optimisticPending = true;
+    _optimisticPendingLabel = activityPhaseLabel(activityPhaseForAction(payloadText));
+    renderMessages(_messagesCache);
+  }
+  const msgEl = document.getElementById('chat-send-msg');
+  msgEl.textContent = silent ? '' : '发送中…';
+  let chatResp = null;
+  try {
+    if (zipFile) {
+      const fd = new FormData();
+      fd.append('message', payloadText);
+      fd.append('bundle_zip', zipFile);
+      chatResp = await apiFetch(`/conversations/${encodeURIComponent(_activeConversationId)}/chat`, {
+        method: 'POST',
+        body: fd,
+      });
+    } else if (demoOn && demoPath && !String(payloadText).startsWith('__')) {
+      chatResp = await apiFetch(`/conversations/${encodeURIComponent(_activeConversationId)}/bootstrap`, {
+        method: 'POST',
+        body: JSON.stringify({
+          source: 'local_ref',
+          skill_bundle_path: demoPath,
+          user_message: payloadText,
+        }),
+      });
+    } else {
+      chatResp = await apiFetch(`/conversations/${encodeURIComponent(_activeConversationId)}/chat`, {
+        method: 'POST',
+        body: JSON.stringify({ message: payloadText }),
+      });
+    }
+    if (chatResp?.activity_phase && KEEP_PENDING_PHASES.has(chatResp.activity_phase)) {
+      _optimisticPending = true;
+      _optimisticPendingLabel = activityPhaseLabel(chatResp.activity_phase);
+      renderMessages(_messagesCache);
+    }
+    _pendingZipFile = null;
+    document.getElementById('chat-zip-file').value = '';
+    document.getElementById('chat-zip-name').textContent = '';
+    msgEl.textContent = '';
+    if (!silent) toast('✅ 已发送');
+    await pollConversation();
+  } catch (e) {
+    _optimisticPending = false;
+    _optimisticPendingLabel = '';
+    msgEl.textContent = '';
+    if (e.status === 403) toast('会话已冻结（403）', false);
+    else if (e.status === 409) toast('评估进行中，请稍后（409）', false);
+    else toast('❌ ' + e.message, false);
+  }
+}
+
+async function sendChatMessage() {
+  await sendConversationMessage();
+}
+
+async function sendConfirmAll() {
+  await sendConversationMessage('__SYSTEM_ACTION_CONFIRM_ALL__', true);
 }
 
 function toast(msg, ok=true) {
@@ -1197,13 +2299,52 @@ async function submitReview(runId, action) {
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
+function conversationMessagePreview(m) {
+  const mtype = m.message_type || 'text';
+  const typeLabels = {
+    rich_report: '评估简卡',
+    readiness_result: '评估条件检查',
+    assessment_gate_result: '评估条件检查',
+    propagation_plan: '补题计划',
+    propagation_summary: '补题完成',
+    draft_preview: '修改草案',
+  };
+  if (typeLabels[mtype]) return `[${typeLabels[mtype]}]`;
+  const text = normalizeMessageText(m).trim();
+  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+}
+
+function renderConversationSummary(convData) {
+  const msgs = convData.messages || [];
+  const preview = msgs.slice(-3).map(m => {
+    const role = normalizeMessageRole(m);
+    const label = role === 'user' ? '你' : (role === 'system' ? '系统' : '助手');
+    const body = conversationMessagePreview(m) || '—';
+    return `<div class="text-xs text-gray-600"><span class="text-gray-400">${label}:</span> ${escapeHtml(body)}</div>`;
+  }).join('');
+  const total = convData.message_count || msgs.length;
+  return `
+    <div class="border-t border-gray-100 pt-3 space-y-2">
+      <div class="text-xs font-medium text-gray-700">最近对话（共 ${total} 条，仅显示末尾 3 条）</div>
+      <div class="space-y-1 max-h-24 overflow-y-auto bg-gray-50 rounded-lg p-2">${preview || '<p class="text-xs text-gray-400">暂无消息</p>'}</div>
+    </div>`;
+}
+
+async function openConversationFromHistory(convId, runId) {
+  closeRunDetail();
+  switchTab('author');
+  await selectSession(convId);
+  if (runId) _activeRunId = runId;
+}
+
 async function loadHistory() {
   const humanOnly = document.getElementById('filter-human')?.checked;
   const el = document.getElementById('history-table');
   el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">加载中…</p>';
   try {
     const data = await apiFetch(`/eval/history?limit=50${humanOnly ? '&human_review_only=true' : ''}`);
-    if (!data.runs.length) {
+    const runs = (data.runs || []).filter(run => run.evaluation_mode !== 'degraded');
+    if (!runs.length) {
       el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">暂无历史记录</p>';
       return;
     }
@@ -1211,6 +2352,7 @@ async function loadHistory() {
       <table class="w-full text-sm">
         <thead>
           <tr class="text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+            <th class="text-left px-4 py-3 font-medium">对话</th>
             <th class="text-left px-4 py-3 font-medium">Skill ID</th>
             <th class="text-left px-4 py-3 font-medium">Run ID</th>
             <th class="text-left px-4 py-3 font-medium">状态</th>
@@ -1221,8 +2363,16 @@ async function loadHistory() {
           </tr>
         </thead>
         <tbody>
-          ${data.runs.map(run => `
+          ${runs.map(run => `
             <tr class="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onclick="openRunDetail('${run.run_id}')">
+              <td class="px-4 py-3" onclick="event.stopPropagation()">
+                ${run.conversation_id
+                  ? `<div class="text-xs text-gray-500 max-w-[160px] truncate" title="${escapeHtml(run.last_message_preview || '')}">${escapeHtml((run.last_message_preview || '—').slice(0, 40))}</div>
+                     <div class="text-xs text-gray-400">${run.lui_message_count || 0} 条</div>
+                     <button type="button" onclick="openConversationFromHistory('${run.conversation_id}', '${run.run_id}')"
+                       class="text-xs text-blue-600 hover:underline mt-1">打开完整对话</button>`
+                  : '<span class="text-xs text-gray-400">—</span>'}
+              </td>
               <td class="px-4 py-3 font-medium text-gray-900">${run.skill_id}</td>
               <td class="px-4 py-3 text-gray-400 font-mono text-xs">${run.run_id.slice(0,12)}…</td>
               <td class="px-4 py-3"><span class="badge ${statusClass(run.status)}">${run.status}</span></td>
@@ -1234,7 +2384,7 @@ async function loadHistory() {
           `).join('')}
         </tbody>
       </table>
-      <div class="text-xs text-gray-400 px-4 py-3 border-t border-gray-100">${data.total} 条记录</div>
+      <div class="text-xs text-gray-400 px-4 py-3 border-t border-gray-100">${runs.length} 条记录</div>
     `;
   } catch(e) {
     el.innerHTML = `<p class="text-sm text-red-400 text-center py-10">加载失败: ${e.message}</p>`;
@@ -1246,8 +2396,24 @@ async function openRunDetail(runId) {
     const d = await apiFetch(`/eval/report/${runId}`);
     const ps = getProviderSummary(d);
     const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
-    const summary = getTimingSummary(d);
     const progress = getStageProgress(d);
+    const convId = d.conversation_id;
+    let convBlock = '';
+    if (convId) {
+      try {
+        const convData = await apiFetch(`/eval/history/${runId}/conversation`);
+        convBlock = renderConversationSummary(convData)
+          + `<button type="button" onclick="openConversationFromHistory('${convId}', '${runId}')"
+              class="mt-2 text-sm font-medium text-blue-700 hover:text-blue-900 underline">
+              打开完整对话 →
+            </button>`;
+      } catch (_) {
+        convBlock = `<button type="button" onclick="openConversationFromHistory('${convId}', '${runId}')"
+            class="mt-2 text-sm font-medium text-blue-700 hover:text-blue-900 underline">
+            打开完整对话 →
+          </button>`;
+      }
+    }
     const body = document.getElementById('detail-modal-body');
     body.innerHTML = `
       <div class="space-y-2 text-xs font-mono text-gray-500">
@@ -1256,10 +2422,11 @@ async function openRunDetail(runId) {
         ${codes.length ? `<div class="text-xs text-amber-700 mt-1">${codes.map(c => REASON_ZH[c] || c).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
       </div>
       <div class="text-sm border-t border-gray-100 pt-3">${formatScoreDisplay(d)}</div>
+      ${convBlock}
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
-      ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, false)}</div>` : ''}
-      ${renderModelVotesFeedback(d, false)}
+      ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, true)}</div>` : ''}
+      ${renderModelVotesFeedback(d, true)}
       ${renderNarrativeCard(d)}
       ${renderDisagreementCard(d)}
       ${renderRiskLockCard(d)}
@@ -1289,17 +2456,36 @@ function statusClass(s) {
 
 function updateReviewBadge(count) {
   const badge = document.getElementById('review-badge');
-  if (count > 0) {
-    badge.textContent = count;
-    badge.classList.remove('hidden');
-  } else {
-    badge.classList.add('hidden');
+  const dot = document.getElementById('expert-pending-dot');
+  if (badge) {
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
   }
+  if (dot) dot.classList.toggle('hidden', !(count > 0));
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 checkHealth();
 setInterval(checkHealth, 30000);
+setPerspective(getPerspective());
+const _demoOnInit = localStorage.getItem(DEMO_MODE_KEY) === 'true';
+document.getElementById('demo-path-wrap')?.classList.toggle('hidden', !_demoOnInit);
+loadSessionList();
+(async () => {
+  const stored = readStoredConversationId();
+  if (stored) await resumeConversation(stored);
+})();
+
+document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
 
 // Preload expert queue badge on load
 apiFetch('/eval/history?human_review_only=true&limit=1')

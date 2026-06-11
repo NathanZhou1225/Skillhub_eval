@@ -23,13 +23,19 @@ def test_ui_has_tailwind_cdn():
     assert "tailwindcss.com" in r.text
 
 
-def test_ui_has_both_tabs():
+def test_ui_has_chat_first_tabs():
+    """Wave 5 — two tabs: chat + history; expert is perspective toggle only."""
     app = create_app()
     client = TestClient(app)
     r = client.get("/ui/index.html")
     assert "tab-author" in r.text
-    assert "tab-expert" in r.text
     assert "tab-history" in r.text
+    assert "tab-expert" not in r.text
+    assert "对话评估" in r.text
+    assert "session-list" in r.text
+    assert "btn-perspective-expert" in r.text
+    assert "createNewSession" in r.text
+    assert "renderReportHtml" in r.text
 
 
 def test_ui_has_key_api_endpoints_referenced():
@@ -166,9 +172,36 @@ def test_ui_per_case_uses_chinese_labels():
     assert "业务解决" in r.text
 
 
+def test_ui_wave5_1_slim_report_cards():
+    """Wave 5.1 — slim chat cards + history CTA + poll stability."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "openReportFromChat" in r.text
+    assert "report_phase" in r.text
+    assert "score_line_html" in r.text
+    assert "查看完整报告" in r.text
+    assert "_messageDomKey" in r.text
+    assert "_lastRenderedMessageKeys" in r.text
+
+
 def test_ui_has_gemini_unavailable_banner():
     """C-03: Gemini unavailable notice must be wired in providerSummaryBars."""
     app = create_app()
     client = TestClient(app)
     r = client.get("/ui/index.html")
     assert "Gemini 本次不可用" in r.text
+
+
+def test_ui_wave5_2_task9_helpers_and_filters():
+    """Wave 5.2 Task 9 smoke: plan/readiness helpers + degraded history filter + verdict badge."""
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "renderPropagationPlanHtml" in r.text
+    assert "renderAssessmentGateHtml" in r.text
+    assert "handlePropagationAction" in r.text
+    assert "evaluation_mode !== 'degraded'" in r.text
+    assert "verdict_zh" in r.text
+    assert "next_action_zh" in r.text
+    assert "open_run_detail" in r.text

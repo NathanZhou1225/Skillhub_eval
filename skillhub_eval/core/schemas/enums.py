@@ -66,3 +66,17 @@ CASE_TYPE_REQUIREMENTS: dict[str, dict[str, int]] = {
     "medium": {"happy_path": 3, "edge": 2},
     "high":   {"happy_path": 3, "edge": 2, "refusal": 2, "adversarial": 2},
 }
+
+
+RUNNING_STATUSES: frozenset[str] = frozenset(
+    {
+        "pending",
+        "level0_checking",
+        "risk_locking",
+        "normalizing",
+        "case_executing",
+        "code_asserting",
+        "model_judging",
+        "aggregating",
+    }
+)

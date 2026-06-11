@@ -26,12 +26,7 @@ from .decision import DecisionStage
 from .gaps import scan_gaps
 from .provider_summary import build_provider_summary
 from .ingest import ingest_bundle, load_sample_io
-from .latency import (
-    CASE_JUDGE_CONCURRENCY,
-    PROVIDER_CALL_TIMEOUT_HIGH_RISK_S,
-    PROVIDER_CALL_TIMEOUT_S,
-    workflow_timeout_seconds,
-)
+from .latency import CASE_JUDGE_CONCURRENCY, workflow_timeout_seconds
 from .level0 import Level0Checker
 from .output_sanitizer import run_output_sanitizer
 from .report_narrative import build_disagreement_brief, build_report_narrative
@@ -48,6 +43,7 @@ from .schemas import (
     RunStatus,
     RiskLevel,
 )
+from .chat_notifications import on_run_terminal_chat_notifications
 from .schemas.enums import VALID_CASE_TYPES
 from .schemas.report import RiskLockProvenance
 
@@ -102,6 +98,7 @@ class EvaluationEngine:
         Drive the evaluation state machine.  Catches asyncio.TimeoutError and
         writes EVAL_WORKFLOW_TIMEOUT so callers always get a terminal state.
         """
+        self._terminal_run_ids: list[str] = []
         try:
             await asyncio.wait_for(
                 self._execute(run_id, skill_bundle_path, bundle_state, evaluation_mode),
@@ -114,6 +111,15 @@ class EvaluationEngine:
                 bundle_state,
                 evaluation_mode,
             )
+        finally:
+            for terminal_run_id in self._terminal_run_ids:
+                await on_run_terminal_chat_notifications(
+                    terminal_run_id,
+                    self.repo,
+                    self.ds,
+                    self.wb,
+                )
+            self._terminal_run_ids.clear()
 
     # ── state machine ─────────────────────────────────────────────────────────
 
@@ -187,10 +193,15 @@ class EvaluationEngine:
 
         def _apply_risk_timeouts(level: RiskLevel) -> None:
             self._workflow_timeout = float(workflow_timeout_seconds(level))
+            from skillhub_eval.core.latency import (
+                provider_call_timeout_high_risk_s,
+                provider_call_timeout_s,
+            )
+
             judge_timeout = (
-                PROVIDER_CALL_TIMEOUT_HIGH_RISK_S
+                provider_call_timeout_high_risk_s()
                 if level == RiskLevel.high
-                else PROVIDER_CALL_TIMEOUT_S
+                else provider_call_timeout_s()
             )
             self.ds.timeout = judge_timeout
             self.wb.timeout = judge_timeout
@@ -201,11 +212,34 @@ class EvaluationEngine:
         self._log_stage_timing(run_id, "risk_locking", t_risk)
 
         # ── C-3: Dual-phase stop / case gate routing ─────────────────────────
+        # Degraded (W5.2 GQ12 R2) → readiness-only terminal:
+        # run case gate + gaps + completeness, skip heavy eval stages.
         # Pre-confirm (not confirmed, not degraded) → park at awaiting_confirm.
-        # Degraded → skip case gate entirely, continue with empty case_exec.
         # Confirmed → run case gate X1; fail immediately if not met.
         is_confirmed = bundle_state == BundleState.confirmed
         is_degraded = evaluation_mode == EvaluationMode.degraded
+
+        if is_degraded:
+            l0_gate = checker.check_case_gate(bundle)
+            repo.update_status(run_id, RunStatus.normalizing.value)
+            repo.append_stage(run_id, "normalizing")
+            gaps_json = self._build_gaps_snapshot(run_id, bundle, bundle_state)
+            repo.save_gaps(run_id, gaps_json)
+            self._save_degraded_readiness(
+                run_id=run_id,
+                skill_bundle_path=skill_bundle_path,
+                bundle=bundle,
+                bundle_state=bundle_state,
+                evaluation_mode=evaluation_mode,
+                risk_locked=risk_locked,
+                risk_provenance=risk_provenance,
+                l0_gate=l0_gate,
+                gaps_json=gaps_json,
+                security_status=sec_result.status,
+                security_findings=[f.__dict__ for f in sec_result.findings],
+                type_coverage=type_coverage,
+            )
+            return
 
         if not is_confirmed and not is_degraded:
             self._park_awaiting_confirm(
@@ -470,8 +504,17 @@ class EvaluationEngine:
 
         # Persist report JSON to disk
         self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
 
     # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _maybe_append_rich_report(self, run_id: str) -> None:
+        run = self.repo.get_run(run_id)
+        if not run or not run.get("conversation_id"):
+            return
+        if not hasattr(self, "_terminal_run_ids"):
+            self._terminal_run_ids = []
+        self._terminal_run_ids.append(run_id)
 
     def _log_stage_timing(self, run_id: str, stage: str, started: float) -> None:
         ms = int((time.monotonic() - started) * 1000)
@@ -576,6 +619,7 @@ class EvaluationEngine:
             reason_codes=reason_codes,
         )
         self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
 
     def _save_provider_failure(
         self,
@@ -627,6 +671,7 @@ class EvaluationEngine:
             reason_codes=reason_codes,
         )
         self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
 
     def _park_awaiting_confirm(
         self,
@@ -674,6 +719,65 @@ class EvaluationEngine:
         )
         self.repo.save_report(run_id, report)
         self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
+
+    def _save_degraded_readiness(
+        self,
+        *,
+        run_id: str,
+        skill_bundle_path: str,
+        bundle: dict,
+        bundle_state: BundleState,
+        evaluation_mode: EvaluationMode,
+        risk_locked: RiskLevel,
+        risk_provenance: RiskLockProvenance,
+        l0_gate: dict,
+        gaps_json: dict,
+        security_status: str,
+        security_findings: list[dict],
+        type_coverage: dict[str, int],
+    ) -> None:
+        """W5.2 GQ12 R2: persist lightweight readiness terminal payload."""
+        reason_codes = list(l0_gate.get("reason_codes") or [])
+        completeness_score = self._calc_completeness(bundle)
+        report = EvaluationReport(
+            run_id=run_id,
+            skill_id=bundle["skill_id"],
+            skill_bundle_path=skill_bundle_path,
+            bundle_state=bundle_state,
+            evaluation_mode=evaluation_mode,
+            orchestration_mode=self._infer_mode(bundle_state, evaluation_mode, False),
+            status=RunStatus.completed,
+            review_status="warn",
+            risk_level_locked=risk_locked,
+            score_total=None,
+            score_total_source="not_applicable",
+            completeness_score=completeness_score,
+            reason_codes=reason_codes,
+            evidence=list(l0_gate.get("evidence") or []),
+            required_actions=gaps_json.get("required_actions") or [],
+            gaps=gaps_json.get("gaps") or [],
+            stage_progress=self.repo.get_stage_progress(run_id),
+            risk_lock_provenance=risk_provenance,
+            security_status=security_status,
+            security_findings=security_findings,
+            case_type_coverage=type_coverage,
+            rubric_version="v1.2",
+            prompt_version="review-agent-v0.4",
+            started_at=datetime.now(UTC),
+            completed_at=datetime.now(UTC),
+        )
+        self.repo.save_report(run_id, report)
+        self.repo.update_status(
+            run_id,
+            RunStatus.completed.value,
+            review_status="warn",
+            score_total=None,
+            completeness_score=completeness_score,
+            reason_codes=reason_codes,
+        )
+        self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
 
     def _save_timeout(
         self,
@@ -737,6 +841,7 @@ class EvaluationEngine:
             reason_codes=reason_codes,
         )
         self._write_report_file(run_id, report)
+        self._maybe_append_rich_report(run_id)
 
     async def _generate_skill_summary(
         self,
@@ -746,9 +851,10 @@ class EvaluationEngine:
         agg: dict,
         review_status: str,
     ) -> dict | None:
-        """Phase 5.5: call wb_provider (Gemini) to synthesise a skill-level quality report.
+        """Phase 5.5: call ds_provider (DeepSeek) to synthesise a skill-level quality report.
 
         Non-blocking — any exception returns None silently; the main pipeline is not affected.
+        Gemini is reserved for per-case dual-model judging only.
         """
         if not all_votes:
             return None
@@ -800,7 +906,7 @@ class EvaluationEngine:
         )
 
         try:
-            raw = await self.wb.judge(prompt)
+            raw = await self.ds.judge(prompt)
             if isinstance(raw, dict) and "overall_verdict" in raw:
                 return raw
             return None

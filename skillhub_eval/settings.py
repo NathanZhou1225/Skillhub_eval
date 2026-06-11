@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_model: str = "deepseek-chat"
     gemini_api_key: str = ""
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     gemini_model: str = "gemini-2.0-flash"
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
     eval_llm_mode: str = "live"
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"
+    demo_allow_local_ref: bool = False  # env: SKILLHUB_DEMO_LOCAL_REF=true
+
+    # LLM / workflow timeouts (seconds) — override via .env, e.g. PROVIDER_CALL_TIMEOUT_S=120
+    provider_call_timeout_s: float = 90.0
+    provider_call_timeout_high_risk_s: float = 120.0
+    workflow_timeout_low_s: int = 600
+    workflow_timeout_medium_s: int = 600
+    workflow_timeout_high_s: int = 900
 
 
 settings = Settings()

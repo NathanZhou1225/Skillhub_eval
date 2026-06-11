@@ -19,6 +19,13 @@ SECURITY_FIELDS: tuple[str, ...] = (
     "security_notes",
 )
 
+SECURITY_FIELD_ZH: dict[str, str] = {
+    "negative_prompts": "禁止指令",
+    "error_handling": "错误处理",
+    "permission_scope": "权限范围",
+    "security_notes": "安全说明",
+}
+
 
 def _gap(
     field_path: str,
@@ -173,13 +180,17 @@ def scan_gaps(
     for field in SECURITY_FIELDS:
         if field in confirmed:
             continue
+        value = meta.get(field)
+        if value is not None and str(value).strip():
+            continue
+        label = SECURITY_FIELD_ZH.get(field, field)
         gaps.append(_gap(
             field,
             "warn",
-            f"安全敏感字段 {field} 尚未作者确认",
+            f"建议在 SKILL.md 中补充「{label}」（可选改进，不阻断正式评估）",
             confirmed=False,
         ))
-        required_actions.append(f"在补全台确认或填写 {field} 字段")
+        required_actions.append(f"在 SKILL.md frontmatter 中补充「{label}」字段")
 
     # bundle_state hint for authors upgrading from minimal
     if bundle_state == BundleState.minimal:

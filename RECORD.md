@@ -10,7 +10,7 @@
 
 **四阶段设计路线**：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ 前端交互与集市生态 → ④ 立项提案与商业价值呈现。
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0 基础设施** ✅（235 tests）、**W1 场景词表** ✅（250 tests）、**W2 安全门禁** ✅（292 tests）、**W3 Propagator + 题型门槛** ✅（328 tests）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：阶段三 Wave 4**（LUI Agent + 对话/卡片 UI）。阶段二可选收尾（方差报告导出、grill-me A2 环境隔离）**已取消**——由阶段三 eval_case 自动生成与场景联动覆盖。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478 tests）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：W5.5 本地 Demo 验收**（stock-radar 实机彩排 + runbook）。阶段二可选收尾已取消。
 
 ---
 
@@ -151,8 +151,14 @@
 | **W1** | 3.1 Q-08 场景分类词表（taxonomy.yaml + ingest 校验 + malformed_cases） | ✅ 已收官（250 tests） |
 | **W2** | Security Intake Gate Level 0.5（静态规则 + sanitizer） | ✅ 已收官（292 tests） |
 | **W3** | Staging Case Propagator + 题型完整性门槛 + POST /conversations/start | ✅ 已收官（328 tests） |
-| **W4** | LUI Agent + 对话/卡片 UI（Session Lock / quota / 专家冻结 / confirm-cases） | 🟡 待启动 |
-| **W5** | 本地 Demo 验收（三剧本 + runbook） | 🟡 待启动 |
+| **W4** | LUI Agent + Session Lock / quota / 专家冻结（后端 + 旧双栏 UI 已被 W5 取代） | ✅ 已收官（367 tests） |
+| **W4.5** | Provider 完全 env 驱动（`provider-env-factory`） | 🟡 W4 归档后可选 |
+| **W5** | **Chat-First 对话壳**（2 Tab、ZIP Composer、rich_report 气泡、视角切换、历史对话） | ✅ 已收官（400 tests） |
+| **W5.2** | UI 透明化（deferred Propagator + readiness + 三方式补题） | ✅ 已收官（447 tests） |
+| **W5.3** | 智能对话 + LLM 补题计划 enrich + 交互体验 | ✅ 已收官（472 tests） |
+| **W5.3.1** | Demo 热修：澄清去重、全链路等待提示、超时 `.env` 可配、enrich `generate()` 修复 | ✅ 已收官（475 tests） |
+| **W5.3.2** | 方案 B：同步 assessment_gate → 补题计划；满足条件自动 `capability_full`（无「开始正式评估」确认） | ✅ 已收官（478 tests） |
+| **W5.5** | 本地 Demo 验收（三剧本 + runbook） | 🟡 **实机彩排中**（`.env` 超时已调至 300/600/900s） |
 | **W6** | 3.3 集市生态（listing / Trending / 消费者 NL 匹配 / publish Freeze） | 🟡 待启动 |
 | **W7** | 服务器彩排（release zip + smoke + deployment runbook） | 🟡 待启动 |
 
@@ -167,6 +173,15 @@
 | **阶段三 Wave 1** | **✅ 收官** — Q-08 场景分类词表（`wave1-taxonomy`）；250 tests |
 | **阶段三 Wave 2** | **✅ 收官** — Security Intake Gate Level 0.5；292 tests |
 | **阶段三 Wave 3** | **✅ 收官** — Case Propagator + 题型完整性门槛 + POST /conversations/start；328 tests |
+| **阶段三 Wave 4** | **✅ 收官** — LUI Agent + staging_writer + API；367 tests；OpenSpec 待归档 |
+| **阶段三 Wave 5** | **✅ 收官** — Chat-First 对话壳（`wave5-chat-first-shell`）；DB v3 rich_report；400 tests；OpenSpec 待归档 |
+| **阶段三 Wave 5.1** | **✅ 收官** — 聊天简卡 + 报告分流（`wave5.1-chat-report-split`）；DB v4 pending_patch；413 tests；OpenSpec 待归档 |
+| **W5.5 Demo runbook** | **🟡 实机彩排中** — stock-radar 全流程；`.env` 超时 **300s/次 LLM、600–900s 工作流**；待用户本轮反馈 |
+| **W5.3.2 评估门禁流** | **✅ 收官** — 方案 B：`assessment_gate_result` 替代作者路径 degraded→readiness；补题后自动正式双模型；478 tests |
+| **W5.3.1 Demo 热修** | **✅ 收官** — 澄清阶段去重 + 全链路「正在…请稍候」+ `settings.py` 超时可配；475 tests |
+| **W5.3 智能对话** | **✅ 收官** — `wave5.3-intelligent-chat`；472 tests；confirm_lexicon；bootstrap enrich；IntentRouter；propagation 分叉 + draft_preview |
+| **W5.2 UI 透明化** | **✅ 收官** — `wave5.2-ui-transparency`；447 tests；初评 readiness + 补题确认 + 全对话 clarify |
+| **W4.5 provider-env-factory** | **🟡 待启动** — 双评审槽位完全 env 驱动 |
 
 ---
 
@@ -192,8 +207,21 @@
 | Q-16 | **风险 Step ③ AI 复核未落地**（仅 ① 自报 + ② 规则扫描） | P1 | **已解决（2.5）**：DeepSeek `review_risk_level` + `RiskLockProvenance`；失败降级为 ①+② |
 | Q-17 | **UI 业务可读性**（中文结论/分歧卡/专家台信息密度） | P1 | **已解决**（`ui-ux-improvement` 归档；用户 2026-06-05 验收通过） |
 | Q-18 | **grill-me A2 验收环境** | P2 | **取消**（2026-06-05）：阶段三 eval_case 自动生成覆盖；A2 手工未落盘场景不再追 |
-
----
+| **FB-05** | **整体 UI 交互流程需第二轮设计** | P1 | **✅ 已解决（W5.2）**：补题计划表 + 三方式 + readiness/正式分卡 + verdict/next_action |
+| **FB-01** | **Pass 结论在对话流未显式呈现** | P0 | **✅ 已解决（W5.2）**：正式简卡 `verdict_zh` + `next_action_zh` |
+| **FB-02** | **Propagator 自动补题对用户不可见** | P0 | **✅ 已解决（W5.2）**：deferred Propagator + `propagation_plan` + 确认后 `propagation_summary` |
+| **FB-03** | **「结构检查已通过」叙事过粗** | P0 | **✅ 已解决（W5.2）**：readiness 自包含卡片 + 补题摘要叙事 |
+| **FB-04** | **Chat-First 信息回归** | P1 | **✅ 已解决（W5.2）**：`propagation_plan` / `readiness_result` / 正式简卡三套 UI |
+| **FB-06** | **初评 readiness 卡分数/安全/门槛全 `—`** | P0 | **✅ 已解决（W5.3）**：`renderReadinessResultHtml` 读扁平 payload 字段 |
+| **FB-07** | **发送后输入框不清空（尤其 Chip）** | P0 | **✅ 已解决（W5.3）**：`sendConversationMessage` 成功后始终清空 + optimistic bubble |
+| **FB-08** | **「对话里补」草案路径不明确** | P1 | **✅ 已解决（W5.3）**：propagation_fork 两步分叉（自动出题 vs 描述场景 → 写文件 vs Propagator） |
+| **FB-09** | **缺 eval_case 时模型不自动落盘** | P1 | **✅ 已解决（W5.3）**：`generate_draft_for_staging` + `draft_preview` + 确认写入 |
+| **FB-10** | **Skill 名称确认无按钮** | P1 | **✅ 已解决（W5.3）**：`awaiting_skill_id_confirm` Chip + `__ACTION_CONFIRM_SKILL__` |
+| **FB-11** | **「确定」不被接受（仅「确认」）** | P0 | **✅ 已解决（W5.3）**：`confirm_lexicon` 统一词表含「确定」 |
+| **FB-12** | **补题计划模板化（缺口 `—`、业务预期雷同）** | P1 | **✅ 已解决（W5.3）**：bootstrap 每次 `enrich_propagation_plan` + DB 缓存 |
+| **FB-13** | **对话阶段无进行中提示** | P2 | **✅ 已解决（W5.3.1）**：每步系统消息 + optimistic pending + 轮询 RUNNING 阶段中文 |
+| **FB-14** | **点「自动出题」后记录混乱（「澄清已记录」重复）** | P0 | **✅ 已解决（W5.3.1）**：澄清阶段空消息/`ACTION_PROPAGATE` 不再刷新计划；确认阶段跳过多余 enrich |
+| **FB-15** | **补题计划 enrich 降级致业务预期雷同** | P1 | **✅ 已缓解（W5.3.1）**：`propagation_plan_enricher` 改 `generate()`+fence 解析；超时提至 300s；实机待观察 |
 
 ## 已做决策
 
@@ -235,7 +263,9 @@
 | **结构缺口（eval_cases/sample_io）UI 给模板、作者落盘后再评** | confirm API 只持久化元数据字段，不写目录；T3 模板 + runbook 闭环两 minimal 样本 | 自动 scaffold 写盘 API（本 Phase 1 不做，grill-me 可再议） |
 | **R5 UI 展示包级 + per-case 双模型分数** | 专家复核需看见 DS/Gemini 分歧依据；`score_total=null` 仍保留 | 仅展示 null 或仅包级汇总（专家盲批） |
 | **T5 `provider_summary` + 专家裁定回写** | 包级/per-case 双模型分；Δ≥15 浅红；`submit_review` 后 `report_json.human_review` 与 per-case 快照保留 | 仅 `score_total=null` 文案；裁定后丢弃分歧明细 |
-| **T7 时延控制（grill-me Q2）** | `Semaphore(3)` 共享并发；provider **45s**（high-risk **90s**）；429/503 指数退避 max 3× base 1s；workflow **low/medium 300s、high 600s**；`stage_timing` 埋点 | 无并发上限挤爆 API；180s 一刀切；5xx 全量重试拖垮时延 |
+| **T7 时延控制（grill-me Q2）** | `Semaphore(3)` 共享并发；429/503 指数退避 max 3× base 1s；`stage_timing` 埋点；**W5.3.1 起超时经 `settings.py` + `.env` 可配**（代码默认 90/120/600/900s；**本地 Demo `.env`：300/300/600/900s**） | 无并发上限挤爆 API；180s 一刀切；5xx 全量重试拖垮时延；超时写死代码无法按环境调参 |
+| **W5.3.1 澄清/出题去重** | `awaiting_propagation_clarify` 仅在有新澄清答案时刷新计划；`ACTION_PROPAGATE` 走出题而非误触澄清；确认阶段点出题不再重复 enrich | 每次消息都 refresh+append（Demo 出现 5 条重复「澄清已记录」） |
+| **W5.3.1 全链路等待反馈** | 后端落库「正在…请稍候」系统消息；前端 `activity_phase` + 轮询 RUNNING 保持 pending 气泡 | 长同步 HTTP 期间用户无感知（Demo FB） |
 | **warn 原因码与 Skill 摘要（T13）** | `DecisionStage.warn_reason_codes()` 区分完整度/分数 warn；Phase 5.5 Gemini 合成 `skill_summary`；UI `renderSkillSummaryCard` + `_warnReasonText` | 仅靠 `review_status=warn` 无文案；客户端拼接 feedback 无结构化摘要 |
 | **R5 优化纳入 2.6（修订 Q-13）** | 1.2 已定义红线不参与能力均分，但 `aggregate.py` 当前用**全 case** 算包级分触发 R5；2.6 对齐 `average_pool`/`redline_pool` 拆分，减少「红线口径差」导致的无谓 null 分；真分歧仍 `score_total=null` + 人工 | **简单对 disagree 取平均**（掩盖分歧、违反 R5）；**调高 10 分阈值**（属改 1.2 阈值，本阶段不做） |
 | **报告运营解释层（2.3b）** | `headline_zh` / `reasons_zh` 进 `report`；UI 只读；便于业务观察 | 继续裸露 `reason_codes` 英文枚举 |
@@ -255,7 +285,7 @@
 | **UI 体验改进（ui-ux-improvement）** | 手工验收驱动：Level0 中文诊断、运营结论/分歧/风险溯源卡前置、Approve narrative 重建、per-case 中文标签与截断、Gemini 横幅、skill_summary 双列、隐藏阶段耗时；prompt v0.4 中文约束 | 仅改 prompt 不改阈值；旧 DB 记录 feedback 仍为英文（新跑生效）；进度条 dimension_notes（值为字符串无法驱动） |
 | **阶段二可选收尾取消** | 方差报告 Markdown 导出、grill-me A2 环境隔离**不做**；阶段三 eval_case 自动生成与场景联动承接 | 继续追 A2 手工隔离（阶段三后意义递减）；方差报告落盘（阶段三校准回路更系统） |
 | **3.2 LUI 重定义为「作者 Onboarding Agent」** | LUI 主线是评审流程中的对话式补全+代写+自动复评，不是「用自然语言找 Skill」；后者归 3.3 集市 | LUI = 消费者搜索（误解；导致 Propagator / staging / 专家冻结等核心能力无处安放） |
-| **B1 方案：Propagator 预生成 case 再 degraded 初评** | 上传后静默生成 1–2 条 happy path + 1 条 adversarial case，激活双模型评审得到 skill_summary；复用现有评审链，不新开评分逻辑 | B2（文档专用评审 Prompt）冗余代码多且三维分母在无 case 时崩溃；B3（R_101 无 summary）不满足「初评就要双模型总结」需求 |
+| **B1 方案：Propagator 预生成 case 再 degraded 初评** | 上传后静默生成 case 激活双模型评审（阶段三早期探索） | B2/B3 见原决策；**初评双模型路径已被 W5.2 GQ12 取代** → readiness 体检，不跑 model_judging |
 | **合成 case 身份隔离（原方案，已修订）**：`confirmed=false` 仅参与 degraded 初评 | 原意：堵死「靠 AI 伪造 case 刷分上架」漏洞 | **已被 W3 新方案取代**（见下方「W3 case 评估策略」决策行） |
 | **W3 case 评估策略：题型完整性门槛取代 confirmed 计数门槛** | 反作弊逻辑从「谁写的题」改为「包含了什么类型的题」：adversarial/refusal case 本身是天然反向压力，AI 生成合法；low=全 happy_path，medium=happy+edge，high=happy+edge+refusal+adversarial；上架仅需：题型完整 + 数量达标（3/5/9）+ 分数达标；`confirmed` 字段降级为可选透明度标注（listing 展示，非门槛） | 原 confirmed 计数（摩擦极高，无人手写 9 道 YAML；high-risk 作者放弃上架）；纯 AI 自问自答无类型约束（circular signal 风险） |
 | **conversation_id + 级联 run_id + superseded** | 一次上传创建 conversation；每次代写开新 run_id；旧 run 归档为 superseded；保留完整修改历史和回溯能力 | 单 run_id 聊到底（丢历史；超时后找不回及格分） |
@@ -269,6 +299,44 @@
 | **Wave 0 RunStatus.superseded 显式枚举** | UI/历史台仅凭 `status` 判断废弃 run，无需额外查 `superseded_by_run_id` | 隐式标记（每处渲染双重判断，状态机不完整） |
 | **Wave 0 BundleResolver 领域语义接口 + 原子重命名** | 屏蔽裸路径；`ensure_staging` tmp→rename 消除半复制中间态；`BundleNotReadyError` 替代 upload 模式 TypeError | 只返回路径 tuple（写穿透风险）；`exists()` 幂等跳过残缺 staging |
 | **Wave 0 create_run 原子回写 active_run_id** | Session Lock 指针与 run 插入同事务，W3 初评期间即有锁保护 | API 层显式两步（幽灵 run 窗口）；推迟到 W4（R_101 期间无锁） |
+| **W4 bundle_state=confirmed 触发机制：gap 归零 + UI 硬按钮** | `__SYSTEM_ACTION_CONFIRM_ALL__` 精确字符串匹配（绕过 LLM）；状态穿透风险不可接受 | LLM intent=confirm_all 意图分类（误识别率不可控） |
+| **W4 per-case confirmed 纯透明度** | 题型完整性（CASE_TYPE_REQUIREMENTS）是 capability_full 唯一硬卡口；W3 已废弃计数防线 | per-case confirmed 计数参与 PASS 门槛（W3 已证明摩擦极高） |
+| **W4 staging_writer 全域代写：SKILL.md frontmatter only** | body 原封不动；作者辛苦写的业务说明不可被 LLM 覆盖 | 全文替换（灾难性体验；无法 Diff 找回） |
+| **W4 路由 B→degraded（gap 存在时不做 capability_full）** | 负向提示词/权限等字段必须人确认；gap 未归零不可正式打分 | gap 存在仍 capability_full（权限字段 draft 进入正式评分） |
+| **W4 LUI 开场白：UI-driven（前端轮询触发 __TRIGGER_AGENT_OPENING__）** | Engine 绝对纯洁，不知道 LUI 的存在；UI 轮询 status，run 完成且 messages=0 时静默发 marker | engine 内置 LUI callback（破坏 core/engine.py 纯洁性） |
+| **W4 LUI Agent：单次结构化 LLM 调用 {intent, reply, patch}** | 一次 token 消耗同时解决分类与生成；JSON 约束在 system prompt | 独立分类路由（多一次 LLM 调用；延迟翻倍） |
+| **W4 冻结层：conversation.status=frozen + /chat 网关 403** | 会话层物理 frozen 标签最坚固；run 状态时序竞态无法单独防御 | 仅靠 awaiting_human_review run 状态判断（竞态条件） |
+| **W4 quota 熔断：改当前 active run 为 awaiting_human_review** | 当前 run 就是"死在半路"的那次评估，暴露在专家台；不新建 run（语义混乱） | 新建专门 quota-exceeded run（多余状态；历史链断裂） |
+| **W4 UI 入口：Tab1 全切 conversation flow；旧 /eval/run 折入 Debug 开关** | MVP 必须强迫体验"小白从头创建对话"；工程师调试入口隐藏不消失 | 两套并行入口（用户体验割裂；新用户找不到主路径） |
+| **W4 GET /conversations/{id}/messages 全量不分页** | max_auto_runs=5 决定 session 消息量极小；分页增加复杂度无收益 | 分页（过度设计） |
+| **W4 zip 上传支持（multipart）** | 服务器部署后需多人上传；local_ref 仅本机可用 | 仅 local_ref（服务器无法使用） |
+| **W4 上架物 = 用户原始文件（source_path）；staging 是评估脚手架** | LUI 改写的内容是评估辅助，不代表作者意图；作者可自行采纳建议后重新上传 | 上架 staging 版本（含 AI 代写内容，作者未确认即发布） |
+| **W4 grill-me G1：zip 上传双目录隔离（originals/ + staging/）** | staging = 评估沙盒；originals = 不可写原始文件；W6 listing 仅从 originals/ 复制；conversations 表加 `source_path` 列 | staging = source（两者重合时 LUI 代写内容混入 listing） |
+| **W4 grill-me G2：patch 移除 sample_io；_write_cases 自动生成空 stub** | LLM 不知道服务端分配的 case_id，无法正确引用；空 stub 对 degraded 无影响；与 Propagator 行为一致 | LLM 生成 sample_io 并用索引对齐（脆弱；eval 时 LLM 编造的 output 误导打分） |
+| **W4 grill-me G4：mutation + hash_changed → /chat 层重置 auto_confirmed=False** | staging 内容变了，用户的上次确认作废；每次实质修改后必须重新点【整包确认】 | 不重置（用户不知情下以新内容跑 capability_full） |
+| **W4 `__TRIGGER_AGENT_OPENING__` 幂等：后端检查 messages>0 则忽略** | UI 3s 轮询可能在消息写入前重复触发；后端幂等保护防止双重开场白 | 仅靠前端去重（竞态窗口） |
+| **W4 supersede_run 单步模式（无 __pending__ 占位）** | create_run 已原子更新 active_run_id；supersede_run 只改旧 run 字段；两步不存在中间态 | 3 步模式（__pending__ → create → fix；crash 后 superseded_by_run_id 为非法值） |
+| **W4.5 Provider 完全 env 驱动（待做）** | 换模型/换 OpenAI 兼容厂商仅改 `.env`；`OpenAICompatibleProvider` + `JUDGE_PROVIDER_A/B` 槽位；报告/UI 用 `LABEL` 展示别名 | 继续硬编码 `DeepSeekProvider`/`GeminiProvider` 类名（每次换厂商改 deps + 部分文案） |
+| **skill_summary 改用 DeepSeek；`DEEPSEEK_MODEL` 接入 settings** | 除 per-case 双模型外统一 DeepSeek；型号切换只改 env | skill_summary 继续用 Gemini；`DEEPSEEK_MODEL` 写死 `deepseek-chat` |
+| **W5 Chat-First：2 Tab（对话 + 历史）；专家为视角切换非独立 Tab** | ChatGPT 式单窗口；报告以 rich_report 消息气泡呈现；历史 Tab 含对话摘要与「打开完整对话」（D7） | 保留 W4 三 Tab 专家台（与产品愿景不符；报告与对话割裂） |
+| **W5 ZIP 默认上传；local_ref 仅 Demo** | `SKILLHUB_DEMO_LOCAL_REF=true` 时 UI 显示本地路径框 + bootstrap local_ref；默认 env 拒绝纯路径（D8） | 常驻 Skill ID 输入框 + local_ref 默认（非技术用户门槛高） |
+| **W5 Skill ID：纯对话收集；自动识别须确认** | 优先级 user_message > SKILL.md > zip 名；仅自动识别走 awaiting_skill_id_confirm；用户消息已含 ID 则跳过（EQ2/2b/2c） | 独立表单填 ID（与 Chat-First 冲突） |
+| **W5 人工复核 §4.5：作者只读 + 专家 chip；裁定后自动切回作者** | 待审期间作者 Composer 禁用；专家视角可见 approve/reject chip；MVP 允许自批（EQ1） | 独立 Expert Tab 队列（W5 已移除） |
+| **W5 rich_report 服务端幂等写入** | run 终态自动 append `message_type=rich_report` + payload_json；UI 不再轮询右栏 report | 前端拉 /eval/report 填侧栏（W4 模式；刷新丢失上下文） |
+| **W5 DB v3：`lui_messages.message_type` + `payload_json`** | welcome/system/rich_report 分型；`list_conversations` 供会话侧栏 | 纯 text 消息（无法渲染报告卡片） |
+| **W5.1 方向 A：聊天简卡 + 历史详情全量报告** | 2 Tab 不变；聊天仅 headline/summary/CTA；完整报告在历史模态 | 聊天内长折叠块 + 整包确认 chip（Demo 反馈：信息密度过高、流程不清） |
+| **W5.1 C2：初评简卡不展示分数** | `report_phase=initial` 时 `score_line_html=null`（W5.1）；**W5.2 起初评改为 `readiness_result`，不再 rich_report** | 初评展示分数（用户困惑 degraded vs 正式） |
+| **W5.1 R3：结构通过自动正式评估** | gap_zero + case_gate → `auto_confirmed=True` + `capability_full`；移除主路径 `confirm_all` | 保留整包确认按钮（与自动链路重复） |
+| **W5.1 GQ1/GQ3：草案 patch 落库确认写入** | `pending_patch_json` + `awaiting_draft_confirm`；确认原样 apply，不二次 LLM | 确认时重新 LLM 生成 patch（不可复现） |
+| **W5.1 GQ4/GQ6：先 LLM 叙事后简卡；额度仅计 capability_full** | `on_run_terminal_chat_notifications` 顺序；`increment_auto_run_count` 仅正式评估 | 简卡先于叙事；初评也计 quota（与产品语义不符） |
+| **W5.2 UI-B3：缺题暂停 + 三方式补题** | 补题计划表；默认自补重传 ZIP；「帮我在对话里补」→ W5.1 草案；「确认」→ Propagator | 静默 Propagator（Demo FB-02） |
+| **W5.2 UI-S2：全对话 Skill 设计不确定则问** | L0 规则 + LuiAgent `clarify` intent；禁止低置信 mutation/propagate | 仅补题阶段提问（S1）；模型猜测后写盘 |
+| **W5.2 UI-TBL / VERDICT** | `propagation_plan` 结构化表；正式简卡 Pass/Warn/Fail 徽标 | LLM 生成表格；仅分数无结论 |
+| **W5.2 GQ1–GQ11** | grill-me 2026-06-10：部分缺题也暂停；status+LLM 分流「确认」；表与澄清同条；warn 无专家=「通过（有改进建议）」；澄清可跳过；重传整包重载；叙事必提补题；表单条更新；三 Chip；high 无二次确认 | 见 `openspec/changes/wave5.2-ui-transparency/proposal.md` |
+| **W5.2 GQ12–GQ14** | 初评 R2：安全+规则风险+结构门槛，无模型评审；初评 readiness 消息自包含、无报告 CTA；正式卡 verdict+next_action+完整报告链 | 初评仍跑双模型；初评 rich_report 链历史详情 |
+| **W5.2 GQ15** | 历史 Tab **不展示**初评 run；初评仅在对话 `readiness_result` | 历史仍列初评但无报告入口（GQ15 A） |
+| **W5.3 GQ-W53-1～12** | bootstrap 每次 LLM enrich；无 SSE 阶段占位；`__ACTION_*__` Chip；对话补题两步分叉；步骤条；白话表头；confirm_lexicon+IntentRouter≥0.85；enrich 降级；draft 失败 2 次；评估中 409 锁聊 | 见 `openspec/changes/wave5.3-intelligent-chat/` |
+| **W5.3.2 方案 B（作者路径）** | Skill ID 确认后先同步 `assessment_gate`（文案：「正在分析 Skill 并检查是否满足评估需求」）；不满足 →「需补充评估测试用例」+ 补题计划；满足或补题后 gate 通过 → **自动** `start_capability_full_eval`（移除 degraded 初评 + readiness 卡 + 人工「开始正式评估」）；UI `renderAssessmentGateHtml` | 保留 degraded→readiness→手动正式（Demo 反馈冗余三步）；gate 后仍跑 degraded 再 readiness（与「满足即评」冲突） |
 
 ---
 
@@ -281,6 +349,7 @@
 5. **埋点**：评估标准附录 C + 1.3 检查清单（失效场景：裁判洁癖、草案疲劳、拦截器误杀）。
 6. **1.3 状态闸门**：人工抽检、模型聚合与运营解释均不得绕过 `confirmed` 包状态直接 PASS。
 7. **降级断言边界**：未确认 draft 只用于缺口提示/低置信度评审，不作为 CodeAssert 失败依据。
+8. **超时调参（W5.3.1）**：在 `.env` 配置 `PROVIDER_CALL_TIMEOUT_S`、`PROVIDER_CALL_TIMEOUT_HIGH_RISK_S`、`WORKFLOW_TIMEOUT_LOW_S` / `_MEDIUM_S` / `_HIGH_S`；改后须重启 `serve`。本地 Demo 当前：**300s/次 LLM、600s 初评工作流、900s 高风险正式双模型工作流**。
 
 ---
 
@@ -415,3 +484,10 @@
 | 2026-06-09 | **W3 设计方向锁定（脑暴）**：废弃「confirmed=true 计数门槛」；改为「题型完整性门槛」——Propagator 按 risk 生成分型 case 套餐（low=3 happy；medium=3 happy+2 edge；high=3 happy+2 edge+2 refusal+2 adversarial）；adversarial/refusal 本身是天然反向压力，AI 生成合法；`confirmed` 字段降级为透明度标注；PASS 门槛改为：题型完整 + 数量达标 + 分数达标；W3 需先 grill-me 后执行 |
 | 2026-06-09 | **Wave 3 收官**：OpenSpec `wave3-propagator`；grill-me 3 题锁定；subagent 5 tasks 执行；**328 tests**（+36）；Q-15 场景联动 eval_case 自动生成已落地 |
 | 2026-06-09 | **Wave 3 Review 修复 + 归档**：Propagator 后 re-ingest + post-scan（合成 case blocked→422）；服务端强制 case id；OpenSpec → `archive/2026-06-09-wave3-propagator/`；**328 tests** 全绿 |
+| 2026-06-10 | **Wave 4 脑暴 + OpenSpec propose 完成**：Q1–Q12 + SQ1–SQ3 + 上架物隔离决断全部锁定；OpenSpec `wave4-lui-agent` 三份 artifact（proposal/design/tasks）产出；RECORD 决策表补 14 条 W4 决断；SPRINT W4 条目同步修订（题型完整性对齐 W3 废弃 per-case confirmed 防线） |
+| 2026-06-10 | **Wave 5 Chat-First 收官**：OpenSpec `wave5-chat-first-shell`；grill-me EQ1/EQ2/D7–D9 闭合；DB v3 `message_type`/`payload_json`；rich_report 服务端写入；2 Tab UI（对话+历史）+ 会话侧栏 + ZIP Composer + 作者/专家视角切换；**400 tests**（+33）；待 OpenSpec 归档 + W5.5 Demo runbook |
+| 2026-06-10 | **Wave 5.1 聊天简卡 + 报告分流收官**：OpenSpec `wave5.1-chat-report-split`；grill-me GQ1–GQ7；DB v4 `pending_patch_json`；初评/正式分阶段简卡 + 自动正式评估 + 草案确认流；UI 轮询增量跳过；**413 tests**（+13）；待 OpenSpec 归档 + W5.5 Demo smoke |
+| 2026-06-11 | **Wave 5.2 UI 透明化收官 + Task 0 文档同步**：OpenSpec `wave5.2-ui-transparency`；grill-me GQ1–GQ15；DB v5 `clarifications_json`；deferred Propagator + 三方式补题；初评 readiness（无模型评审）+ `readiness_result`；正式 verdict/next_action；历史 Tab 不列初评（GQ15 B）；全景说明 v1.2；**447 tests**（+34）；待 OpenSpec 归档 + W5.5 Demo smoke |
+| 2026-06-10 | **Wave 5.3 智能对话收官**：OpenSpec `wave5.3-intelligent-chat`；grill-me GQ-W53-1～12；DB v6 `plan_enrichment_json`；`confirm_lexicon` / `IntentRouter` / `propagation_plan_enricher`；对话补题分叉 + `draft_preview`；UI optimistic pending + `__ACTION_*__` Chips；Demo FB-06～13 闭合；**472 tests**（+25）；待 OpenSpec 归档 + W5.5 Demo smoke |
+| 2026-06-10 | **W5.3.1 Demo 热修收官**：澄清/出题去重；全链路「正在…请稍候」；`settings.py` + `.env` 超时可配；enrich 改 `generate()`+fence；**475 tests**；本地 `.env` 超时调至 **300/300/600/900s**；W5.5 stock-radar 实机彩排进行中 |
+| 2026-06-10 | **W5.3.2 方案 B 评估门禁收官**：`core/assessment_gate.py` + `assessment_gate_result` 消息；作者路径移除 degraded→readiness→手动正式；补题确认后 gate 通过即 `start_capability_full_eval`；UI `renderAssessmentGateHtml`；**478 tests**（+3 集成/契约调整）；W5.5 剧本 A 待按新流复跑 |

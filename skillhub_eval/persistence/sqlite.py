@@ -1,3 +1,9 @@
+"""SQLite persistence for SkillHub eval engine.
+
+Conversation status values (Wave 5.2 propagation/clarify flow):
+  awaiting_propagation_confirm, awaiting_propagation_clarify,
+  awaiting_manual_upload, awaiting_clarify
+"""
 import json
 import sqlite3
 import uuid
@@ -100,7 +106,7 @@ CREATE TABLE IF NOT EXISTS lui_messages (
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 6
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -222,7 +228,9 @@ class SqliteRepository:
                     status TEXT NOT NULL DEFAULT 'active',
                     active_run_id TEXT,
                     auto_run_count INTEGER NOT NULL DEFAULT 0,
+                    auto_confirmed INTEGER NOT NULL DEFAULT 0,
                     max_auto_runs INTEGER NOT NULL DEFAULT 5,
+                    source_path TEXT,
                     created_at TEXT NOT NULL
                 )
                 """
@@ -235,6 +243,8 @@ class SqliteRepository:
                     run_id TEXT,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    message_type TEXT NOT NULL DEFAULT 'text',
+                    payload_json TEXT,
                     created_at TEXT NOT NULL
                 )
                 """
@@ -259,7 +269,79 @@ class SqliteRepository:
                         )
                 cursor.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
 
-    def _now(self) -> str:
+            if version < 2:
+                existing_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('conversations')"
+                    ).fetchall()
+                }
+                for col, typedef in [
+                    ("auto_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+                    ("source_path", "TEXT"),
+                ]:
+                    if col not in existing_cols:
+                        cursor.execute(
+                            f"ALTER TABLE conversations ADD COLUMN {col} {typedef}"
+                        )
+                cursor.execute("PRAGMA user_version = 2")
+
+            if version < 3:
+                msg_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('lui_messages')"
+                    ).fetchall()
+                }
+                if "message_type" not in msg_cols:
+                    cursor.execute(
+                        "ALTER TABLE lui_messages ADD COLUMN "
+                        "message_type TEXT NOT NULL DEFAULT 'text'"
+                    )
+                if "payload_json" not in msg_cols:
+                    cursor.execute(
+                        "ALTER TABLE lui_messages ADD COLUMN payload_json TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 3")
+
+            if version < 4:
+                conv_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('conversations')"
+                    ).fetchall()
+                }
+                if "pending_patch_json" not in conv_cols:
+                    cursor.execute(
+                        "ALTER TABLE conversations ADD COLUMN pending_patch_json TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 4")
+
+            if version < 5:
+                conv_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('conversations')"
+                    ).fetchall()
+                }
+                if "clarifications_json" not in conv_cols:
+                    cursor.execute(
+                        "ALTER TABLE conversations ADD COLUMN clarifications_json TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 5")
+
+            if version < 6:
+                conv_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('conversations')"
+                    ).fetchall()
+                }
+                if "plan_enrichment_json" not in conv_cols:
+                    cursor.execute(
+                        "ALTER TABLE conversations ADD COLUMN plan_enrichment_json TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 6")
         return datetime.now(UTC).isoformat()
 
     def create_conversation(
@@ -267,18 +349,140 @@ class SqliteRepository:
         skill_id: str,
         source: str,
         max_auto_runs: int = 5,
+        source_path: str = "",
     ) -> str:
         conv_id = str(uuid.uuid4())
         with self._conn() as conn:
             conn.execute(
                 """
                 INSERT INTO conversations
-                    (conversation_id, skill_id, source, max_auto_runs, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (
+                        conversation_id, skill_id, source, max_auto_runs,
+                        source_path, created_at
+                    )
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (conv_id, skill_id, source, max_auto_runs, self._now()),
+                (conv_id, skill_id, source, max_auto_runs, source_path, self._now()),
             )
         return conv_id
+
+    def increment_auto_run_count(self, conversation_id: str) -> int:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET auto_run_count = auto_run_count + 1
+                WHERE conversation_id=?
+                """,
+                (conversation_id,),
+            )
+            row = conn.execute(
+                "SELECT auto_run_count FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+        return int(row["auto_run_count"]) if row else 0
+
+    def reset_auto_run_count(self, conversation_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET auto_run_count=0 WHERE conversation_id=?",
+                (conversation_id,),
+            )
+
+    def set_conversation_auto_confirmed(self, conversation_id: str, value: bool) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET auto_confirmed=? WHERE conversation_id=?",
+                (1 if value else 0, conversation_id),
+            )
+
+    def set_pending_patch(self, conversation_id: str, patch: dict) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET pending_patch_json=?, status='awaiting_draft_confirm'
+                WHERE conversation_id=?
+                """,
+                (json.dumps(patch, ensure_ascii=False), conversation_id),
+            )
+
+    def get_pending_patch(self, conversation_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT pending_patch_json FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+        if not row or not row["pending_patch_json"]:
+            return None
+        try:
+            parsed = json.loads(row["pending_patch_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def clear_pending_patch(self, conversation_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET pending_patch_json=NULL, status='active'
+                WHERE conversation_id=?
+                """,
+                (conversation_id,),
+            )
+
+    def get_clarifications(self, conversation_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT clarifications_json FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+        if not row or not row["clarifications_json"]:
+            return None
+        try:
+            parsed = json.loads(row["clarifications_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def merge_clarifications(self, conversation_id: str, patch: dict) -> None:
+        existing = self.get_clarifications(conversation_id) or {}
+        merged = {**existing, **patch}
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET clarifications_json=?
+                WHERE conversation_id=?
+                """,
+                (json.dumps(merged, ensure_ascii=False), conversation_id),
+            )
+
+    def get_plan_enrichment(self, conversation_id: str) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT plan_enrichment_json FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+        if not row or not row["plan_enrichment_json"]:
+            return None
+        try:
+            parsed = json.loads(row["plan_enrichment_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def set_plan_enrichment(self, conversation_id: str, payload: dict) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE conversations
+                SET plan_enrichment_json=?
+                WHERE conversation_id=?
+                """,
+                (json.dumps(payload, ensure_ascii=False), conversation_id),
+            )
 
     def get_conversation(self, conversation_id: str) -> dict | None:
         with self._conn() as conn:
@@ -295,22 +499,137 @@ class SqliteRepository:
                 (status, conversation_id),
             )
 
+    def set_conversation_skill_id(self, conversation_id: str, skill_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET skill_id=? WHERE conversation_id=?",
+                (skill_id, conversation_id),
+            )
+
     def append_lui_message(
         self,
         conversation_id: str,
         role: str,
         content: str,
         run_id: str | None = None,
+        message_type: str = "text",
+        payload_json: dict | None = None,
     ) -> None:
+        payload_str = json.dumps(payload_json) if payload_json is not None else None
         with self._conn() as conn:
             conn.execute(
                 """
                 INSERT INTO lui_messages
-                    (conversation_id, run_id, role, content, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                    (conversation_id, run_id, role, content,
+                     message_type, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (conversation_id, run_id, role, content, self._now()),
+                (
+                    conversation_id,
+                    run_id,
+                    role,
+                    content,
+                    message_type,
+                    payload_str,
+                    self._now(),
+                ),
             )
+
+    def has_rich_report_for_run(self, conversation_id: str, run_id: str) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM lui_messages
+                WHERE conversation_id=?
+                  AND message_type='rich_report'
+                  AND run_id=?
+                LIMIT 1
+                """,
+                (conversation_id, run_id),
+            ).fetchone()
+        return row is not None
+
+    def list_conversations(
+        self,
+        limit: int = 50,
+        pending_review: bool | None = None,
+    ) -> list[dict]:
+        query = """
+            SELECT
+                c.*,
+                (
+                    SELECT COUNT(*) FROM lui_messages m
+                    WHERE m.conversation_id = c.conversation_id
+                ) AS lui_message_count,
+                (
+                    SELECT m.content FROM lui_messages m
+                    WHERE m.conversation_id = c.conversation_id
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT 1
+                ) AS last_message_preview,
+                (
+                    SELECT MAX(m.created_at) FROM lui_messages m
+                    WHERE m.conversation_id = c.conversation_id
+                ) AS last_message_at,
+                CASE WHEN r.human_review_required = 1
+                      AND r.status = 'awaiting_human_review'
+                     THEN 1 ELSE 0 END AS human_review_pending
+            FROM conversations c
+            LEFT JOIN evaluation_runs r ON r.run_id = c.active_run_id
+        """
+        params: list = []
+        if pending_review is True:
+            query += (
+                " WHERE r.human_review_required = 1"
+                " AND r.status = 'awaiting_human_review'"
+            )
+        elif pending_review is False:
+            query += (
+                " WHERE NOT (r.human_review_required = 1"
+                " AND r.status = 'awaiting_human_review')"
+            )
+        query += """
+            ORDER BY COALESCE(last_message_at, c.created_at) DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        with self._conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            d["human_review_pending"] = bool(d.get("human_review_pending"))
+            d["lui_message_count"] = int(d.get("lui_message_count") or 0)
+            results.append(d)
+        return results
+
+    def get_lui_messages(self, conversation_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM lui_messages
+                WHERE conversation_id=?
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            raw = d.get("payload_json")
+            if raw:
+                try:
+                    d["payload_json"] = json.loads(raw)
+                except (TypeError, json.JSONDecodeError):
+                    d["payload_json"] = None
+            else:
+                d["payload_json"] = None
+            d.setdefault("message_type", "text")
+            result.append(d)
+        return result
+
+    def _now(self) -> str:
+        return datetime.now(UTC).isoformat()
 
     def create_run(
         self,
@@ -350,6 +669,17 @@ class SqliteRepository:
                     (run_id, conversation_id),
                 )
         return run_id
+
+    def supersede_run(self, old_run_id: str, new_run_id: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE evaluation_runs
+                SET status=?, superseded_by_run_id=?
+                WHERE run_id=?
+                """,
+                ("superseded", new_run_id, old_run_id),
+            )
 
     def update_status(self, run_id: str, status: str, **kwargs) -> None:
         sets = ["status=?"]
@@ -486,7 +816,7 @@ class SqliteRepository:
         query = (
             "SELECT run_id, skill_id, status, review_status, score_total, "
             "score_total_source, reason_codes, bundle_state, evaluation_mode, "
-            "human_review_required, created_at "
+            "human_review_required, conversation_id, created_at "
             "FROM evaluation_runs WHERE status != 'superseded'"
         )
         params: list = []
@@ -506,10 +836,59 @@ class SqliteRepository:
             except (TypeError, json.JSONDecodeError):
                 d["reason_codes"] = []
             runs.append(d)
+        self._enrich_history_conversation_fields(runs)
         summaries = self.get_stage_timing_summaries([r["run_id"] for r in runs])
         for r in runs:
             r["timing_summary"] = summaries.get(r["run_id"], {})
         return runs
+
+    def _enrich_history_conversation_fields(self, runs: list[dict]) -> None:
+        conv_ids = [
+            r["conversation_id"] for r in runs if r.get("conversation_id")
+        ]
+        if not conv_ids:
+            for r in runs:
+                r["lui_message_count"] = 0
+                r["last_message_preview"] = None
+            return
+
+        placeholders = ",".join("?" for _ in conv_ids)
+        with self._conn() as conn:
+            count_rows = conn.execute(
+                f"""
+                SELECT conversation_id, COUNT(*) AS cnt
+                FROM lui_messages
+                WHERE conversation_id IN ({placeholders})
+                GROUP BY conversation_id
+                """,
+                conv_ids,
+            ).fetchall()
+            preview_rows = conn.execute(
+                f"""
+                SELECT m.conversation_id, m.content
+                FROM lui_messages m
+                INNER JOIN (
+                    SELECT conversation_id, MAX(id) AS max_id
+                    FROM lui_messages
+                    WHERE conversation_id IN ({placeholders})
+                    GROUP BY conversation_id
+                ) latest ON m.id = latest.max_id
+                """,
+                conv_ids,
+            ).fetchall()
+
+        counts = {row["conversation_id"]: int(row["cnt"]) for row in count_rows}
+        previews = {
+            row["conversation_id"]: row["content"] for row in preview_rows
+        }
+        for r in runs:
+            conv_id = r.get("conversation_id")
+            if conv_id:
+                r["lui_message_count"] = counts.get(conv_id, 0)
+                r["last_message_preview"] = previews.get(conv_id)
+            else:
+                r["lui_message_count"] = 0
+                r["last_message_preview"] = None
 
     def save_gaps(self, run_id: str, gaps_json: dict) -> None:
         skill_id = gaps_json.get("skill_id", "")

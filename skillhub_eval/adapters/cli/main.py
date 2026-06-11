@@ -74,6 +74,7 @@ def run(
     ds = DeepSeekProvider(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
+        model=settings.deepseek_model,
     )
     wb = GeminiProvider(
         api_key=settings.gemini_api_key,

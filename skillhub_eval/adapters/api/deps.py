@@ -29,6 +29,8 @@ def get_ds_provider() -> DeepSeekProvider:
     return DeepSeekProvider(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
+        model=settings.deepseek_model,
+        timeout=float(settings.provider_call_timeout_s),
     )
 
 
@@ -37,4 +39,5 @@ def get_gemini_provider() -> GeminiProvider:
         api_key=settings.gemini_api_key,
         base_url=settings.gemini_base_url,
         model=settings.gemini_model,
+        timeout=float(settings.provider_call_timeout_s),
     )

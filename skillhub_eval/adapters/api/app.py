@@ -17,6 +17,7 @@ from skillhub_eval.adapters.api.routes.eval import router as eval_router
 from skillhub_eval.adapters.api.routes.bundle import router as bundle_router
 from skillhub_eval.adapters.api.routes.taxonomy import router as taxonomy_router
 from skillhub_eval.adapters.api.routes.conversations import router as conversations_router
+from skillhub_eval.adapters.api.routes.chat import router as chat_router
 
 
 def create_app() -> FastAPI:
@@ -41,6 +42,7 @@ def create_app() -> FastAPI:
     app.include_router(bundle_router)
     app.include_router(taxonomy_router)
     app.include_router(conversations_router, prefix="/conversations", tags=["conversations"])
+    app.include_router(chat_router, prefix="/conversations", tags=["conversations"])
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:

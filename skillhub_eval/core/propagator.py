@@ -47,7 +47,7 @@ PROMPT_TEMPLATE = """\
 
 ## 业务场景提示
 {category_hint}
-
+{clarifications_section}
 ## 本次生成类型说明
 {type_description}
 
@@ -74,6 +74,16 @@ class PropagatorResult:
     used_fallback: bool = False
 
 
+def _format_clarifications_section(clarifications: dict | None) -> str:
+    if not clarifications:
+        return ""
+    lines = ["\n## 用户澄清"]
+    for key, value in clarifications.items():
+        lines.append(f"- {key}: {value}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 # ─── CasePropagator ───────────────────────────────────────────────────────────
 
 class CasePropagator:
@@ -88,6 +98,7 @@ class CasePropagator:
         category_slug: str,
         staging_path: Path,
         gap_by_type: dict[str, int],
+        clarifications: dict | None = None,
     ) -> PropagatorResult:
         (staging_path / "eval_cases").mkdir(parents=True, exist_ok=True)
         (staging_path / "sample_io").mkdir(parents=True, exist_ok=True)
@@ -99,6 +110,7 @@ class CasePropagator:
                 category_hint = leaf.case_template_hint
 
         skill_excerpt = skill_md_text[:1500]
+        clarifications_section = _format_clarifications_section(clarifications)
         result = PropagatorResult()
 
         for case_type, count in gap_by_type.items():
@@ -111,7 +123,12 @@ class CasePropagator:
 
             try:
                 cases = await self._generate_cases(
-                    skill_excerpt, category_hint, case_type, count, start_idx
+                    skill_excerpt,
+                    category_hint,
+                    case_type,
+                    count,
+                    start_idx,
+                    clarifications_section,
                 )
             except Exception as exc:
                 logger.warning("CasePropagator LLM call failed for %s: %s", case_type, exc)
@@ -138,6 +155,7 @@ class CasePropagator:
         case_type: str,
         count: int,
         start_idx: int,
+        clarifications_section: str = "",
     ) -> list[dict]:
         if self.ds_provider is None:
             raise RuntimeError("No LLM provider configured; placeholder fallback will be used")
@@ -147,6 +165,7 @@ class CasePropagator:
             case_type=case_type,
             skill_excerpt=skill_excerpt,
             category_hint=category_hint,
+            clarifications_section=clarifications_section,
             type_description=TYPE_DESCRIPTIONS.get(case_type, case_type),
             type_abbr=abbr,
         )
