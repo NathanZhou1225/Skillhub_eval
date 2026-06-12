@@ -31,7 +31,23 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 - **OpenSpec** owns *what* to build (artifacts + `tasks.md`).
 - **Superpowers** owns *how* to build (TDD, subagents, debug, verify, merge).
 - **grill-me** owns *plan validation only* (between steps 3 and 5).
+- **frontend-design** owns *visual layer only* (CSS/HTML structure/copy tone); **not** eval logic, API, or adapters.
 - **tiered-memory** owns sprint backlog — never replace `tasks.md` with sprint items.
+
+## UI layer (SkillHub demo)
+
+Current eval UI (visual-only edits unless user approves logic changes):
+
+- `skillhub_eval/adapters/ui/static/index.html` — Tailwind CDN + inline styles/scripts
+- Backend: `skillhub_eval/adapters/ui/` — **do not change** when doing UI polish
+
+**UI-only workflow:**
+
+1. Chat with `frontend-design` for direction (design plan first, no code until approved).
+2. Optional: `/opsx:propose "ui-<topic>"` with **Visual direction** in `design.md`; UI tasks tagged `[ui-only]` in `tasks.md`.
+3. Apply visual changes; run existing eval/UI smoke paths — behavior must match before/after.
+
+**Trigger phrases:** 「优化界面」「改 UI」「视觉风格」「排版」「hover 动效」→ load `frontend-design`, not `brainstorming`.
 
 ## Project conventions (inject into OpenSpec artifacts)
 

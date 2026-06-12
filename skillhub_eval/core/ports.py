@@ -115,6 +115,25 @@ class Repository(Protocol):
 
     def get_votes_for_run(self, run_id: str) -> list[dict]: ...
 
+    def save_judge_trace(
+        self,
+        run_id: str,
+        case_id: str,
+        prompt_text: str,
+        divergence_json: dict | None = None,
+    ) -> None: ...
+
+    def update_judge_trace_divergence(
+        self,
+        run_id: str,
+        case_id: str,
+        divergence_json: dict,
+    ) -> None: ...
+
+    def get_judge_traces(self, run_id: str) -> list[dict]: ...
+
+    def has_judge_traces(self, run_id: str) -> bool: ...
+
     def save_human_review(
         self,
         run_id: str,

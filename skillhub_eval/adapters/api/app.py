@@ -12,12 +12,27 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from skillhub_eval.adapters.api.routes.eval import router as eval_router
 from skillhub_eval.adapters.api.routes.bundle import router as bundle_router
 from skillhub_eval.adapters.api.routes.taxonomy import router as taxonomy_router
 from skillhub_eval.adapters.api.routes.conversations import router as conversations_router
 from skillhub_eval.adapters.api.routes.chat import router as chat_router
+
+
+class _NoCacheUiHtmlMiddleware(BaseHTTPMiddleware):
+    """Prevent stale index.html during active UI iteration (W5.3.3)."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        path = request.url.path
+        if path.endswith(".html") or path.rstrip("/") == "/ui":
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
 
 def create_app() -> FastAPI:
@@ -31,6 +46,7 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+    app.add_middleware(_NoCacheUiHtmlMiddleware)
 
     # ── static UI (Task 11) ────────────────────────────────────────────────────
     ui_static = Path(__file__).parent.parent / "ui" / "static"

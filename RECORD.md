@@ -1,6 +1,6 @@
 # RECORD — SkillHub MVP
 
-> 总账文档：记录项目目标、决策与状态。阶段二 Sprint 已归档：`.cursor_memory/archive/SPRINT_skillhub-mvp_completed.md`；阶段三待新建 `active/SPRINT_*.md`。
+> 总账文档：记录项目目标、决策与状态。阶段二 Sprint 已归档：`.cursor_memory/archive/SPRINT_skillhub-mvp_completed.md`；**阶段三** Active Sprint：`active/SPRINT_phase3-eval-system.md`；**阶段四** 待启动：`active/SPRINT_phase4-marketplace-biz.md`。
 
 ---
 
@@ -8,9 +8,9 @@
 
 构建 **SkillHub MVP**：面向全员的内部 Skill **分享、治理与使用** 平台——**重运营、重标准、低门槛**，而非单纯技术仓库。通过统一元数据规范、**多模型评审 Agent** 交叉验证的三维准入机制（指令遵循度 / 输出合规性 / 业务解决度），确立资产质量底线；并以业务场景化分类、自然语言交互（LUI）与数据驱动推荐，降低非技术员工使用门槛。
 
-**四阶段设计路线**：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ 前端交互与集市生态 → ④ 立项提案与商业价值呈现。
+**四阶段设计路线**（2026-06-12 重定标）：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ **评估系统完善**（对话式评估、安全门禁、自动补题、专家复核、报告呈现、Demo/部署彩排）→ ④ **集市生态 + 立项提案与商业价值呈现**（listing / Trending / 消费者发现、痛点映射、Demo 材料、可选 IAM/Portal）。
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478 tests）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：W5.5 本地 Demo 验收**（stock-radar 实机彩排 + runbook）。阶段二可选收尾已取消。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498 tests**）。**OpenSpec 活跃 change**：`wave5.4-judge-trace`（待归档）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：阶段三评估系统 — W5.5 本地 Demo 验收**（stock-radar 实机彩排 + runbook，含 W5.4 追踪页手查）；**集市生态（原 W6）已移至阶段四**。阶段二可选收尾已取消。
 
 ---
 
@@ -135,15 +135,20 @@
   - `core/bundle_resolver.py`：领域语义 IO（`ensure_staging` 原子重命名、`BundleNotReadyError` 状态守卫）；`settings.staging_root`
   - **235 tests passing**（+15 Wave 0 测试）
 
-### To-Start（阶段四）
+### To-Start（阶段四 · 集市 + 立项）
 
 | 顺序 | 内容 | 说明 |
 |------|------|------|
-| — | **阶段四** | 立项矩阵与 Demo 材料 |
+| **W6** | **集市生态** | listing / Export Freeze / Trending / 消费者 NL 匹配 / 集市 UI Tab（自阶段三迁入） |
+| **4.1** | 痛点 ↔ 价值映射矩阵 | 立项叙事 |
+| **4.2** | 风控 + 提效 Demo 材料包 | 可复用阶段三评估剧本 |
+| **4.3+** | （可选）IAM / Portal | EQ1 自批 → 生产审批；独立 Portal IA |
+
+> **启动条件**：阶段三 W5.5 Demo + W7 评估系统服务器彩排基本通过。
 
 ---
 
-### In Progress（阶段三 · Wave 清单）
+### In Progress（阶段三 · 评估系统 Wave 清单）
 
 | Wave | 内容 | 状态 |
 |------|------|------|
@@ -158,9 +163,12 @@
 | **W5.3** | 智能对话 + LLM 补题计划 enrich + 交互体验 | ✅ 已收官（472 tests） |
 | **W5.3.1** | Demo 热修：澄清去重、全链路等待提示、超时 `.env` 可配、enrich `generate()` 修复 | ✅ 已收官（475 tests） |
 | **W5.3.2** | 方案 B：同步 assessment_gate → 补题计划；满足条件自动 `capability_full`（无「开始正式评估」确认） | ✅ 已收官（478 tests） |
+| **W5.3.3** | 材料补充复合卡：gate+plan 同批出现；评估材料补充命名；中文 gap；两按钮 | ✅ 已收官 |
+| **W5.3.4** | 材料补充卡 UI 精修：去 v1 徽标；2 列表格+红线折叠；gate pill 行；L0 blockquote；历史状态汉化 | ✅ 已收官 |
+| **W5.4** | 评分过程留痕：Prompt v0.5、DB v7 `judge_traces`、分歧合成、`/ui/trace.html`、报告 `has_judge_trace` | ✅ 已收官（498 tests） |
 | **W5.5** | 本地 Demo 验收（三剧本 + runbook） | 🟡 **实机彩排中**（`.env` 超时已调至 300/600/900s） |
-| **W6** | 3.3 集市生态（listing / Trending / 消费者 NL 匹配 / publish Freeze） | 🟡 待启动 |
-| **W7** | 服务器彩排（release zip + smoke + deployment runbook） | 🟡 待启动 |
+| **W7** | 评估系统服务器彩排（release zip + smoke + deployment runbook） | 🟡 待启动（W5.5 后） |
+| ~~**W6**~~ | ~~集市生态~~ | **已移至阶段四**（见 `SPRINT_phase4-marketplace-biz.md`） |
 
 ---
 
@@ -173,14 +181,18 @@
 | **阶段三 Wave 1** | **✅ 收官** — Q-08 场景分类词表（`wave1-taxonomy`）；250 tests |
 | **阶段三 Wave 2** | **✅ 收官** — Security Intake Gate Level 0.5；292 tests |
 | **阶段三 Wave 3** | **✅ 收官** — Case Propagator + 题型完整性门槛 + POST /conversations/start；328 tests |
-| **阶段三 Wave 4** | **✅ 收官** — LUI Agent + staging_writer + API；367 tests；OpenSpec 待归档 |
-| **阶段三 Wave 5** | **✅ 收官** — Chat-First 对话壳（`wave5-chat-first-shell`）；DB v3 rich_report；400 tests；OpenSpec 待归档 |
-| **阶段三 Wave 5.1** | **✅ 收官** — 聊天简卡 + 报告分流（`wave5.1-chat-report-split`）；DB v4 pending_patch；413 tests；OpenSpec 待归档 |
-| **W5.5 Demo runbook** | **🟡 实机彩排中** — stock-radar 全流程；`.env` 超时 **300s/次 LLM、600–900s 工作流**；待用户本轮反馈 |
-| **W5.3.2 评估门禁流** | **✅ 收官** — 方案 B：`assessment_gate_result` 替代作者路径 degraded→readiness；补题后自动正式双模型；478 tests |
-| **W5.3.1 Demo 热修** | **✅ 收官** — 澄清阶段去重 + 全链路「正在…请稍候」+ `settings.py` 超时可配；475 tests |
-| **W5.3 智能对话** | **✅ 收官** — `wave5.3-intelligent-chat`；472 tests；confirm_lexicon；bootstrap enrich；IntentRouter；propagation 分叉 + draft_preview |
-| **W5.2 UI 透明化** | **✅ 收官** — `wave5.2-ui-transparency`；447 tests；初评 readiness + 补题确认 + 全对话 clarify |
+| **阶段三 Wave 4** | **✅ 收官 + 归档** — LUI Agent + staging_writer + API；367 tests；`archive/2026-06-12-wave4-lui-agent/` |
+| **阶段三 Wave 5** | **✅ 收官 + 归档** — Chat-First 对话壳；DB v3 rich_report；400 tests；`archive/2026-06-12-wave5-chat-first-shell/` |
+| **阶段三 Wave 5.1** | **✅ 收官 + 归档** — 聊天简卡 + 报告分流；DB v4 pending_patch；413 tests；`archive/2026-06-12-wave5.1-chat-report-split/` |
+| **W5.4 judge-trace** | **✅ 收官** — DB v7 + Prompt v0.5 + trace API + `trace.html`；498 tests；GQ3 live 对比并入 W5.5 |
+| **W5.5 Demo runbook** | **🟡 实机彩排中** — stock-radar 全流程 + W5.4 追踪页手查；`.env` 超时 **300s/次 LLM、600–900s 工作流** |
+| **W5.3.4 材料补充卡 UI 精修** | **✅ 收官** — 去 v1；2 列表格+红线 `<details>`；gate 压缩 pill 行；L0 左侧色条；agent 气泡白底蓝边；历史 Tab 状态汉化；UI w5.3.4 |
+| **阶段路线重定标** | **✅ 2026-06-12** — 阶段三 = 评估系统完善；集市 W6 → 阶段四；Sprint 见 `SPRINT_phase3-eval-system.md` / `SPRINT_phase4-marketplace-biz.md` |
+| **W5.3.3 材料补充 UX** | **✅ 收官** — gate 延后至 enrich 后与 plan 同批落库；UI 复合卡「评估材料补充」；两按钮 + 中文 gap |
+| **W5.3.2 评估门禁流** | **✅ 收官 + 归档** — 方案 B；478 tests；`archive/2026-06-12-wave5.3.2-assessment-gate-flow/` |
+| **W5.3.1 Demo 热修** | **✅ 收官** — 澄清去重 + 全链路等待 + 超时可配；475 tests |
+| **W5.3 智能对话** | **✅ 收官 + 归档** — `wave5.3-intelligent-chat`；472 tests；`archive/2026-06-12-wave5.3-intelligent-chat/` |
+| **W5.2 UI 透明化** | **✅ 收官 + 归档** — 447 tests；`archive/2026-06-12-wave5.2-ui-transparency/` |
 | **W4.5 provider-env-factory** | **🟡 待启动** — 双评审槽位完全 env 驱动 |
 
 ---
@@ -271,7 +283,7 @@
 | **报告运营解释层（2.3b）** | `headline_zh` / `reasons_zh` 进 `report`；UI 只读；便于业务观察 | 继续裸露 `reason_codes` 英文枚举 |
 | **分歧说明卡（2.3c）** | R5 必出确定性 `disagreement_brief_zh`；非 R5 仅 per-case Δ≥15 高亮 | 全 case 都出长文说明（信息过载） |
 | **AI 风险复核（2.5）** | 补齐 1.2/1.3 第三步；与规则扫描就高合并 | AI 单独下调 risk（违反就高不就低） |
-| **场景联动 eval_case（B 登记）** | 与 Q-08 词表、阶段三集市分类一致后再做自动生成 | 评估阶段无分类硬编码长尾规则（与 Project-Background 原则冲突） |
+| **场景联动 eval_case（B 登记）** | 与 Q-08 词表一致后做自动生成（**已落地 W3**）；集市消费分类归阶段四 | 评估阶段无分类硬编码长尾规则（与 Project-Background 原则冲突） |
 | **T6 监控反射面：历史/详情消费 stage_timing** | `GET /eval/report` 暴露 `stage_timings` + `timing_summary`；历史表 `formatScoreCompact` + 耗时列；超时终态展示 `stage_progress` + 阶段条形图 | T8 live 数据仅落库、UI 静默（数据孤岛） |
 | **研发交接：四阶段 MVP 全部完成后才交接 + 编写交接文档** | 当前仍在 MVP Demo 阶段；过早交接徒增文档维护成本 | 立项演示后即交接（MVP 尚未完整） |
 | **Prompt 格式示例改用 `<integer 0-100>` 占位符，禁止照抄** | T8 live 实测发现 DeepSeek 字面遵循示例数值 85；占位符 + 评分段说明给模型语义锚定，无需具体数字 | 完全删除示例（缺结构引导→可能输出非法 JSON）；保留示例但只改数字（模型仍有锚定风险） |
@@ -284,7 +296,8 @@
 | **确认台根路径重定向** | `/` → `/ui/index.html`；避免业务方访问 404 | 仅文档提示正确 URL（易踩坑） |
 | **UI 体验改进（ui-ux-improvement）** | 手工验收驱动：Level0 中文诊断、运营结论/分歧/风险溯源卡前置、Approve narrative 重建、per-case 中文标签与截断、Gemini 横幅、skill_summary 双列、隐藏阶段耗时；prompt v0.4 中文约束 | 仅改 prompt 不改阈值；旧 DB 记录 feedback 仍为英文（新跑生效）；进度条 dimension_notes（值为字符串无法驱动） |
 | **阶段二可选收尾取消** | 方差报告 Markdown 导出、grill-me A2 环境隔离**不做**；阶段三 eval_case 自动生成与场景联动承接 | 继续追 A2 手工隔离（阶段三后意义递减）；方差报告落盘（阶段三校准回路更系统） |
-| **3.2 LUI 重定义为「作者 Onboarding Agent」** | LUI 主线是评审流程中的对话式补全+代写+自动复评，不是「用自然语言找 Skill」；后者归 3.3 集市 | LUI = 消费者搜索（误解；导致 Propagator / staging / 专家冻结等核心能力无处安放） |
+| **阶段三/四边界重定标（2026-06-12）** | **阶段三** = 评估系统完善（上传到 Pass/Warn/Fail，含 Onboarding LUI）；**阶段四** = 集市生态 + 立项商业化；原 W6 整体后移 | 阶段三夹带集市（分散评估主线；用户明确先专注评估） |
+| **3.2 LUI 重定义为「作者 Onboarding Agent」** | LUI 主线是评审流程中的对话式补全+代写+自动复评，不是「用自然语言找 Skill」；后者归 **阶段四** 集市 | LUI = 消费者搜索（误解；导致 Propagator / staging / 专家冻结等核心能力无处安放） |
 | **B1 方案：Propagator 预生成 case 再 degraded 初评** | 上传后静默生成 case 激活双模型评审（阶段三早期探索） | B2/B3 见原决策；**初评双模型路径已被 W5.2 GQ12 取代** → readiness 体检，不跑 model_judging |
 | **合成 case 身份隔离（原方案，已修订）**：`confirmed=false` 仅参与 degraded 初评 | 原意：堵死「靠 AI 伪造 case 刷分上架」漏洞 | **已被 W3 新方案取代**（见下方「W3 case 评估策略」决策行） |
 | **W3 case 评估策略：题型完整性门槛取代 confirmed 计数门槛** | 反作弊逻辑从「谁写的题」改为「包含了什么类型的题」：adversarial/refusal case 本身是天然反向压力，AI 生成合法；low=全 happy_path，medium=happy+edge，high=happy+edge+refusal+adversarial；上架仅需：题型完整 + 数量达标（3/5/9）+ 分数达标；`confirmed` 字段降级为可选透明度标注（listing 展示，非门槛） | 原 confirmed 计数（摩擦极高，无人手写 9 道 YAML；high-risk 作者放弃上架）；纯 AI 自问自答无类型约束（circular signal 风险） |
@@ -337,6 +350,9 @@
 | **W5.2 GQ15** | 历史 Tab **不展示**初评 run；初评仅在对话 `readiness_result` | 历史仍列初评但无报告入口（GQ15 A） |
 | **W5.3 GQ-W53-1～12** | bootstrap 每次 LLM enrich；无 SSE 阶段占位；`__ACTION_*__` Chip；对话补题两步分叉；步骤条；白话表头；confirm_lexicon+IntentRouter≥0.85；enrich 降级；draft 失败 2 次；评估中 409 锁聊 | 见 `openspec/changes/wave5.3-intelligent-chat/` |
 | **W5.3.2 方案 B（作者路径）** | Skill ID 确认后先同步 `assessment_gate`（文案：「正在分析 Skill 并检查是否满足评估需求」）；不满足 →「需补充评估测试用例」+ 补题计划；满足或补题后 gate 通过 → **自动** `start_capability_full_eval`（移除 degraded 初评 + readiness 卡 + 人工「开始正式评估」）；UI `renderAssessmentGateHtml` | 保留 degraded→readiness→手动正式（Demo 反馈冗余三步）；gate 后仍跑 degraded 再 readiness（与「满足即评」冲突） |
+| **W5.3.3 材料补充卡片 UX** | 需补题时 gate **延后**至 LLM enrich 后与 plan 同批落库（避免 3s 轮询先露 gate）；UI 合并为「评估材料补充」复合卡（条件检查+评测案例计划+待澄清）；仅「自动出题/我自己补」两 Chip；gap 英文 UI 层中文化；L0 待澄清时禁用自动出题 | 保留「对话里补」第三按钮（与自动出题边界模糊）；gate 先写后 enrich（轮询导致分步展示） |
+| **W5.3.4 材料补充卡 UI 精修** | 移除 plan/gate **v1 徽标**；评测案例表 **5 列→2 列**（场景+数量 / 补测+业务预期）；红线说明收进 `<details>` 折叠；嵌入 gate **三盒→pill 行**；L0 每题左侧色条；agent 文本气泡白底+左蓝边；历史 Tab 状态 **汉化短标签** | 保留 5 列等宽表（红线列占宽导致横向滚动）；保留 v1 版本 badge（对用户无信息价值） |
+| **W5.4 评分过程留痕** | 独立 `/ui/trace.html` + DB v7 `judge_traces`；Prompt v0.5 每维 analysis/evidence/deductions；gap≥15 并行分歧合成（120s 超时）；链接仅 `capability_full && has_judge_trace`；对话「查看完整报告」就地弹模态 | 嵌入主报告 Tab（信息过载）；旧 run 回填 trace（无 prompt 数据）；改 aggregate/1.2 阈值 |
 
 ---
 
@@ -344,12 +360,14 @@
 
 1. **阶段一**：文档定标（1.1–1.3 + 指南 v0.1）；**不**实现完整 Agent 编排与 Portal。
 2. **阶段二**：工程实现 + 样本 Capability / 上架后健康检查跑通。
-3. **创作 vs 上架**：日常最小作者包；上架前可评估包 + 准入结论。
-4. **存量路径**：降级评估（WARN）→ 补齐 → 完整复评 → PASS。
-5. **埋点**：评估标准附录 C + 1.3 检查清单（失效场景：裁判洁癖、草案疲劳、拦截器误杀）。
-6. **1.3 状态闸门**：人工抽检、模型聚合与运营解释均不得绕过 `confirmed` 包状态直接 PASS。
-7. **降级断言边界**：未确认 draft 只用于缺口提示/低置信度评审，不作为 CodeAssert 失败依据。
-8. **超时调参（W5.3.1）**：在 `.env` 配置 `PROVIDER_CALL_TIMEOUT_S`、`PROVIDER_CALL_TIMEOUT_HIGH_RISK_S`、`WORKFLOW_TIMEOUT_LOW_S` / `_MEDIUM_S` / `_HIGH_S`；改后须重启 `serve`。本地 Demo 当前：**300s/次 LLM、600s 初评工作流、900s 高风险正式双模型工作流**。
+3. **阶段三**：**评估系统完善**（对话评估、补题、正式双模型、专家复核、报告）；**不**做集市 listing / Trending / 消费者 NL 搜索。
+4. **阶段四**：集市生态 + 立项商业化（W6 listing、Trending、NL 匹配、publish Freeze；4.1–4.2 材料；可选 IAM/Portal）。
+5. **创作 vs 上架**：日常最小作者包；上架前可评估包 + 准入结论。
+6. **存量路径**：降级评估（WARN）→ 补齐 → 完整复评 → PASS。
+7. **埋点**：评估标准附录 C + 1.3 检查清单（失效场景：裁判洁癖、草案疲劳、拦截器误杀）。
+8. **1.3 状态闸门**：人工抽检、模型聚合与运营解释均不得绕过 `confirmed` 包状态直接 PASS。
+9. **降级断言边界**：未确认 draft 只用于缺口提示/低置信度评审，不作为 CodeAssert 失败依据。
+10. **超时调参（W5.3.1）**：在 `.env` 配置 `PROVIDER_CALL_TIMEOUT_S`、`PROVIDER_CALL_TIMEOUT_HIGH_RISK_S`、`WORKFLOW_TIMEOUT_LOW_S` / `_MEDIUM_S` / `_HIGH_S`；改后须重启 `serve`。本地 Demo 当前：**300s/次 LLM、600s 初评工作流、900s 高风险正式双模型工作流**。
 
 ---
 
@@ -361,9 +379,9 @@
 
 ## 阶段二接续指引（2.1b–2.6）
 
-### 新窗口开场句（可复制 · 阶段三 Wave 3）
+### 新窗口开场句（可复制 · 阶段三评估系统）
 
-> 阶段三 **W0/W1/W2 已收官**（292 tests）。本窗口主线：**Wave 3** — Staging Case Propagator + Case Sanitizer + `POST /conversations/start` + R_101 `degraded` 初评 + `confirmed=false` 合成 case 防线。必读 `RECORD.md`、`.cursor_memory/active/SPRINT_phase3-marketplace.md` §Wave 3。**不重写** 1.2 阈值。W2 安全门禁已落地（Level 0.5 静态扫描 + 输出脱敏）；W3 上传入口需复用 `security_scan`。合成 case 仅参与初评，**不得**计入 `capability_full` PASS 数量门槛。
+> 阶段三定位：**评估系统完善**（不做集市）。**W0–W5.4 已收官**（498 tests）。本窗口主线：**W5.5 Demo 验收**（含追踪页手查）。必读 `RECORD.md`、`.cursor_memory/active/SPRINT_phase3-eval-system.md`。**不重写** 1.2 阈值。集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
 
 ### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
 
@@ -425,7 +443,8 @@
 | 竞品调研 | `docs/research/Skill数据定义与编写规范调研.md` |
 | 架构 | `.cursor_memory/global/ARCHITECTURE.md` |
 | 已归档 Sprint | `.cursor_memory/archive/SPRINT_skillhub-mvp_completed.md` |
-| Active Sprint | `.cursor_memory/active/SPRINT_phase3-marketplace.md` |
+| Active Sprint（阶段三） | `.cursor_memory/active/SPRINT_phase3-eval-system.md` |
+| Active Sprint（阶段四） | `.cursor_memory/active/SPRINT_phase4-marketplace-biz.md` |
 | Wave 0 change | `openspec/changes/archive/2026-06-09-wave0-infra/` |
 | Wave 1 change | `openspec/changes/archive/2026-06-09-wave1-taxonomy/` |
 | Wave 3 change | `openspec/changes/archive/2026-06-09-wave3-propagator/` |
@@ -491,3 +510,8 @@
 | 2026-06-10 | **Wave 5.3 智能对话收官**：OpenSpec `wave5.3-intelligent-chat`；grill-me GQ-W53-1～12；DB v6 `plan_enrichment_json`；`confirm_lexicon` / `IntentRouter` / `propagation_plan_enricher`；对话补题分叉 + `draft_preview`；UI optimistic pending + `__ACTION_*__` Chips；Demo FB-06～13 闭合；**472 tests**（+25）；待 OpenSpec 归档 + W5.5 Demo smoke |
 | 2026-06-10 | **W5.3.1 Demo 热修收官**：澄清/出题去重；全链路「正在…请稍候」；`settings.py` + `.env` 超时可配；enrich 改 `generate()`+fence；**475 tests**；本地 `.env` 超时调至 **300/300/600/900s**；W5.5 stock-radar 实机彩排进行中 |
 | 2026-06-10 | **W5.3.2 方案 B 评估门禁收官**：`core/assessment_gate.py` + `assessment_gate_result` 消息；作者路径移除 degraded→readiness→手动正式；补题确认后 gate 通过即 `start_capability_full_eval`；UI `renderAssessmentGateHtml`；**478 tests**（+3 集成/契约调整）；W5.5 剧本 A 待按新流复跑 |
+| 2026-06-10 | **W5.3.3 材料补充 UX**：gate 延后 enrich 后与 plan 同批；UI 复合卡「评估材料补充」+ 中文 gap + 两按钮（方案 A 去掉「对话里补」）；476 tests 通过（latency 2 项受 `.env` 300s 影响） |
+| 2026-06-12 | **W5.3.4 材料补充卡 UI 精修**：去 v1 徽标；2 列表格+红线折叠；gate pill 行；L0 blockquote；历史状态汉化；UI build **w5.3.4** |
+| 2026-06-12 | **OpenSpec 批量归档**：`wave4-lui-agent`、`wave5-chat-first-shell`、`wave5.1-chat-report-split`、`wave5.2-ui-transparency`、`wave5.3-intelligent-chat`、`wave5.3.2-assessment-gate-flow` → `openspec/changes/archive/2026-06-12-*`；**活跃 change 目录已清空** |
+| 2026-06-12 | **四阶段路线重定标**：阶段三 = **评估系统完善**；原 W6 集市生态 + 原阶段四立项材料合并为 **阶段四**；新增 `SPRINT_phase3-eval-system.md`、`SPRINT_phase4-marketplace-biz.md`；删除冗余 `SPRINT_phase3-marketplace.md` |
+| 2026-06-12 | **W5.4 judge-trace 收官**：OpenSpec `wave5.4-judge-trace`；grill-me GQ1–GQ7；DB v7 `judge_traces`；Prompt **review-agent-v0.5**；`parse_judge_response` + `divergence_synthesis`；`GET /eval/report/{id}/trace` + `has_judge_trace`；`/ui/trace.html`；对话「查看完整报告」就地弹模态；**498 tests**；全景说明 v1.3 §8.4；GQ3 v0.4/v0.5 对比待 W5.5 live |

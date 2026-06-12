@@ -39,7 +39,7 @@ def test_init_db_migration_to_v6_adds_plan_enrichment_json(tmp_path):
         version = conn.execute("PRAGMA user_version").fetchone()[0]
 
     assert "plan_enrichment_json" in columns
-    assert version == 6
+    assert version == 7
 
 
 def test_plan_enrichment_roundtrip(tmp_path):

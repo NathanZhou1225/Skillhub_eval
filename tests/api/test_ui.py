@@ -193,6 +193,25 @@ def test_ui_has_gemini_unavailable_banner():
     assert "Gemini 本次不可用" in r.text
 
 
+def test_ui_trace_page_served():
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/trace.html")
+    assert r.status_code == 200
+    assert "评分过程追踪" in r.text
+    assert "/eval/report/" in r.text
+
+
+def test_ui_wave5_4_judge_trace_wiring():
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "has_judge_trace" in r.text
+    assert "trace.html" in r.text
+    assert "评分过程 →" in r.text
+    assert "openRunDetail(runId, { origin: 'chat' })" in r.text
+
+
 def test_ui_wave5_2_task9_helpers_and_filters():
     """Wave 5.2 Task 9 smoke: plan/readiness helpers + degraded history filter + verdict badge."""
     app = create_app()
@@ -200,7 +219,8 @@ def test_ui_wave5_2_task9_helpers_and_filters():
     r = client.get("/ui/index.html")
     assert "renderPropagationPlanHtml" in r.text
     assert "renderAssessmentGateHtml" in r.text
-    assert "handlePropagationAction" in r.text
+    assert "评估材料补充" in r.text
+    assert "formatGapMessageZh" in r.text
     assert "evaluation_mode !== 'degraded'" in r.text
     assert "verdict_zh" in r.text
     assert "next_action_zh" in r.text

@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS lui_messages (
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -342,6 +342,22 @@ class SqliteRepository:
                         "ALTER TABLE conversations ADD COLUMN plan_enrichment_json TEXT"
                     )
                 cursor.execute("PRAGMA user_version = 6")
+
+            if version < 7:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS judge_traces (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT NOT NULL,
+                        case_id TEXT NOT NULL,
+                        prompt_text TEXT NOT NULL,
+                        divergence_json TEXT,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(run_id, case_id)
+                    )
+                    """
+                )
+                cursor.execute("PRAGMA user_version = 7")
         return datetime.now(UTC).isoformat()
 
     def create_conversation(
@@ -938,6 +954,77 @@ class SqliteRepository:
                 (run_id,),
             ).fetchall()
         return [json.loads(row["vote_json"]) for row in rows]
+
+    def save_judge_trace(
+        self,
+        run_id: str,
+        case_id: str,
+        prompt_text: str,
+        divergence_json: dict | None = None,
+    ) -> None:
+        div_raw = json.dumps(divergence_json) if divergence_json is not None else None
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO judge_traces (
+                    run_id, case_id, prompt_text, divergence_json, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, case_id) DO UPDATE SET
+                    prompt_text=excluded.prompt_text,
+                    divergence_json=COALESCE(excluded.divergence_json, judge_traces.divergence_json)
+                """,
+                (run_id, case_id, prompt_text, div_raw, self._now()),
+            )
+
+    def update_judge_trace_divergence(
+        self,
+        run_id: str,
+        case_id: str,
+        divergence_json: dict,
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                UPDATE judge_traces
+                SET divergence_json=?
+                WHERE run_id=? AND case_id=?
+                """,
+                (json.dumps(divergence_json), run_id, case_id),
+            )
+
+    def get_judge_traces(self, run_id: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT case_id, prompt_text, divergence_json
+                FROM judge_traces WHERE run_id=? ORDER BY id
+                """,
+                (run_id,),
+            ).fetchall()
+        result: list[dict] = []
+        for row in rows:
+            div = None
+            if row["divergence_json"]:
+                try:
+                    div = json.loads(row["divergence_json"])
+                except json.JSONDecodeError:
+                    div = None
+            result.append(
+                {
+                    "case_id": row["case_id"],
+                    "prompt_text": row["prompt_text"],
+                    "divergence_json": div,
+                }
+            )
+        return result
+
+    def has_judge_traces(self, run_id: str) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM judge_traces WHERE run_id=? LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return row is not None
 
     def save_human_review(
         self,

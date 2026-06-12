@@ -47,7 +47,13 @@ class DeepSeekProvider(BaseLLMProvider):
                 provider_label="DeepSeek",
             )
             raw_content = resp.json()["choices"][0]["message"]["content"]
-            return json.loads(raw_content)
+            content = raw_content.strip()
+            if content.startswith("```"):
+                content = content.split("```")[1]
+                if content.startswith("json"):
+                    content = content[4:]
+                content = content.strip()
+            return json.loads(content)
         except (json.JSONDecodeError, KeyError) as exc:
             raise RuntimeError(f"DeepSeek invalid response: {exc}") from exc
 

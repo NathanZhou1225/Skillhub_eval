@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta name="skillhub-ui-build" content="w5.3.4" />
   <title>SkillHub 对话评估</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -51,6 +53,7 @@
     </div>
     <button type="button" onclick="toggleDemoMode()" id="btn-demo-mode" class="text-xs text-gray-400 hover:text-blue-600">Demo</button>
     <span id="api-status" class="text-xs text-gray-400">连接中…</span>
+    <span id="ui-build-tag" class="text-xs text-gray-300" title="UI 版本，用于确认是否加载最新页面">UI w5.3.4</span>
     <button onclick="toggleDebugPanel()" class="hidden text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border rounded-md hover:border-blue-300 transition">Debug</button>
     <button onclick="location.reload()" class="text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border rounded-md hover:border-blue-300 transition">刷新</button>
     <a href="/docs" target="_blank" class="text-xs text-blue-600 hover:underline">Swagger →</a>
@@ -297,8 +300,8 @@ const STAGE_ZH = {
 function activityPhaseLabel(phase) {
   const map = {
     thinking: '正在理解你的意思，请稍候…',
-    enriching_plan: '正在分析 Skill 并生成补题计划，请稍候…',
-    checking_requirements: '正在分析 Skill 并检查是否满足评估需求，请稍候…',
+    enriching_plan: '正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…',
+    checking_requirements: '正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…',
     propagating: '正在自动生成评估题目，请稍候（约 1–2 分钟）…',
     initial_eval: '正在进行初评体检，请稍候（约 1–3 分钟）…',
     formal_eval: '正在进行正式双模型评估，请稍候…',
@@ -341,8 +344,37 @@ function formatRedlineCell(row) {
     || row.type === 'refusal' || row.type === 'adversarial';
   if (!isRedline) return '非红线题型';
   const note = (row.redline_note || '').trim();
-  if (note) return `红线题型（一票否决） · ${escapeHtml(note)}`;
+  if (note) return `红线题型（一票否决） · ${note}`;
   return '红线题型（一票否决） · 须明确拒绝边界与越权防护';
+}
+
+function isRedlineRow(row) {
+  return row.redline === true || row.redline === 'true'
+    || row.type === 'refusal' || row.type === 'adversarial';
+}
+
+function renderRedlineNote(row) {
+  if (!isRedlineRow(row)) return '';
+  const note = (row.redline_note || '').trim() || '须明确拒绝边界与越权防护';
+  const uid = 'rl' + Math.random().toString(36).slice(2, 7);
+  return `<details class="mt-1">
+    <summary class="cursor-pointer text-red-600 text-xs font-medium inline-flex items-center gap-1">
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-red-500"></span>红线 ▾
+    </summary>
+    <p class="text-xs text-red-700 mt-1 pl-3 border-l-2 border-red-200 leading-relaxed">${escapeHtml(note)}</p>
+  </details>`;
+}
+
+function statusLabel(s) {
+  return {
+    pass: '通过',
+    warn: '待改进',
+    fail: '未通过',
+    completed: '已完成',
+    failed: '失败',
+    awaiting_human_review: '待审核',
+    awaiting_confirm: '待补全',
+  }[s] || s || '—';
 }
 
 function formatGapCell(row) {
@@ -626,6 +658,52 @@ function _messageDomKey(m) {
   return `${mtype}:${runId}:${id}:${normalizeMessageText(m).slice(0, 40)}`;
 }
 
+function formatGapMessageZh(gap) {
+  if (!gap) return '—';
+  let text = String(gap.message || gap.hint || gap.field_path || 'gap');
+  const replacements = [
+    [/eval_cases\//g, '评测案例目录'],
+    [/\beval_cases\b/g, '评测案例'],
+    [/sample_io\//g, '样例输入输出目录'],
+    [/\bsample_io\b/g, '样例输入输出'],
+    [/Capability 评审/g, '能力评估（双模型评审）'],
+    [/\bCapability\b/g, '能力评估'],
+    [/Level 1/g, '一级验证（样例输出比对）'],
+    [/Level 2/g, '二级验证（脚本执行）'],
+    [/SKILL\.md frontmatter/g, 'Skill 说明文件头部信息'],
+    [/SKILL\.md/g, 'Skill 说明文件'],
+    [/risk_level=(\w+)/g, (_, r) => `风险等级 ${RISK_LEVEL_ZH[r] || r}`],
+    [/risk_level:\s*(\w+)/g, (_, r) => `风险等级 ${RISK_LEVEL_ZH[r] || r}`],
+  ];
+  for (const [pat, rep] of replacements) {
+    text = text.replace(pat, rep);
+  }
+  return text;
+}
+
+function findGatePayloadBeforePlan(messages, planIdx) {
+  if (planIdx <= 0) return null;
+  const planPayload = (messages[planIdx] || {}).payload_json || {};
+  if (planPayload.gate_snapshot) return planPayload.gate_snapshot;
+  const prev = messages[planIdx - 1];
+  if ((prev.message_type || 'text') !== 'assessment_gate_result') return null;
+  return prev.payload_json || null;
+}
+
+function mergedGateMessageIndex(messages, latestPlanIndex) {
+  if (latestPlanIndex <= 0) return -1;
+  const planPayload = (messages[latestPlanIndex] || {}).payload_json || {};
+  if (planPayload.gate_snapshot) {
+    for (let i = latestPlanIndex - 1; i >= 0; i--) {
+      const mt = (messages[i].message_type || 'text');
+      if (mt === 'assessment_gate_result') return i;
+      if (mt === 'propagation_plan') break;
+    }
+    return -1;
+  }
+  return findGatePayloadBeforePlan(messages, latestPlanIndex) ? latestPlanIndex - 1 : -1;
+}
+
 function renderMessages(messages) {
   const container = document.getElementById('chat-messages');
   if (!messages.length) {
@@ -655,13 +733,16 @@ function renderMessages(messages) {
     return;
   }
   _lastRenderedMessageKeys = keys;
+  const mergedGateIdx = mergedGateMessageIndex(messages, latestPlanIndex);
   container.innerHTML = messages.map((m, idx) => {
     const role = normalizeMessageRole(m);
     const text = normalizeMessageText(m);
     const mtype = m.message_type || 'text';
+    if (idx === mergedGateIdx) return '';
     if (mtype === 'propagation_plan') {
       const isLatest = idx === latestPlanIndex;
-      const inner = renderPropagationPlanHtml(m.payload_json || {}, { showActions: isLatest });
+      const gatePayload = isLatest ? findGatePayloadBeforePlan(messages, idx) : null;
+      const inner = renderPropagationPlanHtml(m.payload_json || {}, { showActions: isLatest, gatePayload });
       const histCls = isLatest ? 'border-amber-200 bg-amber-50/70' : 'border-amber-100 bg-amber-50/40 opacity-95';
       return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border ${histCls} p-3 text-sm">${inner}</div></div>`;
     }
@@ -699,9 +780,11 @@ function renderMessages(messages) {
     const skillChips = (!isUser && awaitingSkill && text.includes('请回复') && text.includes('确认'))
       ? renderSkillIdConfirmChips(st.skill_id || '')
       : '';
+    const agentBubbleCls = 'max-w-[85%] rounded-xl px-3 py-2 text-sm whitespace-pre-wrap bg-white border border-gray-200 border-l-[3px] border-l-blue-300 text-gray-800';
+    const userBubbleCls = 'max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap bg-blue-600 text-white';
     return `
       <div class="flex ${isUser ? 'justify-end' : 'justify-start'}">
-        <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${isUser ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}">
+        <div class="${isUser ? userBubbleCls : agentBubbleCls}">
           ${escapeHtml(text)}
           ${skillChips}
         </div>
@@ -738,22 +821,31 @@ function renderActionChips(actions, runId, opts = {}) {
   }).join('')}</div>`;
 }
 
-function renderPropagationActionChips() {
+function renderPropagationActionChips(hasL0Pending) {
+  const confirmDisabled = !!hasL0Pending;
+  const confirmCls = confirmDisabled
+    ? 'opacity-40 cursor-not-allowed border-emerald-200 bg-emerald-50/50 text-emerald-700'
+    : 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100';
+  const l0Hint = confirmDisabled
+    ? '<p class="w-full text-xs text-amber-800 mt-1">请先在上方「待澄清评估需求」中回复，再点自动出题。</p>'
+    : '';
   return `
-    <div class="flex flex-wrap gap-2 mt-3 pt-2 border-t border-amber-200">
-      <button type="button" onclick="handlePropagationAction('confirm')"
-        class="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+    <div class="flex flex-wrap gap-2 mt-3 pt-2 border-t border-amber-200 items-center">
+      <button type="button" ${confirmDisabled ? 'disabled' : ''} onclick="handlePropagationAction('confirm')"
+        class="text-xs px-3 py-1.5 rounded-full border ${confirmCls}">
         自动出题
       </button>
       <button type="button" onclick="handlePropagationAction('manual')"
         class="text-xs px-3 py-1.5 rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
         我自己补
       </button>
-      <button type="button" onclick="handlePropagationAction('chat')"
-        class="text-xs px-3 py-1.5 rounded-full border border-indigo-300 bg-indigo-50 text-indigo-800 hover:bg-indigo-100">
-        对话里补
-      </button>
-    </div>`;
+    </div>
+    <p class="mt-2 text-xs text-gray-500 leading-relaxed">
+      <span class="text-gray-600">自动出题</span>：系统按上表在评估沙盒生成临时评测案例（约 1–3 分钟）。
+      <span class="mx-1">·</span>
+      <span class="text-gray-600">我自己补</span>：本地改好后重新上传 ZIP。
+    </p>
+    ${l0Hint}`;
 }
 
 function renderForkActionChips(fork) {
@@ -835,74 +927,160 @@ function renderL0QuestionHtml(q) {
     ? `<div class="mt-1 text-amber-700/90">可参考：${options.map(o => escapeHtml(o)).join(' · ')}</div>`
     : '';
   return `
-    <li class="space-y-1 py-1 border-b border-amber-100 last:border-0">
-      <div class="font-medium text-amber-950">${escapeHtml(label)}</div>
-      ${question ? `<div class="text-amber-900">${escapeHtml(question)}</div>` : ''}
-      ${why ? `<div class="text-amber-800/80">作用：${escapeHtml(why)}</div>` : ''}
-      ${example ? `<div class="text-amber-700/90 italic">${escapeHtml(example)}</div>` : ''}
+    <li class="px-3 py-2.5 space-y-1 border-l-[3px] border-orange-400 bg-orange-50/60">
+      <div class="font-semibold text-orange-950">${escapeHtml(label)}</div>
+      ${question ? `<div class="text-orange-900/90">${escapeHtml(question)}</div>` : ''}
+      ${why ? `<div class="text-orange-800/70 text-[11px]">作用：${escapeHtml(why)}</div>` : ''}
+      ${example ? `<div class="text-orange-700/80 italic text-[11px]">${escapeHtml(example)}</div>` : ''}
       ${optionsHtml}
     </li>`;
+}
+
+function renderAssessmentGateHtml(payload, opts = {}) {
+  if (!payload || typeof payload !== 'object') return '';
+  const embedded = opts.embedded === true;
+  const blocking = Array.isArray(payload.blocking_gaps) ? payload.blocking_gaps : [];
+  const optional = Array.isArray(payload.optional_gaps)
+    ? payload.optional_gaps
+    : (Array.isArray(payload.gaps) ? payload.gaps.filter((g) => g.severity === 'warn' || g.severity === 'info') : []);
+  const score = payload.completeness_score;
+  const security = formatSecurityZh(payload, 'security');
+  const riskLocked = formatSecurityZh(payload, 'risk');
+  const caseGate = payload.case_gate || {};
+  const gatePassed = caseGate.passed === true;
+  const gateLabel = gatePassed ? '通过' : (caseGate.passed === false ? '未通过' : '—');
+  const optionalOnly = payload.can_enter_formal && (payload.optional_gaps || []).length > 0;
+  const showChoices = !embedded && optionalOnly
+    && !RUNNING_STATUSES.has(String(getStatusValue(_latestConversationStatus || {}, ['run_status', 'status'], '')));
+  const optionalBlock = optional.length
+    ? `<details class="mt-1"><summary class="cursor-pointer text-slate-600 font-medium text-xs">可选改进（${optional.length} 项，不阻断正式评估）</summary>
+        <ul class="list-disc list-inside text-gray-600 mt-1 space-y-0.5 pl-1 text-xs">
+          ${optional.map((g) => `<li>${escapeHtml(formatGapMessageZh(g))}</li>`).join('')}
+        </ul></details>`
+    : '';
+  const blockingBlock = blocking.length
+    ? `<div class="mt-2 p-2 border border-amber-200 rounded-lg bg-amber-50/60">
+        <div class="text-xs font-medium text-amber-900 mb-1">须先处理</div>
+        <ul class="list-disc list-inside text-xs text-amber-800 space-y-0.5">
+          ${blocking.map((g) => `<li>${escapeHtml(formatGapMessageZh(g))}</li>`).join('')}
+        </ul></div>`
+    : '';
+
+  if (embedded) {
+    const secColor = security === '通过' ? 'text-green-600' : (security === '阻断' ? 'text-red-600' : 'text-amber-600');
+    const gateColor = gatePassed ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold';
+    return `
+      <div class="text-xs font-medium text-slate-700 mb-2">评估条件检查</div>
+      <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
+        <span>完整度 <strong class="text-slate-800">${score != null ? score : '—'}</strong></span>
+        <span>安全 <span class="${secColor}">${escapeHtml(String(security))}</span></span>
+        <span>风险锁定 <span class="text-slate-800">${escapeHtml(String(riskLocked))}</span></span>
+        <span>门槛 <span class="${gateColor}">${escapeHtml(gateLabel)}</span></span>
+      </div>
+      ${blockingBlock}
+      ${optionalBlock}
+    `;
+  }
+
+  return `
+    <div class="text-sm font-semibold text-slate-900">${escapeHtml(payload.headline_zh || '评估条件检查')}</div>
+    <div class="mt-2 space-y-2 text-xs">
+      <div class="flex flex-wrap gap-x-5 gap-y-1 px-2 py-2 border border-slate-200 rounded-lg bg-white text-slate-700">
+        <span>完整度 <strong>${score != null ? escapeHtml(String(score)) : '—'}</strong></span>
+        <span>安全 <strong>${escapeHtml(String(security))}</strong></span>
+        <span>风险锁定 <strong>${escapeHtml(String(riskLocked))}</strong></span>
+        <span>门槛 <strong class="${gatePassed ? 'text-green-700' : 'text-red-600'}">${escapeHtml(gateLabel)}</strong></span>
+      </div>
+      ${blockingBlock}
+      ${optionalBlock}
+      ${renderOptionalImprovementChips(showChoices)}
+    </div>
+  `;
 }
 
 function renderPropagationPlanHtml(payload, opts = {}) {
   if (!payload || typeof payload !== 'object') return '';
   const showActions = opts.showActions !== false;
+  const gatePayload = opts.gatePayload || payload.gate_snapshot || null;
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const questions = Array.isArray(payload.l0_questions) ? payload.l0_questions : [];
+  const hasL0Pending = questions.length > 0;
   const isHistorical = !showActions;
-  const planVersion = payload.plan_version != null
-    ? `<span class="badge bg-amber-100 text-amber-800">v${escapeHtml(payload.plan_version)}</span>`
-    : '';
+  const planVersion = '';
   const histBadge = isHistorical
-    ? '<span class="text-xs font-normal text-gray-500 ml-1">（历史版本，仅供参考）</span>'
+    ? '<span class="text-xs font-normal text-gray-400 ml-1">（历史版本，仅供参考）</span>'
     : '';
   const degraded = payload.enrichment_status === 'degraded'
     ? `<p class="mt-1 text-xs text-amber-700">${escapeHtml(payload.enrichment_degraded_hint || '业务说明为通用模板')}</p>`
     : '';
+  const introBlock = showActions && gatePayload ? `
+    <div class="mb-3 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed">
+      正式评估需要完整的评测案例与必要澄清。以下内容<strong>仅写入评估沙盒</strong>，不会修改你上传的原始 Skill 文件。
+    </div>` : '';
+  const gateBlock = gatePayload
+    ? `<div class="mb-3 pb-3 border-b border-amber-200">${renderAssessmentGateHtml(gatePayload, { embedded: true })}</div>`
+    : '';
+  const tableDim = hasL0Pending && showActions ? 'opacity-60' : '';
   const table = rows.length ? `
-    <div class="overflow-x-auto mt-2">
-      <table class="w-full text-xs border border-amber-200 rounded-lg overflow-hidden">
-        <thead class="bg-amber-50 text-amber-900">
+    <div class="mt-1 ${tableDim}">
+      <div class="text-xs font-semibold text-amber-900 mb-1.5">评测案例补充计划</div>
+      <table class="w-full text-xs border border-amber-200 rounded-lg overflow-hidden table-fixed">
+        <colgroup>
+          <col style="width:22%">
+          <col style="width:78%">
+        </colgroup>
+        <thead class="bg-amber-50/80 text-amber-900">
           <tr>
-            <th class="px-2 py-1 text-left font-medium">评估场景</th>
-            <th class="px-2 py-1 text-left font-medium">尚需补齐</th>
-            <th class="px-2 py-1 text-left font-medium">建议补测什么</th>
-            <th class="px-2 py-1 text-left font-medium">业务上期望什么</th>
-            <th class="px-2 py-1 text-left font-medium">红线说明</th>
+            <th class="px-2 py-1.5 text-left font-medium">场景 · 数量</th>
+            <th class="px-2 py-1.5 text-left font-medium">补测方向 / 业务预期</th>
           </tr>
         </thead>
-        <tbody class="bg-white">
-          ${rows.map((row) => `
-            <tr class="border-t border-amber-100">
-              <td class="px-2 py-1 align-top text-gray-900">${escapeHtml(row.type_zh || '—')}</td>
-              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(formatGapCell(row))}</td>
-              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(row.tests_what || '—')}</td>
-              <td class="px-2 py-1 align-top text-gray-700">${escapeHtml(row.business_expectation || '—')}</td>
-              <td class="px-2 py-1 align-top text-gray-700">${formatRedlineCell(row)}</td>
-            </tr>
-          `).join('')}
+        <tbody class="bg-white divide-y divide-amber-100">
+          ${rows.map((row) => {
+            const redline = isRedlineRow(row);
+            const gapNum = formatGapCell(row);
+            return `
+            <tr>
+              <td class="px-2 py-2 align-top">
+                <div class="font-medium text-gray-900">${escapeHtml(row.type_zh || '—')}</div>
+                <div class="text-gray-500 mt-0.5">×${escapeHtml(gapNum)}</div>
+                ${redline ? renderRedlineNote(row) : ''}
+              </td>
+              <td class="px-2 py-2 align-top space-y-1">
+                <div class="text-gray-700 leading-relaxed">${escapeHtml(row.tests_what || '—')}</div>
+                ${row.business_expectation ? `<div class="text-gray-500 text-[11px] leading-relaxed border-t border-amber-50 pt-1">${escapeHtml(row.business_expectation)}</div>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
-    </div>` : '<p class="mt-2 text-xs text-gray-500">暂无补题计划明细</p>';
+    </div>` : '<p class="mt-2 text-xs text-gray-500">暂无评测案例补充明细</p>';
   const l0Section = questions.length ? `
-    <div class="mt-3 p-2 rounded-lg bg-white border border-amber-200">
-      <div class="text-xs font-medium text-amber-900 mb-1">待澄清（评估需求）</div>
-      <p class="text-xs text-amber-800/90 mb-2">请直接在下方对话框回复；补充后系统会刷新补题计划。</p>
-      <ul class="list-none text-xs space-y-0.5">
+    <div class="mt-3 rounded-lg bg-orange-50 border-2 border-orange-300 shadow-sm overflow-hidden">
+      <div class="px-3 pt-3 pb-2">
+        <div class="text-xs font-bold text-orange-900 tracking-wide uppercase mb-1">⚠ 待澄清评估需求</div>
+        <p class="text-xs text-orange-800/80 leading-relaxed">
+          请先回答下列问题，系统才能根据你的实际业务边界准确生成各类型评测案例。也可直接在对话框说明；有疑问可随时提问。
+        </p>
+      </div>
+      <ul class="list-none text-xs divide-y divide-orange-200">
         ${questions.map(q => renderL0QuestionHtml(q)).join('')}
       </ul>
     </div>` : '';
+  const cardTitle = gatePayload ? '评估材料补充' : '补题计划';
   return `
     ${renderFlowStepBar(payload.flow_step)}
     <div class="text-sm font-semibold text-amber-900 flex items-center flex-wrap gap-2">
-      补题计划
+      ${cardTitle}
       ${planVersion}
       ${histBadge}
     </div>
-    ${degraded}
+    ${introBlock}
+    ${gateBlock}
     ${table}
     ${l0Section}
-    ${showActions ? renderPropagationActionChips() : ''}
+    ${degraded}
+    ${showActions ? renderPropagationActionChips(hasL0Pending) : ''}
   `;
 }
 
@@ -978,59 +1156,6 @@ function renderOptionalImprovementChips(show) {
     <p class="mt-2 text-xs text-slate-500">以上为可选改进；评估需求满足后将自动开始正式评估。</p>`;
 }
 
-function renderAssessmentGateHtml(payload) {
-  if (!payload || typeof payload !== 'object') return '';
-  const blocking = Array.isArray(payload.blocking_gaps) ? payload.blocking_gaps : [];
-  const optional = Array.isArray(payload.optional_gaps)
-    ? payload.optional_gaps
-    : (Array.isArray(payload.gaps) ? payload.gaps.filter((g) => g.severity === 'warn' || g.severity === 'info') : []);
-  const score = payload.completeness_score;
-  const security = formatSecurityZh(payload, 'security');
-  const riskLocked = formatSecurityZh(payload, 'risk');
-  const caseGate = payload.case_gate || {};
-  const gateLabel = caseGate.passed === true ? '通过' : (caseGate.passed === false ? '未通过' : '—');
-  const optionalOnly = payload.can_enter_formal && (payload.optional_gaps || []).length > 0;
-  const showChoices = optionalOnly
-    && !RUNNING_STATUSES.has(String(getStatusValue(_latestConversationStatus || {}, ['run_status', 'status'], '')));
-  const optionalBlock = optional.length
-    ? `<details class="mt-1"><summary class="cursor-pointer text-slate-600 font-medium">可选改进（${optional.length} 项，不阻断正式评估）</summary>
-        <p class="text-xs text-slate-500 mt-1 pl-1">展开可查看详情；不影响直接点「开始正式评估」。</p>
-        <ul class="list-disc list-inside text-gray-700 mt-1 space-y-0.5 pl-1">
-          ${optional.map((g) => `<li>${escapeHtml(g.message || g.hint || g.field_path || 'gap')}</li>`).join('')}
-        </ul></details>`
-    : '';
-  const blockingBlock = blocking.length
-    ? `<div class="p-2 border border-amber-200 rounded-lg bg-amber-50/50">
-        <div class="font-medium text-amber-900">须先处理</div>
-        <ul class="list-disc list-inside text-gray-700 mt-1 space-y-0.5">
-          ${blocking.map((g) => `<li>${escapeHtml(g.message || g.field_path || 'gap')}</li>`).join('')}
-        </ul></div>`
-    : '';
-  return `
-    <div class="text-sm font-semibold text-slate-900 flex items-center gap-2">
-      ${escapeHtml(payload.headline_zh || '评估条件检查')}
-      ${payload.gate_version ? `<span class="text-xs font-normal text-slate-500">v${escapeHtml(payload.gate_version)}</span>` : ''}
-    </div>
-    <div class="mt-2 space-y-2 text-xs">
-      <div class="p-2 border border-slate-200 rounded-lg bg-white">
-        <div class="font-medium text-slate-700">完整度</div>
-        <div class="text-gray-700 mt-1">分数：${score != null ? escapeHtml(String(score)) : '—'}</div>
-      </div>
-      <div class="p-2 border border-slate-200 rounded-lg bg-white">
-        <div class="font-medium text-slate-700">安全 / 风险</div>
-        <div class="text-gray-700 mt-1">安全：${escapeHtml(String(security))} · 风险锁定：${escapeHtml(String(riskLocked))}</div>
-      </div>
-      <div class="p-2 border border-slate-200 rounded-lg bg-white">
-        <div class="font-medium text-slate-700">评估条件门槛</div>
-        <div class="text-gray-700 mt-1">${escapeHtml(gateLabel)}</div>
-      </div>
-      ${blockingBlock}
-      ${optionalBlock}
-      ${renderOptionalImprovementChips(showChoices)}
-    </div>
-  `;
-}
-
 async function handlePropagationAction(action) {
   if (action === 'confirm') {
     await sendConversationMessage(ACTION_PROPAGATE, true);
@@ -1038,10 +1163,6 @@ async function handlePropagationAction(action) {
   }
   if (action === 'manual') {
     await sendConversationMessage(ACTION_MANUAL_UPLOAD, true);
-    return;
-  }
-  if (action === 'chat') {
-    await sendConversationMessage(ACTION_DRAFT_MODE, true);
   }
 }
 
@@ -1080,8 +1201,7 @@ async function handleReportAction(actionId, runId) {
 
 function openReportFromChat(runId) {
   if (!runId) return;
-  switchTab('history');
-  openRunDetail(runId);
+  openRunDetail(runId, { origin: 'chat' });
 }
 
 function renderReportHtml(apiDetail, statusObj) {
@@ -1209,8 +1329,8 @@ function updateComposerState() {
   input.disabled = authorBlocked;
   if (zipInput) zipInput.disabled = authorBlocked;
   if (hintEl) {
-    hintEl.textContent = st.run_status === 'awaiting_propagation_confirm'
-      ? '可回复：确认 / 我自己补 / 帮我在对话里补'
+    hintEl.textContent = st.status === 'awaiting_propagation_confirm' || st.status === 'awaiting_propagation_clarify'
+      ? '可回复：确认自动出题 / 我自己补（或直接在对话框提问、补充澄清）'
       : '';
   }
 }
@@ -1263,6 +1383,14 @@ async function pollConversation() {
   updateChatStatusBanner(statusObj);
   syncPendingFromRunStatus(statusObj);
   _messagesCache = await fetchConversationMessages();
+  const convStatus = getStatusValue(statusObj, ['status', 'conversation_status'], '');
+  if (
+    ['awaiting_propagation_confirm', 'awaiting_propagation_clarify'].includes(String(convStatus))
+    || _messagesCache.some((m) => (m.message_type || '') === 'propagation_plan')
+  ) {
+    _optimisticPending = false;
+    _optimisticPendingLabel = '';
+  }
   if (isRunCompleted(statusObj)) {
     _optimisticPending = false;
     _optimisticPendingLabel = '';
@@ -1868,10 +1996,13 @@ function renderModelVotesFeedback(d, collapsed = true) {
     </details>`;
 }
 
-function renderPerCaseDetails(ps, collapsed = true) {
+function renderPerCaseDetails(ps, collapsed = true, runId = null, showTrace = false) {
   if (!ps || !ps.per_case || !ps.per_case.length) return '';
   const rows = ps.per_case.map(row => {
     const hi = row.gap != null && row.gap >= 15;
+    const traceCell = showTrace && runId
+      ? `<td class="px-2 py-1 text-xs"><a href="/ui/trace.html?run_id=${encodeURIComponent(runId)}#case-${encodeURIComponent(row.case_id)}" target="_blank" rel="noopener" class="text-indigo-700 hover:text-indigo-900 whitespace-nowrap">评分过程 →</a></td>`
+      : '';
     return `
       <tr class="${hi ? 'bg-red-50' : ''}">
         <td class="px-2 py-1 font-mono text-xs">${escapeHtml(row.case_id)}</td>
@@ -1879,8 +2010,12 @@ function renderPerCaseDetails(ps, collapsed = true) {
         <td class="px-2 py-1 text-right">${row.gemini_score != null ? row.gemini_score : '—'}</td>
         <td class="px-2 py-1 text-right font-medium ${hi ? 'text-red-600' : ''}">${row.gap != null ? row.gap : '—'}</td>
         <td class="px-2 py-1 text-xs text-gray-600">${escapeHtml(row.ds_suggested_status || '—')} / ${escapeHtml(row.gemini_suggested_status || '—')}</td>
+        ${traceCell}
       </tr>`;
   }).join('');
+  const traceCol = showTrace
+    ? '<th class="text-left px-2 py-1">过程</th>'
+    : '';
   return `
     <details class="mt-2"${collapsed ? '' : ' open'}>
       <summary class="cursor-pointer text-xs text-blue-600 font-medium">per-case 分数对照 ▼</summary>
@@ -1892,6 +2027,7 @@ function renderPerCaseDetails(ps, collapsed = true) {
             <th class="text-right px-2 py-1">Gemini</th>
             <th class="text-right px-2 py-1">Δ</th>
             <th class="text-left px-2 py-1">建议状态</th>
+            ${traceCol}
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -2305,7 +2441,7 @@ function conversationMessagePreview(m) {
     rich_report: '评估简卡',
     readiness_result: '评估条件检查',
     assessment_gate_result: '评估条件检查',
-    propagation_plan: '补题计划',
+    propagation_plan: '评估材料补充',
     propagation_summary: '补题完成',
     draft_preview: '修改草案',
   };
@@ -2375,8 +2511,8 @@ async function loadHistory() {
               </td>
               <td class="px-4 py-3 font-medium text-gray-900">${run.skill_id}</td>
               <td class="px-4 py-3 text-gray-400 font-mono text-xs">${run.run_id.slice(0,12)}…</td>
-              <td class="px-4 py-3"><span class="badge ${statusClass(run.status)}">${run.status}</span></td>
-              <td class="px-4 py-3">${run.review_status ? `<span class="badge ${statusClass(run.review_status)}">${run.review_status}</span>` : '—'}</td>
+              <td class="px-4 py-3"><span class="badge ${statusClass(run.status)}">${escapeHtml(statusLabel(run.status))}</span></td>
+              <td class="px-4 py-3">${run.review_status ? `<span class="badge ${statusClass(run.review_status)}">${escapeHtml(statusLabel(run.review_status))}</span>` : '—'}</td>
               <td class="px-4 py-3 text-right text-sm">${formatScoreCompact(run)}</td>
               <td class="px-4 py-3 text-right text-xs">${formatTimingSummaryCell(run.timing_summary)}</td>
               <td class="px-4 py-3">${run.human_review_required ? '<span class="badge bg-amber-100 text-amber-700">⚠ 待审</span>' : ''}${(run.reason_codes || []).includes('EVAL_WORKFLOW_TIMEOUT') ? '<span class="badge bg-red-100 text-red-700 ml-1">超时</span>' : ''}</td>
@@ -2391,15 +2527,20 @@ async function loadHistory() {
   }
 }
 
-async function openRunDetail(runId) {
+async function openRunDetail(runId, opts = {}) {
   try {
     const d = await apiFetch(`/eval/report/${runId}`);
     const ps = getProviderSummary(d);
     const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
     const progress = getStageProgress(d);
     const convId = d.conversation_id;
+    const showTrace = Boolean(
+      d.has_judge_trace
+      && (d.evaluation_mode === 'capability_full'
+        || (d.report && d.report.evaluation_mode === 'capability_full')),
+    );
     let convBlock = '';
-    if (convId) {
+    if (convId && opts.origin !== 'chat') {
       try {
         const convData = await apiFetch(`/eval/history/${runId}/conversation`);
         convBlock = renderConversationSummary(convData)
@@ -2425,7 +2566,7 @@ async function openRunDetail(runId) {
       ${convBlock}
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
-      ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, true)}</div>` : ''}
+      ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, true, runId, showTrace)}</div>` : ''}
       ${renderModelVotesFeedback(d, true)}
       ${renderNarrativeCard(d)}
       ${renderDisagreementCard(d)}

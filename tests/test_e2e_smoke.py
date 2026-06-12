@@ -356,7 +356,7 @@ async def test_s5_sec14_checklist_ds_wb_same_prompt_rubric_version(tmp_path):
 
     report = repo.get_report(run_id)
     assert report["rubric_version"] == "v1.2"
-    assert report["prompt_version"] == "review-agent-v0.3"
+    assert report["prompt_version"] == "review-agent-v0.5"
 
 
 @pytest.mark.asyncio

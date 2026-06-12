@@ -29,10 +29,11 @@ _REQUIRED_UI_FIELDS = (
     "risk_level_locked",
     "case_gate",
     "gap_count",
-    "评估条件门槛",
+    "门槛",
     "可选改进",
-    "红线说明",
-    "ACTION_START_FORMAL",
+    "renderRedlineNote",
+    "评估材料补充",
+    "formatGapMessageZh",
 )
 
 

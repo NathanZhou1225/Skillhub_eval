@@ -135,8 +135,8 @@ def gate_content_message(payload: dict[str, Any]) -> str:
         return "评估需求已满足，正在自动开始正式双模型评估，请稍候…"
     if payload.get("needs_case_propagation"):
         return (
-            "当前不满足正式评估的题型要求，需补充评估测试用例。"
-            "请查看下方补题计划并选择补全方式。"
+            "当前不满足正式评估的题型要求，需补充评测案例。"
+            "请查看下方「评估材料补充」并选择补全方式。"
         )
     if payload.get("has_l0_pending"):
         return "尚有评估需求待澄清，请先在下方回复后再继续。"

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>评分过程追踪 · SkillHub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen">
+  <header class="bg-white border-b border-gray-200 px-6 py-4">
+    <div class="max-w-4xl mx-auto flex items-center justify-between gap-4">
+      <h1 class="text-lg font-semibold text-gray-900">评分过程追踪</h1>
+      <a href="/ui/index.html" class="text-sm text-indigo-700 hover:text-indigo-900">← 返回评估</a>
+    </div>
+  </header>
+  <main id="app" class="max-w-4xl mx-auto px-6 py-6 space-y-6">
+    <p class="text-sm text-gray-500">加载中…</p>
+  </main>
+<script>
+const DIM_ZH = {
+  instruction_following: '指令遵循',
+  output_compliance: '输出合规',
+  business_resolution: '业务解决',
+};
+const CASE_TYPE_ZH = {
+  happy_path: '正常场景',
+  edge_case: '边界场景',
+  refusal_case: '拒绝场景',
+  adversarial_case: '对抗场景',
+};
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function params() {
+  return new URLSearchParams(window.location.search);
+}
+
+async function loadTrace() {
+  const runId = params().get('run_id');
+  const app = document.getElementById('app');
+  if (!runId) {
+    app.innerHTML = '<p class="text-red-600">缺少 run_id 参数</p>';
+    return;
+  }
+  try {
+    const r = await fetch(`/eval/report/${encodeURIComponent(runId)}/trace`);
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    render(data);
+    const hash = window.location.hash;
+    if (hash) {
+      const el = document.querySelector(hash);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch (e) {
+    app.innerHTML = `<p class="text-red-600">加载失败: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function renderDimCell(sub, dim) {
+  const entry = (sub && sub[dim]) || {};
+  const score = entry.score != null ? entry.score : '—';
+  const analysis = entry.analysis || '';
+  const quotes = Array.isArray(entry.evidence_quotes) ? entry.evidence_quotes : [];
+  const deductions = Array.isArray(entry.deductions) ? entry.deductions : [];
+  const missing = !analysis && !quotes.length && !deductions.length;
+  return `
+    <div class="space-y-2 text-sm">
+      <div class="text-2xl font-semibold text-gray-900">${escapeHtml(score)}</div>
+      ${analysis ? `<p class="text-gray-700 leading-relaxed">${escapeHtml(analysis)}</p>` : (missing ? '<p class="text-gray-400 italic">依据未返回</p>' : '')}
+      ${quotes.map(q => `<blockquote class="border-l-2 border-indigo-300 pl-2 text-gray-600 text-xs">${escapeHtml(q)}</blockquote>`).join('')}
+      ${deductions.length ? `<ul class="list-disc list-inside text-xs text-amber-800">${deductions.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : ''}
+    </div>`;
+}
+
+function renderCase(c) {
+  const gapHi = c.gap != null && c.gap >= 15;
+  const div = c.divergence || {};
+  const maxDim = div.max_gap_dimension;
+  let topCard = '';
+  if (div.single_sided) {
+    const errs = (div.provider_errors || []).map(e => `${e.provider || '?'}: ${e.error || ''}`).join('；');
+    topCard = `<div class="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+      <span class="font-medium">仅单侧有分</span> — ${escapeHtml(errs || '另一侧模型未返回有效评分')}
+    </div>`;
+  } else if (div.synthesis_zh) {
+    topCard = `<div class="mb-4 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 text-sm text-gray-800">
+      <div class="text-xs font-medium text-indigo-800 mb-1">AI 分歧解读</div>
+      ${div.degraded ? '<p class="text-xs text-gray-500 mb-1">自动解读生成失败，以下对照为准。</p>' : ''}
+      <p>${escapeHtml(div.synthesis_zh)}</p>
+    </div>`;
+  } else if (gapHi && div.degraded) {
+    topCard = '<div class="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">分歧解读生成失败，请查看下方双模型对照。</div>';
+  }
+
+  const dsSub = (c.votes && c.votes.deepseek && c.votes.deepseek.sub_scores) || {};
+  const gmSub = (c.votes && c.votes.gemini && c.votes.gemini.sub_scores) || {};
+  const dimRows = Object.keys(DIM_ZH).map(dim => {
+    const dsScore = dsSub[dim] && dsSub[dim].score;
+    const gmScore = gmSub[dim] && gmSub[dim].score;
+    const dimGap = dsScore != null && gmScore != null ? Math.abs(dsScore - gmScore) : 0;
+    const highlight = dim === maxDim || (maxDim == null && dimGap >= 15);
+    return `
+      <tr class="${highlight ? 'bg-amber-50' : ''}">
+        <td class="px-3 py-3 text-xs font-medium text-gray-600 align-top">${DIM_ZH[dim]}</td>
+        <td class="px-3 py-3 align-top border-l border-gray-100">${renderDimCell(dsSub, dim)}</td>
+        <td class="px-3 py-3 align-top border-l border-gray-100">${renderDimCell(gmSub, dim)}</td>
+      </tr>`;
+  }).join('');
+
+  const promptBlock = c.prompt_text
+    ? `<details class="mt-4 text-xs"><summary class="cursor-pointer text-gray-500">评审 Prompt</summary>
+       <pre class="mt-2 p-3 bg-gray-100 rounded-lg overflow-x-auto whitespace-pre-wrap font-mono text-gray-700">${escapeHtml(c.prompt_text)}</pre></details>`
+    : '';
+
+  return `
+    <section id="case-${escapeHtml(c.case_id)}" class="bg-white rounded-xl border border-gray-200 p-5 shadow-sm scroll-mt-6">
+      <div class="flex flex-wrap items-center gap-2 mb-3">
+        <h2 class="font-mono text-sm font-semibold">${escapeHtml(c.case_id)}</h2>
+        <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">${CASE_TYPE_ZH[c.case_type] || c.case_type}</span>
+        ${gapHi ? '<span class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">分差 ≥15</span>' : ''}
+        <span class="text-xs text-gray-500 ml-auto">DS ${c.votes?.deepseek?.score_total ?? '—'} / Gemini ${c.votes?.gemini?.score_total ?? '—'}</span>
+      </div>
+      ${topCard}
+      <table class="w-full border border-gray-200 rounded-lg overflow-hidden">
+        <thead class="bg-gray-50 text-xs text-gray-500">
+          <tr>
+            <th class="text-left px-3 py-2 w-24">维度</th>
+            <th class="text-left px-3 py-2">DeepSeek</th>
+            <th class="text-left px-3 py-2">Gemini</th>
+          </tr>
+        </thead>
+        <tbody>${dimRows}</tbody>
+      </table>
+      ${promptBlock}
+    </section>`;
+}
+
+function render(data) {
+  const app = document.getElementById('app');
+  const ps = data.provider_summary || {};
+  const cases = data.cases || [];
+  if (!cases.length) {
+    app.innerHTML = '<p class="text-center text-gray-500 py-16">该评估早于过程留痕功能，无评分过程数据</p>';
+    return;
+  }
+  const hasContent = cases.some(c => c.prompt_text || (c.votes && (c.votes.deepseek || c.votes.gemini)));
+  if (!hasContent) {
+    app.innerHTML = '<p class="text-center text-gray-500 py-16">该评估早于过程留痕功能，无评分过程数据</p>';
+    return;
+  }
+  app.innerHTML = `
+    <div class="bg-white rounded-xl border border-gray-200 p-4 text-sm space-y-1">
+      <div><span class="text-gray-500">Skill</span> <span class="font-medium">${escapeHtml(data.skill_id)}</span></div>
+      <div><span class="text-gray-500">run</span> <span class="font-mono text-xs">${escapeHtml(data.run_id)}</span></div>
+      <div><span class="text-gray-500">结论</span> <span class="font-medium">${escapeHtml(data.review_status || '—')}</span>
+        <span class="text-gray-400 ml-2">DS ${ps.deepseek_score ?? '—'} / Gemini ${ps.gemini_score ?? '—'}</span></div>
+    </div>
+    ${cases.map(renderCase).join('')}
+  `;
+}
+
+loadTrace();
+</script>
+</body>
+</html>

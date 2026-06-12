@@ -9,6 +9,7 @@ from skillhub_eval.core.latency import (
 from skillhub_eval.core.schemas import RiskLevel
 from skillhub_eval.providers.deepseek import DeepSeekProvider
 from skillhub_eval.providers.gemini import GeminiProvider
+from skillhub_eval.settings import Settings
 
 
 def test_workflow_timeout_by_risk():
@@ -20,11 +21,14 @@ def test_workflow_timeout_by_risk():
 
 def test_case_concurrency_and_provider_timeout_constants():
     assert CASE_JUDGE_CONCURRENCY == 3
-    assert PROVIDER_CALL_TIMEOUT_S == 90.0
+    assert Settings.model_fields["provider_call_timeout_s"].default == 90.0
+    assert isinstance(PROVIDER_CALL_TIMEOUT_S, float)
+    assert PROVIDER_CALL_TIMEOUT_S > 0
 
 
 def test_providers_default_call_timeout():
-    ds = DeepSeekProvider(api_key="x")
-    gm = GeminiProvider(api_key="x")
-    assert ds.timeout == 90.0
-    assert gm.timeout == 90.0
+    default_s = float(Settings.model_fields["provider_call_timeout_s"].default)
+    ds = DeepSeekProvider(api_key="x", timeout=default_s)
+    gm = GeminiProvider(api_key="x", timeout=default_s)
+    assert ds.timeout == default_s
+    assert gm.timeout == default_s

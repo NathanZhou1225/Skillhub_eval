@@ -865,11 +865,10 @@ async def _handle_skill_id_confirm_chat(
         if propagation_deferred:
             status = defer_status or (repo.get_conversation(conv_id) or {}).get("status")
             return ChatResponse(
-                reply="已生成补题计划，请先确认或补充信息后再开始初评。",
+                reply="评估材料补充计划已就绪，请查看下方卡片并选择补全方式。",
                 intent="explain_only",
                 new_run_id=None,
                 bootstrap_status=str(status),
-                activity_phase="enriching_plan",
             )
         return ChatResponse(
             reply=f"已开始评估 Skill `{skill_id}`。",

@@ -4,8 +4,8 @@ context: |
   Project: SkillHub MVP — internal skill asset hub with eval engine (skillhub_eval).
   Stack: Python 3.11+, pytest, FastAPI-style modules under skillhub_eval/.
   Normative docs: docs/specs/Skill元数据定义与编写规范.md, docs/specs/评估指标与准入标准.md.
-  Sprint tracking: .cursor_memory/active/SPRINT_*.md and RECORD.md (do not duplicate sprint tasks into OpenSpec tasks).
-  Workflow: integrated-ai-workflow skill + .cursor/rules/integrated-ai-workflow.mdc — grill-me before apply; subagent-driven-development for execution.
+  Sprint tracking: .cursor_memory/active/SPRINT_phase3-eval-system.md (phase 3 eval), SPRINT_phase4-marketplace-biz.md (phase 4 marketplace), and RECORD.md (do not duplicate sprint tasks into OpenSpec tasks).
+  Workflow: integrated-ai-workflow skill + .cursor/rules/integrated-ai-workflow.mdc — grill-me before apply; subagent-driven-development for execution; frontend-design for UI-only (skillhub_eval/adapters/ui/static/index.html).
   Legacy plans in docs/superpowers/ are reference; new features use openspec/changes/<change>/ only.
 
 rules:
@@ -17,6 +17,8 @@ rules:
     - Align field names with Skill元数据定义与编写规范.md
   design:
     - Map modules to skillhub_eval/ paths; no TBD in interfaces
+    - For UI changes: add Visual direction section (palette, type, layout, signature); mark scope as ui-only if no logic change
   tasks:
     - One checkbox per subagent-sized unit (typically 1–3 files)
     - Include verification command per task (pytest path or CLI)
+    - Tag UI-only tasks with [ui-only]; restrict file touch list to static HTML/CSS unless user approves logic

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     workflow_timeout_low_s: int = 600
     workflow_timeout_medium_s: int = 600
     workflow_timeout_high_s: int = 900
+    divergence_synthesis_timeout_s: float = 120.0
 
 
 settings = Settings()

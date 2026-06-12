@@ -33,6 +33,8 @@ from .report_narrative import build_disagreement_brief, build_report_narrative
 from .risk_lock import scan_risk_rule_only
 from .security_scan import security_scan
 from .risk_review import merge_risk_levels, review_risk_level
+from .judge_parse import parse_judge_response
+from .divergence import synthesize_divergences_for_run
 from .schemas import (
     BundleState,
     DimensionScores,
@@ -357,6 +359,12 @@ class EvaluationEngine:
 
         repo.save_votes(run_id, all_votes)
 
+        if all_votes:
+            t_div = time.monotonic()
+            repo.append_stage(run_id, "divergence_synthesis")
+            await self._synthesize_divergences(run_id, all_votes)
+            self._log_stage_timing(run_id, "divergence_synthesis", t_div)
+
         if cases and not all_votes:
             provider_errors = self.repo.get_provider_errors(run_id)
             self._save_provider_failure(
@@ -487,7 +495,7 @@ class EvaluationEngine:
                 trigger_codes=all_reason_codes if human_required else [],
             ),
             rubric_version="v1.2",
-            prompt_version="review-agent-v0.3",
+            prompt_version="review-agent-v0.5",
             started_at=datetime.now(UTC),
             completed_at=datetime.now(UTC),
         )
@@ -554,23 +562,43 @@ class EvaluationEngine:
                         "error": str(raw),
                     })
                     continue
-                score = self._extract_score(raw)
+                try:
+                    parsed = parse_judge_response(raw)
+                except (ValueError, json.JSONDecodeError, TypeError) as exc:
+                    self.repo.log_event(run_id, "provider_error", {
+                        "provider": provider_name,
+                        "case_id": case_id,
+                        "error": f"parse_judge_response: {exc}",
+                    })
+                    continue
+                score = self._extract_score(parsed)
                 status = "pass" if score >= 70 else "fail"
+                sub_scores = parsed.get("sub_scores", {})
                 votes.append({
                     "model": provider_name,
                     "model_version": "unknown",
-                    "prompt_version": "review-agent-v0.4",
+                    "prompt_version": "review-agent-v0.5",
                     "case_id": case_id,
                     "case_type": case.get("type", "happy_path"),
-                    "dimension_scores": raw.get("sub_scores", {}),
+                    "dimension_scores": sub_scores,
+                    "sub_scores": sub_scores,
                     "score_total": score,
                     "suggested_review_status": status,
-                    "confidence": raw.get("confidence", "medium"),
+                    "confidence": parsed.get("confidence", "medium"),
                     "evidence_refs": [],
-                    "feedback": raw.get("dimension_notes", ""),
+                    "feedback": parsed.get("dimension_notes", ""),
                     "latency_ms": case_ms,
                 })
+            self.repo.save_judge_trace(run_id, case_id, prompt, None)
             return votes
+
+    async def _synthesize_divergences(self, run_id: str, votes: list[dict]) -> None:
+        await synthesize_divergences_for_run(
+            run_id,
+            votes,
+            self.repo,
+            self.ds,
+        )
 
     def _save_fail(
         self,
@@ -970,10 +998,11 @@ class EvaluationEngine:
             f"evaluation_mode: {evaluation_mode}\n"
             f"user_intent: {case.get('user_intent', '')}\n"
             f"rubric_version: v1.2\n"
-            f"prompt_version: review-agent-v0.4\n"
+            f"prompt_version: review-agent-v0.5\n"
             "\n【技能正文摘录】\n"
             f"{skill_excerpt or '(无 SKILL.md 正文)'}\n"
-            "\n【评分规则】根据本 case 与技能正文真实评估，给出 0–100 整数分。"
+            "\n【评分规则】先写每维 analysis（100~200字专业分析）与 evidence_quotes、deductions，"
+            "再给出 score。根据本 case 与技能正文真实评估，给出 0–100 整数分。"
             "禁止照抄下方格式示例中的占位符或任何固定数值。\n"
             "- 90–100：完全满足，证据充分\n"
             "- 80–89：基本满足，有小缺口\n"
@@ -986,12 +1015,18 @@ class EvaluationEngine:
             "\n【输出格式】仅输出合法 JSON，勿 markdown 围栏。"
             "score/pass/reason 须反映真实评估；<...> 为待填占位，勿原样输出：\n"
             '{"sub_scores":{'
-            '"instruction_following":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]},'
-            '"output_compliance":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]},'
-            '"business_resolution":{"score":<integer 0-100>,"pass":<bool>,'
-            '"reason":"<中文，≤30字，说明模型做到了什么或未做到什么>","evidence_refs":[]}},'
+            '"instruction_following":{"analysis":"<100-200字专业分析>",'
+            '"evidence_quotes":["<引用原文>"],"deductions":["<扣分点>"],'
+            '"score":<integer 0-100>,"pass":<bool>,'
+            '"reason":"<中文，≤30字>","evidence_refs":[]},'
+            '"output_compliance":{"analysis":"<100-200字专业分析>",'
+            '"evidence_quotes":["<引用原文>"],"deductions":["<扣分点>"],'
+            '"score":<integer 0-100>,"pass":<bool>,'
+            '"reason":"<中文，≤30字>","evidence_refs":[]},'
+            '"business_resolution":{"analysis":"<100-200字专业分析>",'
+            '"evidence_quotes":["<引用原文>"],"deductions":["<扣分点>"],'
+            '"score":<integer 0-100>,"pass":<bool>,'
+            '"reason":"<中文，≤30字>","evidence_refs":[]}},'
             '"confidence":"<low|medium|high>",'
             '"dimension_notes":"<中文，≤30字，总结本用例的核心表现>"}'
         )

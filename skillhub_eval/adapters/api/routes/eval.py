@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.engine import EvaluationEngine
 from skillhub_eval.core.ports import Repository
+from skillhub_eval.core.judge_trace import build_trace_report
 from skillhub_eval.core.report_narrative import build_report_narrative
 from skillhub_eval.core.stage_timing import summarize_stage_timings
 from skillhub_eval.core.schemas import BundleState, EvalRunRequest, EvaluationMode
@@ -109,6 +110,7 @@ async def get_report(
         "run_id": run_id,
         "conversation_id": run.get("conversation_id"),
         "status": run["status"],
+        "evaluation_mode": run.get("evaluation_mode"),
         "review_status": run.get("review_status"),
         "score_total": run.get("score_total"),
         "score_total_source": (
@@ -122,7 +124,20 @@ async def get_report(
         "timing_summary": timing_summary,
         "stage_progress": stage_progress,
         "report": report,
+        "has_judge_trace": repo.has_judge_traces(run_id),
     }
+
+
+@router.get("/report/{run_id}/trace")
+async def get_report_trace(
+    run_id: str,
+    repo: Annotated[Repository, Depends(get_repo)],
+) -> dict:
+    """Per-case judge trace: rationales, prompts, divergence synthesis."""
+    payload = build_trace_report(run_id, repo)
+    if payload is None:
+        raise HTTPException(status_code=404, detail=f"run_id '{run_id}' not found")
+    return payload
 
 
 @router.get("/history")

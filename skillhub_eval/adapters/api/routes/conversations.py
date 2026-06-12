@@ -423,6 +423,7 @@ def _defer_with_propagation_plan(
     plan: dict,
     sanitizer_result: SanitizerResult,
     repo: Repository,
+    gate_snapshot: dict | None = None,
 ) -> str | None:
     """Append propagation_plan and pause bootstrap when gaps or L0 clarifications remain."""
     l0_questions = plan.get("l0_questions") or []
@@ -435,15 +436,17 @@ def _defer_with_propagation_plan(
         else "awaiting_propagation_confirm"
     )
     intro = (
-        "当前不满足正式评估的题型要求，需补充评估测试用例。"
-        "请查看补题计划并选择补全方式。"
+        "当前不满足正式评估要求，请查看下方「评估材料补充」并选择补全方式。"
     )
+    payload = dict(plan)
+    if gate_snapshot and not payload.get("gate_snapshot"):
+        payload["gate_snapshot"] = gate_snapshot
     repo.append_lui_message(
         conversation_id,
         role="agent",
         content=intro,
         message_type="propagation_plan",
-        payload_json=plan,
+        payload_json=payload,
     )
     repo.update_conversation_status(conversation_id, status)
     return status
@@ -512,12 +515,6 @@ async def _phase_eval(
         gate_version=gate_version,
         clarifications=clarifications,
     )
-    append_assessment_gate_message(
-        conversation_id,
-        repo,
-        gate_payload,
-        gate_version=gate_version,
-    )
 
     plan_sync = build_propagation_plan(
         staging_path,
@@ -536,14 +533,27 @@ async def _phase_eval(
             ds=ds,
             plan_version=int(plan_sync.get("plan_version") or 1),
         )
+        append_assessment_gate_message(
+            conversation_id,
+            repo,
+            gate_payload,
+            gate_version=gate_version,
+        )
         defer_status = _defer_with_propagation_plan(
             conversation_id=conversation_id,
             plan=plan,
             sanitizer_result=sanitizer_result,
             repo=repo,
+            gate_snapshot=gate_payload,
         )
         return None, scan_result, False, False, True, defer_status
 
+    append_assessment_gate_message(
+        conversation_id,
+        repo,
+        gate_payload,
+        gate_version=gate_version,
+    )
     run_id = await start_capability_full_eval(
         conv_id=conversation_id,
         skill_id=skill_id,
@@ -616,7 +626,7 @@ async def continue_eval_after_skill_id_confirmed(
     repo.append_lui_message(
         conversation_id,
         role="agent",
-        content="正在分析 Skill 并检查是否满足评估需求，请稍候…",
+        content="正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…",
     )
     (
         run_id,
