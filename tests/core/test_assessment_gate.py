@@ -33,3 +33,30 @@ def test_gate_payload_flags_case_propagation_gap(tmp_path):
 
 def test_format_l0_labels_helper():
     assert format_l0_labels([{"label_zh": "拒绝边界"}]) == "拒绝边界"
+
+
+def test_gate_security_blocked_message_and_payload(tmp_path):
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "SKILL.md").write_text("---\nname: t\n---\n# x\n", encoding="utf-8")
+    bundle = ingest_bundle(str(staging))
+    payload = build_assessment_gate_payload(
+        staging_path=staging,
+        bundle=bundle,
+        security_status="blocked",
+        security_findings=[
+            {
+                "finding_type": "PROMPT_INJECTION",
+                "finding_type_zh": "提示注入风险",
+                "matched_text": "...test...",
+                "hint_zh": "请修改正文",
+                "source": "skill_bundle",
+            }
+        ],
+        gate_version=1,
+    )
+    assert payload["can_enter_formal"] is False
+    assert payload["security_block_reason_zh"]
+    msg = gate_content_message(payload)
+    assert "安全门禁未通过" in msg
+    assert len(payload["security_findings"]) == 1

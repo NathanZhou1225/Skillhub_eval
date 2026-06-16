@@ -18,7 +18,7 @@ from skillhub_eval.core.chat_notifications import (
     append_readiness_result_message,
     append_rich_report_message,
 )
-from skillhub_eval.core.security_scan import SecurityScanResult
+from skillhub_eval.core.bundle_security import BundleSecurityScanResult
 from skillhub_eval.persistence.sqlite import SqliteRepository
 
 _VALID_BUNDLE = {
@@ -117,8 +117,8 @@ def client_with_repo(tmp_path, monkeypatch):
         return_value=_VALID_BUNDLE,
     ):
         with patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
-            return_value=SecurityScanResult(status="passed", findings=[]),
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
+            return_value=BundleSecurityScanResult(intake_status="passed"),
         ):
             with patch(
                 "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer"

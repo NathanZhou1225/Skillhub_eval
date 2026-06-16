@@ -10,7 +10,7 @@
 
 **四阶段设计路线**（2026-06-12 重定标）：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ **评估系统完善**（对话式评估、安全门禁、自动补题、专家复核、报告呈现、Demo/部署彩排）→ ④ **集市生态 + 立项提案与商业价值呈现**（listing / Trending / 消费者发现、痛点映射、Demo 材料、可选 IAM/Portal）。
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498 tests**）。**OpenSpec 活跃 change**：`wave5.4-judge-trace`（待归档）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：阶段三评估系统 — W5.5 本地 Demo 验收**（stock-radar 实机彩排 + runbook，含 W5.4 追踪页手查）；**集市生态（原 W6）已移至阶段四**。阶段二可选收尾已取消。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**OpenSpec 活跃 change 已清空**。**不重写** 1.2 准入阈值（85/70/90）。**当前主线：W5.5 收尾**（剧本 B/C + runbook）→ **W7 服务器彩排**；集市生态（原 W6）已移至阶段四。阶段二可选收尾已取消。
 
 ---
 
@@ -165,8 +165,8 @@
 | **W5.3.2** | 方案 B：同步 assessment_gate → 补题计划；满足条件自动 `capability_full`（无「开始正式评估」确认） | ✅ 已收官（478 tests） |
 | **W5.3.3** | 材料补充复合卡：gate+plan 同批出现；评估材料补充命名；中文 gap；两按钮 | ✅ 已收官 |
 | **W5.3.4** | 材料补充卡 UI 精修：去 v1 徽标；2 列表格+红线折叠；gate pill 行；L0 blockquote；历史状态汉化 | ✅ 已收官 |
-| **W5.4** | 评分过程留痕：Prompt v0.5、DB v7 `judge_traces`、分歧合成、`/ui/trace.html`、报告 `has_judge_trace` | ✅ 已收官（498 tests） |
-| **W5.5** | 本地 Demo 验收（三剧本 + runbook） | 🟡 **实机彩排中**（`.env` 超时已调至 300/600/900s） |
+| **W5.4** | 评分过程留痕：Prompt v0.5、DB v7 `judge_traces`、分歧合成、`/ui/trace.html`、报告 `has_judge_trace` | ✅ 已收官 + 归档（498+ tests） |
+| **W5.5** | 本地 Demo 验收（三剧本 + runbook）+ 制式 UI + 会话归档 | 🟡 **剧本 A ✅**；**UI 制式/布局/归档 ✅**；**安全 gate 分层+拦截 UX ✅**；剧本 B/C + runbook 待补 |
 | **W7** | 评估系统服务器彩排（release zip + smoke + deployment runbook） | 🟡 待启动（W5.5 后） |
 | ~~**W6**~~ | ~~集市生态~~ | **已移至阶段四**（见 `SPRINT_phase4-marketplace-biz.md`） |
 
@@ -184,8 +184,11 @@
 | **阶段三 Wave 4** | **✅ 收官 + 归档** — LUI Agent + staging_writer + API；367 tests；`archive/2026-06-12-wave4-lui-agent/` |
 | **阶段三 Wave 5** | **✅ 收官 + 归档** — Chat-First 对话壳；DB v3 rich_report；400 tests；`archive/2026-06-12-wave5-chat-first-shell/` |
 | **阶段三 Wave 5.1** | **✅ 收官 + 归档** — 聊天简卡 + 报告分流；DB v4 pending_patch；413 tests；`archive/2026-06-12-wave5.1-chat-report-split/` |
-| **W5.4 judge-trace** | **✅ 收官** — DB v7 + Prompt v0.5 + trace API + `trace.html`；498 tests；GQ3 live 对比并入 W5.5 |
-| **W5.5 Demo runbook** | **🟡 实机彩排中** — stock-radar 全流程 + W5.4 追踪页手查；`.env` 超时 **300s/次 LLM、600–900s 工作流** |
+| **W5.4 judge-trace** | **✅ 收官 + 归档** — `archive/2026-06-12-wave5.4-judge-trace/`；498+ tests |
+| **W5.5 Demo 剧本 A** | **✅ 实机通过** — stock-radar：材料补充合并卡 → 自动出题 → 正式评 → 追踪页 → 专家裁定（FB-16～18 已验） |
+| **W5.5 UI 制式回单 + 侧栏归档** | **✅ 收官 + 归档** — 方向三「制式回单」换肤；Layout A；`DELETE /conversations/{id}` 软归档（DB v8）；删除门禁与「需专家删除」提示；UI `w5.5-form-archive-hints`；`archive/2026-06-12-conversation-archive/` |
+| **W5.5 安全 gate 分层 + 拦截 UX** | **✅ 收官** — `core/bundle_security.py`（intake 阻断 / propagator case 参考）；gate payload 含 `security_findings` + 红色告警；补题后不再因对抗题误拦开评；**511 tests** |
+| **W5.5 Demo 剧本 B/C + runbook** | **🟡 待补** — Reject 解冻复评、quota 熔断、验收矩阵文档 |
 | **W5.3.4 材料补充卡 UI 精修** | **✅ 收官** — 去 v1；2 列表格+红线 `<details>`；gate 压缩 pill 行；L0 左侧色条；agent 气泡白底蓝边；历史 Tab 状态汉化；UI w5.3.4 |
 | **阶段路线重定标** | **✅ 2026-06-12** — 阶段三 = 评估系统完善；集市 W6 → 阶段四；Sprint 见 `SPRINT_phase3-eval-system.md` / `SPRINT_phase4-marketplace-biz.md` |
 | **W5.3.3 材料补充 UX** | **✅ 收官** — gate 延后至 enrich 后与 plan 同批落库；UI 复合卡「评估材料补充」；两按钮 + 中文 gap |
@@ -234,6 +237,12 @@
 | **FB-13** | **对话阶段无进行中提示** | P2 | **✅ 已解决（W5.3.1）**：每步系统消息 + optimistic pending + 轮询 RUNNING 阶段中文 |
 | **FB-14** | **点「自动出题」后记录混乱（「澄清已记录」重复）** | P0 | **✅ 已解决（W5.3.1）**：澄清阶段空消息/`ACTION_PROPAGATE` 不再刷新计划；确认阶段跳过多余 enrich |
 | **FB-15** | **补题计划 enrich 降级致业务预期雷同** | P1 | **✅ 已缓解（W5.3.1）**：`propagation_plan_enricher` 改 `generate()`+fence 解析；超时提至 300s；实机待观察 |
+| **FB-16** | **补题达标后仍显示「对话补充说明 / 我自己改 ZIP」可点击区**，用户误以为还要继续操作 | P0 | **✅ 已解决（W5.5 彩排热修）**：`can_enter_formal` 时独立 gate 卡只展示绿色「评估需求已满足」文案，不再渲染 `renderOptionalImprovementChips` |
+| **FB-17** | **L0 澄清刷新补题计划后「评估材料补充」未合并为一张卡**（缺顶部说明、gate 与 plan 分列；旧 plan 标「历史版本」） | P0 | **✅ 已解决（W5.5 彩排热修）**：`findGatePayloadBeforePlan` 向上回溯 gate；刷新 plan 时 `chat.py` 写入 `gate_snapshot`；活跃卡始终显示说明文案 |
+| **FB-18** | **专家视角无「批准 / 驳回」**（简卡与完整报告弹窗均不可裁定） | P0 | **✅ 已解决（W5.5 彩排热修）**：`renderMessages` 缓存 key 含视角 + `setPerspective` 清缓存；`openRunDetail` 底部 `renderExpertReviewSection`；文案「专家审核台 Tab」→「专家视角」 |
+| **FB-19** | **侧栏删除确认后 toast「Not Found」** | P1 | **✅ 已解决（W5.5 UI 归档）**：`apiFetch` 204 处理；404 区分「接口未更新/需重启服务」；后端 `DELETE` 路由 + 门禁 403/409 |
+| **FB-20** | **待审/冻结会话删除无说明**（作者误点 × 不知需切专家） | P1 | **✅ 已解决（W5.5 UI 归档）**：`archiveBlockReason` 点击前拦截；侧栏「· 需专家删除」+ hover 提示；切换视角刷新侧栏 |
+| **FB-21** | **补题完成后「门槛通过」仍不开评；「安全已拦截」不明显且无原因说明** | P0 | **✅ 已解决（W5.5 安全热修）**：gate 分层扫描（intake vs eval_cases）；propagator 对抗题不阻断；UI 红色告警 + findings + `hint_zh`；修复嵌入卡「已拦截」颜色 bug |
 
 ## 已做决策
 
@@ -353,6 +362,14 @@
 | **W5.3.3 材料补充卡片 UX** | 需补题时 gate **延后**至 LLM enrich 后与 plan 同批落库（避免 3s 轮询先露 gate）；UI 合并为「评估材料补充」复合卡（条件检查+评测案例计划+待澄清）；仅「自动出题/我自己补」两 Chip；gap 英文 UI 层中文化；L0 待澄清时禁用自动出题 | 保留「对话里补」第三按钮（与自动出题边界模糊）；gate 先写后 enrich（轮询导致分步展示） |
 | **W5.3.4 材料补充卡 UI 精修** | 移除 plan/gate **v1 徽标**；评测案例表 **5 列→2 列**（场景+数量 / 补测+业务预期）；红线说明收进 `<details>` 折叠；嵌入 gate **三盒→pill 行**；L0 每题左侧色条；agent 文本气泡白底+左蓝边；历史 Tab 状态 **汉化短标签** | 保留 5 列等宽表（红线列占宽导致横向滚动）；保留 v1 版本 badge（对用户无信息价值） |
 | **W5.4 评分过程留痕** | 独立 `/ui/trace.html` + DB v7 `judge_traces`；Prompt v0.5 每维 analysis/evidence/deductions；gap≥15 并行分歧合成（120s 超时）；链接仅 `capability_full && has_judge_trace`；对话「查看完整报告」就地弹模态 | 嵌入主报告 Tab（信息过载）；旧 run 回填 trace（无 prompt 数据）；改 aggregate/1.2 阈值 |
+| **W5.5 彩排热修：补题卡合并** | L0 澄清后 `_append_propagation_plan_message` 附带最新 `gate_snapshot`；UI `findGatePayloadBeforePlan` 跨中间 agent/用户消息回溯 `assessment_gate_result`；活跃卡标题固定「评估材料补充」+ 沙盒说明 | 仅依赖「上一条消息是 gate」（澄清刷新后断裂）；历史卡也强行显示说明（干扰已结束会话） |
+| **W5.5 彩排热修：达标 gate 只读** | `can_enter_formal && !embedded` → `renderAssessmentGatePassedHtml`（绿色达标文案）；嵌入材料补充卡内仍用 pill 行展示门槛 | 达标后仍展示可点击「可选改进」Chip（用户困惑）；完全隐藏 optional gaps 列表（运营失去可见性） |
+| **W5.5 彩排热修：专家裁定入口** | 专家视角：简卡 `formal_pending_review` 显示 approve/reject；完整报告弹窗 `renderExpertReviewSection`；缓存 key 含 `perspective` | 恢复独立「专家审核台」Tab（W5 已删）；作者视角弹窗也显示裁定按钮（越权） |
+| **W5.5 UI：制式回单视觉** | `frontend-design` 方向三：机构 token（Archivo/Noto Sans SC/JetBrains Mono）、方角、1px 边框、流水号牌 `runRefLabel`；`trace.html` 同步；无 emoji | 保留默认 Tailwind 圆角/渐变（「AI slop」）；气泡不对称圆角方案二（用户回退） |
+| **W5.5 UI：Layout A** | 聊天行 `h-[calc(100vh-9.5rem)]`；`#session-list` 与 `#chat-messages` 各自 `overflow-y-auto`；输入栏贴底 | 整页无限增高侧栏（挤压主区）；双栏共用滚动 |
+| **W5.5 会话归档（软删除）** | `conversations.archived_at` + `DELETE /conversations/{id}?perspective=`；侧栏移除、**保留** `lui_messages`/`evaluation_runs`/staging；作者禁删 frozen/待审，专家可删；运行中 409；MVP 无自动 purge | 物理 DELETE 行（丢评估历史）；作者可删待审（审计风险）；侧栏「隐藏」不做 API |
+| **W5.5 归档删除 UX** | 客户端 `archiveBlockReason` 先于 confirm；侧栏琥珀 × +「需专家删除」；403/404 中文 toast；`list_conversations` 附带 `active_run_status` | 仅依赖 API 403 事后报错；404 裸显 `Not Found` |
+| **W5.5 安全 gate 分层扫描** | `scan_bundle_security`：**intake**（SKILL.md + scripts）决定 `can_enter_formal` / bootstrap 422；**eval_cases** 单独扫描；`origin=staging_propagator` 的 blocked 命中降级为 info；gate payload 透传 `security_findings` + `security_block_reason_zh`；UI `renderSecurityFindingsHtml` 红色拦截条 | 继续合并扫描 SKILL+cases（补题后对抗题误拦）；仅改 Propagator prompt（不稳定）；引擎与 gate 扫描范围强行统一为仅 SKILL（弱化作者上传恶意 case 检测） |
 
 ---
 
@@ -368,6 +385,11 @@
 8. **1.3 状态闸门**：人工抽检、模型聚合与运营解释均不得绕过 `confirmed` 包状态直接 PASS。
 9. **降级断言边界**：未确认 draft 只用于缺口提示/低置信度评审，不作为 CodeAssert 失败依据。
 10. **超时调参（W5.3.1）**：在 `.env` 配置 `PROVIDER_CALL_TIMEOUT_S`、`PROVIDER_CALL_TIMEOUT_HIGH_RISK_S`、`WORKFLOW_TIMEOUT_LOW_S` / `_MEDIUM_S` / `_HIGH_S`；改后须重启 `serve`。本地 Demo 当前：**300s/次 LLM、600s 初评工作流、900s 高风险正式双模型工作流**。
+11. **对话 UI 渲染缓存（W5.5 热修）**：`renderMessages` 的增量跳过 key **必须含作者/专家视角**；`setPerspective` 须清空 `_lastRenderedMessageKeys`，否则专家 Chip 不刷新。
+12. **专家裁定入口（W5.5 热修）**：无独立专家 Tab；裁定仅在 **专家视角** 下的对话简卡（`awaiting_human_review`）与 **完整报告弹窗** 底部；`status !== awaiting_human_review` 时不显示按钮。
+13. **冻结会话不可聊天（W4 防线）**：`conversation.status=frozen` 时后端 `/chat` 403，**所有人**不可改包；作者视角 `awaiting_human_review` 时 Composer 禁用；专家可批准/驳回/侧栏归档。**继续全流程测试**请 **+ 新对话** 或专家 **驳回** 解冻。
+14. **UI 视觉层边界**：`index.html` / `trace.html` 换肤走 `[ui-only]` + `frontend-design`；归档 API/DB 以 OpenSpec `conversation-archive` 为准；评估逻辑不变。
+15. **安全 gate 分层（W5.5 热修）**：`can_enter_formal` 的 `security_status` **仅反映 intake**（SKILL.md + `scripts/`）；Propagator 写入的 `eval_cases` 命中规则记入 `security_case_findings`（参考，不阻断）；真正 blocked 须在 UI 展示 `security_findings` + `hint_zh`。
 
 ---
 
@@ -381,7 +403,7 @@
 
 ### 新窗口开场句（可复制 · 阶段三评估系统）
 
-> 阶段三定位：**评估系统完善**（不做集市）。**W0–W5.4 已收官**（498 tests）。本窗口主线：**W5.5 Demo 验收**（含追踪页手查）。必读 `RECORD.md`、`.cursor_memory/active/SPRINT_phase3-eval-system.md`。**不重写** 1.2 阈值。集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
+> 阶段三定位：**评估系统完善**（不做集市）。**W0–W5.4 已收官**（498 tests）；**W5.5 安全 gate 分层热修** ✅（**511 tests**）。本窗口主线：**W5.5 Demo 验收**（剧本 B/C + runbook）。必读 `RECORD.md`、`.cursor_memory/active/SPRINT_phase3-eval-system.md`。**不重写** 1.2 阈值。集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
 
 ### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
 
@@ -448,6 +470,7 @@
 | Wave 0 change | `openspec/changes/archive/2026-06-09-wave0-infra/` |
 | Wave 1 change | `openspec/changes/archive/2026-06-09-wave1-taxonomy/` |
 | Wave 3 change | `openspec/changes/archive/2026-06-09-wave3-propagator/` |
+| W5.5 会话归档 change | `openspec/changes/archive/2026-06-12-conversation-archive/` |
 | Backlog | `.cursor_memory/backlog/BACKLOG.md` |
 | Skill 样例参考 | `../个股诊断/Skill/stock-radar-V6.2/` |
 | **Phase 1 实现计划** | `docs/superpowers/plans/2026-06-03-phase2-eval-phase1.md` |
@@ -515,3 +538,45 @@
 | 2026-06-12 | **OpenSpec 批量归档**：`wave4-lui-agent`、`wave5-chat-first-shell`、`wave5.1-chat-report-split`、`wave5.2-ui-transparency`、`wave5.3-intelligent-chat`、`wave5.3.2-assessment-gate-flow` → `openspec/changes/archive/2026-06-12-*`；**活跃 change 目录已清空** |
 | 2026-06-12 | **四阶段路线重定标**：阶段三 = **评估系统完善**；原 W6 集市生态 + 原阶段四立项材料合并为 **阶段四**；新增 `SPRINT_phase3-eval-system.md`、`SPRINT_phase4-marketplace-biz.md`；删除冗余 `SPRINT_phase3-marketplace.md` |
 | 2026-06-12 | **W5.4 judge-trace 收官**：OpenSpec `wave5.4-judge-trace`；grill-me GQ1–GQ7；DB v7 `judge_traces`；Prompt **review-agent-v0.5**；`parse_judge_response` + `divergence_synthesis`；`GET /eval/report/{id}/trace` + `has_judge_trace`；`/ui/trace.html`；对话「查看完整报告」就地弹模态；**498 tests**；全景说明 v1.3 §8.4；GQ3 v0.4/v0.5 对比待 W5.5 live |
+| 2026-06-12 | **W5.5 Demo 彩排回归 — FB-16～18 热修**：① 达标 gate 只读文案；② 澄清刷新 plan 写 `gate_snapshot` + UI 回溯合并「评估材料补充」；③ 专家视角缓存/弹窗裁定；根因见决策表「W5.5 彩排热修」三行 |
+| 2026-06-12 | **W5.5 剧本 A 实机通过**：用户第 2 轮 stock-radar 全流程验收无阻塞；含 W5.4 评分过程追踪 + 专家批准/驳回 |
+| 2026-06-12 | **OpenSpec 归档**：`wave5.4-judge-trace` → `archive/2026-06-12-wave5.4-judge-trace/`；活跃 change 目录仅剩历史重复副本（非本次交付） |
+| 2026-06-12 | **W5.5 UI 制式回单收官**：`frontend-design` 方向三；token 换肤 + 制式题头/Tab/流水号牌；`trace.html` 同步；UI build **w5.5-form** |
+| 2026-06-12 | **W5.5 UI Layout A**：侧栏与会话区固定高度 + 独立滚动；输入栏贴底；UI build **w5.5-form-layout** |
+| 2026-06-12 | **W5.5 会话归档收官**：OpenSpec `conversation-archive`；DB v8 `archived_at`；`DELETE /conversations/{id}` + 视角门禁；侧栏 × 软删除；`test_conversation_archive.py`；UI **w5.5-form-archive** |
+| 2026-06-12 | **W5.5 归档删除 UX 热修**：`archiveBlockReason` 预检 + 侧栏「需专家删除」；404/403 中文提示；切换视角刷新侧栏；UI **w5.5-form-archive-hints**；用户确认实机验收通过 |
+| 2026-06-12 | **OpenSpec 归档**：`conversation-archive` → `archive/2026-06-12-conversation-archive/`；无 delta specs；活跃 change 目录已清空 |
+| 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
+
+---
+
+## W5.5 Demo 彩排回归说明（2026-06-12）
+
+### 出现的问题与根因
+
+| ID | 现象 | 根因（工程） | 为何当时没拦住 |
+|----|------|--------------|----------------|
+| **FB-16** | 自动出题完成后仍出现「对话补充说明 / 我自己改 ZIP」 | `renderAssessmentGateHtml` 在 `can_enter_formal && optional_gaps` 时仍调用 `renderOptionalImprovementChips`；该交互本为 **readiness 时代**「可选改进不阻断」设计，未区分 **已自动开正式评** 的终态 | W5.3.2 改自动正式评估后未回归 gate 独立卡文案；pytest 未覆盖「达标后 gate 无按钮」 |
+| **FB-17** | 回复 L0 后材料补充卡分裂、缺说明 | ① `chat.py` 刷新 `propagation_plan` **未带** `gate_snapshot`（仅 bootstrap `_defer_with_propagation_plan` 写入）；② UI `findGatePayloadBeforePlan` 只认「上一条消息是 gate」，澄清后中间夹 agent/用户消息即 **合并失败**；③ `introBlock` 误绑 `gatePayload` 存在才显示 | W5.3.3 合并设计只验了「首轮上传」路径；集成测未模拟「澄清 → 刷新 plan v2」 |
+| **FB-18** | 切到专家视角仍无批准/驳回 | ① `renderMessages` 增量缓存 **不含视角**，切专家不重绘，`visible_in: expert` 的 action 永不出现；② W5 删除「专家审核台」Tab 后 **`openRunDetail` 弹窗未迁移** 裁定区；③ 文案仍指向已删除 Tab | W5.1 专家 action 写在简卡逻辑里，但 W5.3 性能优化引入缓存后缺视角维度；手测若一直停留专家视角则不易发现 |
+| **FB-21** | 补题完成、门槛通过仍不开评；「安全已拦截」不醒目且无说明 | ① gate 将 **SKILL.md + eval_cases** 合并扫描，对抗题攻击描述触发 `blocked`；② `assessment_gate` payload **无** `security_findings`；③ UI「门槛」≠ `can_enter_formal`，且嵌入卡用 `阻断` 判断颜色（实际文案为「已拦截」） | W3 设计「Propagator 后重跑 security_scan」未区分评测题语义；W5.3.2 gate 文案无 blocked 分支；手测易误以为四项 warn 缺口是主因 |
+
+### 第 2 轮彩排检查清单（stock-radar）— ✅ 已通过（2026-06-12）
+
+1. **硬刷新** `index.html`（Ctrl+F5）；若改过 `chat.py` 则 **重启** `skillhub-eval serve`。
+2. **补题阶段**：一张「评估材料补充」含说明 + 条件 pill + 计划表 + 待澄清；澄清刷新后仍为 **一张活跃卡**（旧版标历史）。
+3. **自动出题后**：绿色「评估需求已满足」短卡，**无**补充说明/改 ZIP 按钮；**不应**再因 propagator 对抗题出现「安全已拦截」阻断开评（intake 本身有问题时仍显示红色说明）。
+4. **待专家复核**：右上角切 **专家** → 简卡底部 **批准/驳回**；「查看完整报告」弹窗底部亦有裁定区。
+5. **W5.4**：正式报告 per-case「评分过程 →」可开 `trace.html`。
+
+**待续**：剧本 B（Reject 解冻）、剧本 C（quota）、`docs/runbooks/phase3-eval-validation.md` 验收矩阵。
+
+### 冻结会话与测试路径（2026-06-12）
+
+| 场景 | 聊天 | 可操作 |
+|------|------|--------|
+| 正式评完成 / `frozen` / 待专家复核 | **禁用**（黄条「会话已冻结」或作者「需人工复核」） | 专家：**批准 / 驳回**；侧栏删除（专家可删待审/冻结） |
+| 继续跑 stock-radar 全流程 | — | **+ 新对话**，或专家 **驳回** 解冻后切回作者 |
+| 侧栏删除待审会话（作者） | — | 拦截 + toast「请切换【专家】视角」 |
+
+---

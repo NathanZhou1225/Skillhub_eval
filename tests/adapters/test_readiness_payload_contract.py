@@ -34,6 +34,8 @@ _REQUIRED_UI_FIELDS = (
     "renderRedlineNote",
     "评估材料补充",
     "formatGapMessageZh",
+    "renderSecurityFindingsHtml",
+    "security_block_reason_zh",
 )
 
 

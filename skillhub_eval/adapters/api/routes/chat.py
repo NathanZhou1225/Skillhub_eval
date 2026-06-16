@@ -16,19 +16,18 @@ from skillhub_eval.adapters.api.routes.conversations import (
     BootstrapRequest,
     _append_bootstrap_system,
     _build_and_enrich_plan,
-    _bundle_scan_text,
     _create_degraded_run,
     _mount_staging_for_bootstrap,
     _phase_eval,
     continue_eval_after_skill_id_confirmed,
 )
+from skillhub_eval.core.bundle_security import gate_security_kwargs, scan_bundle_security
 from skillhub_eval.core.assessment_gate import (
     append_assessment_gate_message,
     build_assessment_gate_payload,
     gate_content_message,
     next_gate_version,
 )
-from skillhub_eval.core.security_scan import security_scan
 from skillhub_eval.core.chat_notifications import (
     start_capability_full_eval,
     start_formal_eval_from_readiness,
@@ -316,11 +315,42 @@ def _raise_clarify_mutation_blocked() -> None:
     )
 
 
+def _plan_with_gate_snapshot(
+    plan: dict,
+    *,
+    staging_path: Path,
+    conv_id: str,
+    repo: Repository,
+) -> dict:
+    if not staging_path.is_dir():
+        return plan
+    bundle = ingest_bundle(str(staging_path))
+    risk_level = str(bundle.get("risk_level_declared") or "low")
+    sanitizer = CaseSanitizer(risk_level=risk_level, staging_path=staging_path)
+    sanitizer_result = sanitizer.run()
+    clarifications = repo.get_clarifications(conv_id)
+    layered = scan_bundle_security(bundle, staging_path)
+    gate_payload = build_assessment_gate_payload(
+        staging_path=staging_path,
+        bundle=bundle,
+        sanitizer_result=sanitizer_result,
+        clarifications=clarifications if isinstance(clarifications, dict) else None,
+        **gate_security_kwargs(layered),
+    )
+    return {**plan, "gate_snapshot": gate_payload}
+
+
 def _append_propagation_plan_message(
     repo: Repository,
     conv_id: str,
     plan: dict,
+    *,
+    staging_path: Path | None = None,
 ) -> None:
+    if staging_path is not None and staging_path.is_dir():
+        plan = _plan_with_gate_snapshot(
+            plan, staging_path=staging_path, conv_id=conv_id, repo=repo
+        )
     repo.append_lui_message(
         conv_id,
         role="agent",
@@ -439,7 +469,7 @@ async def _execute_propagate(
     )
     _append_propagation_summary(repo, conv_id, prop_result)
     bundle = ingest_bundle(str(staging_path))
-    scan = security_scan(_bundle_scan_text(bundle))
+    layered = scan_bundle_security(bundle, staging_path)
     sanitizer = CaseSanitizer(risk_level=risk_level, staging_path=staging_path)
     sanitizer_result = sanitizer.run()
     clarifications = repo.get_clarifications(conv_id)
@@ -448,9 +478,9 @@ async def _execute_propagate(
         staging_path=staging_path,
         bundle=bundle,
         sanitizer_result=sanitizer_result,
-        security_status=scan.status,
         gate_version=gate_version,
         clarifications=clarifications if isinstance(clarifications, dict) else None,
+        **gate_security_kwargs(layered),
     )
     append_assessment_gate_message(
         conv_id,
@@ -564,7 +594,9 @@ async def _handle_propagation_gate_chat(
             plan_version=plan_version,
             ds=ds,
         )
-        _append_propagation_plan_message(repo, conv_id, new_plan)
+        _append_propagation_plan_message(
+            repo, conv_id, new_plan, staging_path=staging_path
+        )
         remaining_l0 = new_plan.get("l0_questions") or []
         if remaining_l0:
             repo.update_conversation_status(conv_id, "awaiting_propagation_clarify")
@@ -646,7 +678,9 @@ async def _handle_propagation_gate_chat(
                 plan_version=plan_version,
                 ds=ds,
             )
-            _append_propagation_plan_message(repo, conv_id, new_plan)
+            _append_propagation_plan_message(
+                repo, conv_id, new_plan, staging_path=staging_path
+            )
             repo.update_conversation_status(conv_id, "awaiting_propagation_confirm")
             reply = "已记录你的场景描述并更新计划。请点「自动出题」开始生成题目。"
             repo.append_lui_message(conv_id, role="agent", content=reply)
@@ -699,7 +733,9 @@ async def _handle_propagation_gate_chat(
         plan = latest_plan or {}
         l0_questions = plan.get("l0_questions") or []
         if l0_questions:
-            _append_propagation_plan_message(repo, conv_id, plan)
+            _append_propagation_plan_message(
+                repo, conv_id, plan, staging_path=staging_path
+            )
             repo.update_conversation_status(conv_id, "awaiting_propagation_clarify")
             reply = "仍有信息需要先澄清，暂不能自动出题。请按上方问题回复。"
             repo.append_lui_message(conv_id, role="agent", content=reply)

@@ -19,7 +19,7 @@ from skillhub_eval.adapters.api.app import create_app
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.case_sanitizer import SanitizerResult
 from skillhub_eval.core.propagator import PropagatorResult
-from skillhub_eval.core.security_scan import SecurityScanResult
+from skillhub_eval.core.bundle_security import BundleSecurityScanResult
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +71,19 @@ def _make_sanitizer_result(needs_propagation: bool = False) -> SanitizerResult:
     )
 
 
+def _layered_security(status: str = "passed") -> BundleSecurityScanResult:
+    findings = (
+        [{"finding_type": "PROMPT_INJECTION", "source": "skill_bundle"}]
+        if status == "blocked"
+        else []
+    )
+    return BundleSecurityScanResult(intake_status=status, intake_findings=findings)
+
+
+def _bundle_at(staging: Path) -> dict:
+    return {**_VALID_BUNDLE, "bundle_path": str(staging)}
+
+
 def _make_prop_result(used_fallback: bool = False) -> PropagatorResult:
     result = PropagatorResult()
     result.used_fallback = used_fallback
@@ -104,7 +117,7 @@ def test_security_blocked_returns_422(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    blocked_result = SecurityScanResult(status="blocked", findings=[])
+    blocked_result = _layered_security("blocked")
 
     with (
         patch(
@@ -113,10 +126,10 @@ def test_security_blocked_returns_422(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=blocked_result,
         ),
     ):
@@ -149,7 +162,7 @@ def test_security_passed_no_propagation(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = _layered_security("passed")
     sanitizer_result = _make_sanitizer_result(needs_propagation=False)
 
     with (
@@ -159,10 +172,10 @@ def test_security_passed_no_propagation(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed_result,
         ),
         patch(
@@ -195,7 +208,7 @@ def test_security_warning_still_creates_run(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    warn_result = SecurityScanResult(status="warning", findings=[])
+    warn_result = _layered_security("warning")
     sanitizer_result = _make_sanitizer_result(needs_propagation=False)
 
     with (
@@ -205,10 +218,10 @@ def test_security_warning_still_creates_run(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=warn_result,
         ),
         patch(
@@ -242,7 +255,7 @@ def test_needs_propagation_defers_bootstrap(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = _layered_security("passed")
     sanitizer_result = _make_sanitizer_result(needs_propagation=True)
     prop_result = _make_prop_result(used_fallback=False)
 
@@ -256,10 +269,10 @@ def test_needs_propagation_defers_bootstrap(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed_result,
         ),
         patch(
@@ -300,7 +313,7 @@ def test_needs_propagation_no_immediate_propagator(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = _layered_security("passed")
     sanitizer_result = _make_sanitizer_result(needs_propagation=True)
     prop_result = _make_prop_result(used_fallback=True)
 
@@ -314,10 +327,10 @@ def test_needs_propagation_no_immediate_propagator(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed_result,
         ),
         patch(
@@ -356,8 +369,8 @@ def test_needs_propagation_no_run_on_start(client):
     staging = tmp_path / "conv-test-1234"
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
-    blocked_result = SecurityScanResult(status="blocked", findings=[])
+    passed_result = _layered_security("passed")
+    blocked_result = _layered_security("blocked")
     sanitizer_result = _make_sanitizer_result(needs_propagation=True)
     prop_result = _make_prop_result(used_fallback=False)
 
@@ -371,10 +384,10 @@ def test_needs_propagation_no_run_on_start(client):
         ),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed_result,
         ),
         patch(
@@ -419,7 +432,7 @@ def test_local_ref_creates_staging(tmp_path):
     staging = tmp_path / _MOCK_CONV_ID
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = _layered_security("passed")
     sanitizer_result = _make_sanitizer_result(needs_propagation=False)
 
     bundle_path = str(tmp_path / "my_bundle")
@@ -430,10 +443,10 @@ def test_local_ref_creates_staging(tmp_path):
         ) as mock_from_settings,
         patch(
             "skillhub_eval.adapters.api.routes.conversations.ingest_bundle",
-            return_value=_VALID_BUNDLE,
+            return_value=_bundle_at(staging),
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed_result,
         ),
         patch(

@@ -25,6 +25,7 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 5. **Execute** — `subagent-driven-development`; each subagent = one `tasks.md` item; TDD required.
 6. **Verify** — `verification-before-completion` (pytest, eval CLI, etc.).
 7. **Close** — `/opsx:archive` then `finishing-a-development-branch`.
+8. **Learn (optional)** — after close, `harness-retrospective` asks once (Y/N); approved lessons go to `~/.cursor/learning/`, **not** RECORD.md or `.cursor_memory/`.
 
 ## Conflict prevention
 
@@ -33,6 +34,7 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 - **grill-me** owns *plan validation only* (between steps 3 and 5).
 - **frontend-design** owns *visual layer only* (CSS/HTML structure/copy tone); **not** eval logic, API, or adapters.
 - **tiered-memory** owns sprint backlog — never replace `tasks.md` with sprint items.
+- **harness-retrospective** owns *cross-project workflow lessons* (`~/.cursor/learning/`); project decisions stay in RECORD.md (it may suggest a RECORD row, never writes it).
 
 ## UI layer (SkillHub demo)
 

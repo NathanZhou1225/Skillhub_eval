@@ -41,7 +41,7 @@ def test_init_db_migration_to_v2_is_idempotent(tmp_path):
 
     assert "auto_confirmed" in columns
     assert "source_path" in columns
-    assert version == 7
+    assert version == 8
 
 
 def test_increment_auto_run_count_returns_incremented_value(tmp_path):

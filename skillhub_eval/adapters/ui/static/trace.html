@@ -5,12 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>评分过程追踪 · SkillHub</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script>
+    /* 与 index.html 同一套「制式回单」token（见 index.html 注释） */
+    tailwind.config = {
+      theme: {
+        borderRadius: {
+          none: '0', sm: '2px', DEFAULT: '2px', md: '2px', lg: '2px',
+          xl: '2px', '2xl': '2px', '3xl': '2px', full: '2px',
+        },
+        extend: {
+          fontFamily: {
+            sans: ['"Noto Sans SC"', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Consolas', 'monospace'],
+            display: ['Archivo', '"Noto Sans SC"', 'sans-serif'],
+          },
+          boxShadow: {
+            sm: '0 0 #0000', DEFAULT: '0 0 #0000', md: '0 0 #0000', lg: '0 0 #0000',
+            xl: '0 12px 32px rgba(20, 33, 43, 0.18)',
+          },
+          colors: {
+            gray:    { 50:'#EFF2F5', 100:'#E4E9EE', 200:'#C7D0D9', 300:'#A9B6C2', 400:'#7E8C99', 500:'#5F6E7B', 600:'#47565F', 700:'#344049', 800:'#232E37', 900:'#14212B' },
+            slate:   { 50:'#EFF2F5', 100:'#E4E9EE', 200:'#C7D0D9', 300:'#A9B6C2', 400:'#7E8C99', 500:'#5F6E7B', 600:'#47565F', 700:'#344049', 800:'#232E37', 900:'#14212B' },
+            blue:    { 50:'#EEF3F8', 100:'#DCE7F1', 200:'#B9CEE2', 300:'#8AAECB', 400:'#5585AC', 500:'#2D6494', 600:'#0F4C81', 700:'#0C3E69', 800:'#093051', 900:'#07263F' },
+            indigo:  { 50:'#F0F2F7', 100:'#E0E4EE', 200:'#C3CADE', 300:'#9DA8C5', 400:'#707FA5', 500:'#505F88', 600:'#3D4C73', 700:'#313D5D', 800:'#262F48', 900:'#1B2335' },
+            green:   { 50:'#EEF5F1', 100:'#D9EAE1', 200:'#B4D5C5', 300:'#87B9A1', 400:'#549878', 500:'#35865F', 600:'#1F7A53', 700:'#186244', 800:'#124B34', 900:'#0C3725' },
+            emerald: { 50:'#EEF5F1', 100:'#D9EAE1', 200:'#B4D5C5', 300:'#87B9A1', 400:'#549878', 500:'#35865F', 600:'#1F7A53', 700:'#186244', 800:'#124B34', 900:'#0C3725' },
+            red:     { 50:'#FAF0EF', 100:'#F3DCDA', 200:'#E5B6B3', 300:'#D28983', 400:'#C05A52', 500:'#B3261E', 600:'#A2221B', 700:'#871C16', 800:'#6A1612', 900:'#50110E' },
+            amber:   { 50:'#FAF6ED', 100:'#F2E9D2', 200:'#E3D3A6', 300:'#CFB670', 400:'#B9923B', 500:'#A87C15', 600:'#9A6A00', 700:'#7D5600', 800:'#614300', 900:'#483200' },
+            yellow:  { 50:'#FAF6ED', 100:'#F2E9D2', 200:'#E3D3A6', 300:'#CFB670', 400:'#B9923B', 500:'#A87C15', 600:'#9A6A00', 700:'#7D5600', 800:'#614300', 900:'#483200' },
+            purple:  { 50:'#F4F1F6', 100:'#E8E1EC', 200:'#D1C4DA', 300:'#B19DC0', 400:'#8D74A0', 500:'#715787', 600:'#5C4470', 700:'#4A375B', 800:'#392A46', 900:'#2A1F34' },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    body { background: #E9EDF1; }
+    .font-display { font-family: Archivo, 'Noto Sans SC', sans-serif; }
+    .run-ref { font-family: 'JetBrains Mono', ui-monospace, monospace; letter-spacing: .04em; }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-800 min-h-screen">
-  <header class="bg-white border-b border-gray-200 px-6 py-4">
+<body class="text-gray-800 min-h-screen font-sans">
+  <header class="bg-white border-b-2 border-gray-900 px-6 py-3">
     <div class="max-w-4xl mx-auto flex items-center justify-between gap-4">
-      <h1 class="text-lg font-semibold text-gray-900">评分过程追踪</h1>
-      <a href="/ui/index.html" class="text-sm text-indigo-700 hover:text-indigo-900">← 返回评估</a>
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="font-display font-bold tracking-widest text-gray-900 text-lg leading-none">SKILLHUB</span>
+        <span class="h-4 w-px bg-gray-300 shrink-0"></span>
+        <h1 class="text-sm text-gray-600">评分过程追踪</h1>
+      </div>
+      <a href="/ui/index.html" class="text-sm text-blue-600 hover:text-blue-800">← 返回评估</a>
     </div>
   </header>
   <main id="app" class="max-w-4xl mx-auto px-6 py-6 space-y-6">
@@ -73,7 +119,7 @@ function renderDimCell(sub, dim) {
   const missing = !analysis && !quotes.length && !deductions.length;
   return `
     <div class="space-y-2 text-sm">
-      <div class="text-2xl font-semibold text-gray-900">${escapeHtml(score)}</div>
+      <div class="text-2xl font-semibold font-mono text-gray-900">${escapeHtml(score)}</div>
       ${analysis ? `<p class="text-gray-700 leading-relaxed">${escapeHtml(analysis)}</p>` : (missing ? '<p class="text-gray-400 italic">依据未返回</p>' : '')}
       ${quotes.map(q => `<blockquote class="border-l-2 border-indigo-300 pl-2 text-gray-600 text-xs">${escapeHtml(q)}</blockquote>`).join('')}
       ${deductions.length ? `<ul class="list-disc list-inside text-xs text-amber-800">${deductions.map(d => `<li>${escapeHtml(d)}</li>`).join('')}</ul>` : ''}
@@ -126,7 +172,7 @@ function renderCase(c) {
         <h2 class="font-mono text-sm font-semibold">${escapeHtml(c.case_id)}</h2>
         <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">${CASE_TYPE_ZH[c.case_type] || c.case_type}</span>
         ${gapHi ? '<span class="text-xs px-2 py-0.5 rounded bg-red-100 text-red-700">分差 ≥15</span>' : ''}
-        <span class="text-xs text-gray-500 ml-auto">DS ${c.votes?.deepseek?.score_total ?? '—'} / Gemini ${c.votes?.gemini?.score_total ?? '—'}</span>
+        <span class="text-xs font-mono text-gray-500 ml-auto">DS ${c.votes?.deepseek?.score_total ?? '—'} / Gemini ${c.votes?.gemini?.score_total ?? '—'}</span>
       </div>
       ${topCard}
       <table class="w-full border border-gray-200 rounded-lg overflow-hidden">
@@ -143,6 +189,12 @@ function renderCase(c) {
     </section>`;
 }
 
+// 评估流水号牌（与 index.html 同款，仅展示层格式化 run_id）
+function runRefLabel(runId) {
+  const compact = String(runId || '').replace(/-/g, '').slice(0, 8).toUpperCase();
+  return compact ? `EVAL-${compact}` : '';
+}
+
 function render(data) {
   const app = document.getElementById('app');
   const ps = data.provider_summary || {};
@@ -157,11 +209,19 @@ function render(data) {
     return;
   }
   app.innerHTML = `
-    <div class="bg-white rounded-xl border border-gray-200 p-4 text-sm space-y-1">
-      <div><span class="text-gray-500">Skill</span> <span class="font-medium">${escapeHtml(data.skill_id)}</span></div>
-      <div><span class="text-gray-500">run</span> <span class="font-mono text-xs">${escapeHtml(data.run_id)}</span></div>
-      <div><span class="text-gray-500">结论</span> <span class="font-medium">${escapeHtml(data.review_status || '—')}</span>
-        <span class="text-gray-400 ml-2">DS ${ps.deepseek_score ?? '—'} / Gemini ${ps.gemini_score ?? '—'}</span></div>
+    <div>
+      <div class="run-ref flex items-center flex-wrap gap-x-3 gap-y-1 bg-gray-900 text-white text-xs px-3 py-2">
+        <span class="font-semibold tracking-wider">${escapeHtml(runRefLabel(data.run_id))}</span>
+        <span class="text-gray-400">·</span><span class="text-gray-100">${escapeHtml(data.skill_id)}</span>
+        <span class="text-gray-400">·</span><span class="text-gray-100">${escapeHtml(data.review_status || '—')}</span>
+        <span class="ml-auto text-gray-400" title="${escapeHtml(String(data.run_id))}">${escapeHtml(String(data.run_id).slice(0, 12))}…</span>
+      </div>
+      <div class="bg-white border border-gray-200 border-t-0 p-4 text-sm space-y-1">
+        <div><span class="text-gray-500">Skill</span> <span class="font-medium">${escapeHtml(data.skill_id)}</span></div>
+        <div><span class="text-gray-500">run</span> <span class="font-mono text-xs">${escapeHtml(data.run_id)}</span></div>
+        <div><span class="text-gray-500">结论</span> <span class="font-medium">${escapeHtml(data.review_status || '—')}</span>
+          <span class="font-mono text-gray-400 ml-2">DS ${ps.deepseek_score ?? '—'} / Gemini ${ps.gemini_score ?? '—'}</span></div>
+      </div>
     </div>
     ${cases.map(renderCase).join('')}
   `;

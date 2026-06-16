@@ -51,6 +51,9 @@ def build_assessment_gate_payload(
     bundle: dict,
     sanitizer_result: SanitizerResult | None = None,
     security_status: str = "unknown",
+    security_findings: list[dict] | None = None,
+    security_case_findings: list[dict] | None = None,
+    security_block_reason_zh: str | None = None,
     gate_version: int = 1,
     run_id: str | None = None,
     clarifications: dict | None = None,
@@ -101,6 +104,22 @@ def build_assessment_gate_payload(
 
     security_zh = _SECURITY_STATUS_ZH.get(str(security_status), str(security_status))
     risk_zh = _RISK_LEVEL_ZH.get(str(risk_level_locked), str(risk_level_locked))
+    intake_findings = list(security_findings or [])
+    case_findings = list(security_case_findings or [])
+    block_reason = security_block_reason_zh
+    if block_reason is None and security_status == "blocked":
+        from skillhub_eval.core.bundle_security import (
+            BundleSecurityScanResult,
+            security_block_reason_zh as _block_reason_fn,
+        )
+
+        block_reason = _block_reason_fn(
+            BundleSecurityScanResult(
+                intake_status=security_status,
+                intake_findings=intake_findings,
+                case_findings=case_findings,
+            )
+        )
 
     return {
         "run_id": run_id,
@@ -111,6 +130,9 @@ def build_assessment_gate_payload(
         "required_actions": required_actions,
         "security_status": security_status,
         "security_status_zh": security_zh,
+        "security_findings": intake_findings,
+        "security_case_findings": case_findings,
+        "security_block_reason_zh": block_reason,
         "risk_level_locked": risk_level_locked,
         "risk_level_locked_zh": risk_zh,
         "case_gate": case_gate,
@@ -125,6 +147,15 @@ def build_assessment_gate_payload(
 
 
 def gate_content_message(payload: dict[str, Any]) -> str:
+    if payload.get("security_status") == "blocked":
+        reason = payload.get("security_block_reason_zh")
+        if reason:
+            return reason
+        n = len(payload.get("security_findings") or [])
+        return (
+            f"安全门禁未通过（{n} 项），无法自动开始正式评估。"
+            "请查看下方红色说明并修改 Skill 正文或脚本。"
+        )
     if payload.get("can_enter_formal"):
         optional = payload.get("optional_gaps") or []
         if optional:

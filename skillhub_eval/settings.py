@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +16,10 @@ class Settings(BaseSettings):
     eval_llm_mode: str = "live"
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"
-    demo_allow_local_ref: bool = False  # env: SKILLHUB_DEMO_LOCAL_REF=true
+    demo_allow_local_ref: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SKILLHUB_DEMO_LOCAL_REF", "DEMO_ALLOW_LOCAL_REF"),
+    )
 
     # LLM / workflow timeouts (seconds) — override via .env, e.g. PROVIDER_CALL_TIMEOUT_S=120
     provider_call_timeout_s: float = 90.0

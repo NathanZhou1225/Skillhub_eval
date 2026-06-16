@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS lui_messages (
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -358,6 +358,19 @@ class SqliteRepository:
                     """
                 )
                 cursor.execute("PRAGMA user_version = 7")
+
+            if version < 8:
+                conv_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('conversations')"
+                    ).fetchall()
+                }
+                if "archived_at" not in conv_cols:
+                    cursor.execute(
+                        "ALTER TABLE conversations ADD COLUMN archived_at TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 8")
         return datetime.now(UTC).isoformat()
 
     def create_conversation(
@@ -515,6 +528,24 @@ class SqliteRepository:
                 (status, conversation_id),
             )
 
+    def archive_conversation(self, conversation_id: str) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT status FROM conversations WHERE conversation_id=?",
+                (conversation_id,),
+            ).fetchone()
+            if row is None or row["status"] == "archived":
+                return False
+            conn.execute(
+                """
+                UPDATE conversations
+                SET status='archived', archived_at=?
+                WHERE conversation_id=?
+                """,
+                (self._now(), conversation_id),
+            )
+            return True
+
     def set_conversation_skill_id(self, conversation_id: str, skill_id: str) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -589,19 +620,21 @@ class SqliteRepository:
                 ) AS last_message_at,
                 CASE WHEN r.human_review_required = 1
                       AND r.status = 'awaiting_human_review'
-                     THEN 1 ELSE 0 END AS human_review_pending
+                     THEN 1 ELSE 0 END AS human_review_pending,
+                r.status AS active_run_status
             FROM conversations c
             LEFT JOIN evaluation_runs r ON r.run_id = c.active_run_id
+            WHERE c.status != 'archived'
         """
         params: list = []
         if pending_review is True:
             query += (
-                " WHERE r.human_review_required = 1"
+                " AND r.human_review_required = 1"
                 " AND r.status = 'awaiting_human_review'"
             )
         elif pending_review is False:
             query += (
-                " WHERE NOT (r.human_review_required = 1"
+                " AND NOT (r.human_review_required = 1"
                 " AND r.status = 'awaiting_human_review')"
             )
         query += """

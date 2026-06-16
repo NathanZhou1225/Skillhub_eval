@@ -202,6 +202,16 @@ def test_ui_trace_page_served():
     assert "/eval/report/" in r.text
 
 
+def test_ui_expert_review_wiring():
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "renderExpertReviewActions" in r.text
+    assert "renderExpertReviewSection" in r.text
+    assert "_lastRenderedMessageKeys = []" in r.text
+    assert "专家】视角" in r.text
+
+
 def test_ui_wave5_4_judge_trace_wiring():
     app = create_app()
     client = TestClient(app)
@@ -225,3 +235,13 @@ def test_ui_wave5_2_task9_helpers_and_filters():
     assert "verdict_zh" in r.text
     assert "next_action_zh" in r.text
     assert "open_run_detail" in r.text
+
+
+def test_ui_conversation_archive_wiring():
+    app = create_app()
+    client = TestClient(app)
+    r = client.get("/ui/index.html")
+    assert "archiveSession" in r.text
+    assert "method: 'DELETE'" in r.text
+    assert "perspective=" in r.text
+    assert "评估历史" in r.text

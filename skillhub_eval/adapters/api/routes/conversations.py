@@ -34,8 +34,12 @@ from skillhub_eval.core.ports import Repository
 from skillhub_eval.core.propagation_plan import build_propagation_plan
 from skillhub_eval.core.propagation_plan_enricher import enrich_propagation_plan
 from skillhub_eval.core.propagator import CasePropagator
-from skillhub_eval.core.schemas.enums import BundleState, EvaluationMode
-from skillhub_eval.core.security_scan import SecurityScanResult, security_scan
+from skillhub_eval.core.schemas.enums import BundleState, EvaluationMode, RUNNING_STATUSES
+from skillhub_eval.core.bundle_security import (
+    BundleSecurityScanResult,
+    gate_security_kwargs,
+    scan_bundle_security,
+)
 from skillhub_eval.core.skill_id_resolver import (
     needs_user_confirm,
     resolve_skill_id,
@@ -322,25 +326,21 @@ async def _prepare_uploaded_bundle(
     return originals_path, staging_path, zip_stem
 
 
-def _bundle_scan_text(bundle: dict) -> str:
-    cases_text = " ".join(str(c) for c in bundle.get("eval_cases", []))
-    return bundle.get("skill_md_text", "") + "\n" + cases_text
-
-
 def _enforce_security_gate(
     conversation_id: str,
     bundle: dict,
     repo: Repository,
-) -> SecurityScanResult:
-    """Run security scan; raise 422 and mark conversation blocked on hard violations."""
-    scan_result = security_scan(_bundle_scan_text(bundle))
-    if scan_result.status == "blocked":
+) -> BundleSecurityScanResult:
+    """Block bootstrap on intake (SKILL + scripts) security violations only."""
+    staging_path = Path(str(bundle.get("bundle_path") or ""))
+    scan_result = scan_bundle_security(bundle, staging_path)
+    if scan_result.intake_status == "blocked":
         repo.update_conversation_status(conversation_id, "security_blocked")
         raise HTTPException(
             status_code=422,
             detail={
                 "security_status": "blocked",
-                "security_findings": scan_result.to_report_dict()["findings"],
+                "security_findings": scan_result.security_findings,
                 "conversation_id": conversation_id,
             },
         )
@@ -511,9 +511,9 @@ async def _phase_eval(
         staging_path=staging_path,
         bundle=bundle,
         sanitizer_result=sanitizer_result,
-        security_status=scan_result.status,
         gate_version=gate_version,
         clarifications=clarifications,
+        **gate_security_kwargs(scan_result),
     )
 
     plan_sync = build_propagation_plan(
@@ -671,6 +671,67 @@ async def continue_eval_after_skill_id_confirmed(
 # ── Wave 5 endpoints ──────────────────────────────────────────────────────────
 
 
+def _assert_can_archive_conversation(
+    conversation_id: str,
+    repo: Repository,
+    perspective: str,
+) -> None:
+    conv = repo.get_conversation(conversation_id)
+    if conv is None or conv.get("status") == "archived":
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    is_expert = perspective == "expert"
+    if conv.get("status") == "frozen" and not is_expert:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "CONVERSATION_FROZEN",
+                "message": "会话已冻结，作者视角不可删除。请切换专家视角或等待驳回解冻。",
+            },
+        )
+
+    active_run_id = conv.get("active_run_id")
+    if not active_run_id:
+        return
+
+    run = repo.get_run(active_run_id)
+    if not run:
+        return
+
+    if run.get("status") in RUNNING_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "SESSION_LOCKED",
+                "message": "评估进行中，请稍后再删除。",
+            },
+        )
+
+    if (
+        not is_expert
+        and run.get("human_review_required")
+        and run.get("status") == "awaiting_human_review"
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "HUMAN_REVIEW_PENDING",
+                "message": "待专家复核，作者视角不可删除。",
+            },
+        )
+
+
+@router.delete("/{conversation_id}", status_code=204)
+async def archive_conversation_route(
+    conversation_id: str,
+    repo: Annotated[Repository, Depends(get_repo)],
+    perspective: Literal["author", "expert"] = Query("author"),
+) -> None:
+    _assert_can_archive_conversation(conversation_id, repo, perspective)
+    if not repo.archive_conversation(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 @router.get("", response_model=ConversationListResponse)
 async def list_conversations_route(
     repo: Annotated[Repository, Depends(get_repo)],
@@ -808,8 +869,8 @@ async def bootstrap_conversation(
             status=str(status),
             skill_id=skill_id,
             skill_id_source=source,
-            security_status=scan_result.status,
-            security_findings=scan_result.to_report_dict()["findings"],
+            security_status=scan_result.security_status,
+            security_findings=scan_result.security_findings,
             propagator_used=False,
             propagator_fallback=False,
             propagation_deferred=True,
@@ -826,8 +887,8 @@ async def bootstrap_conversation(
         status="accepted",
         skill_id=skill_id,
         skill_id_source=source,
-        security_status=scan_result.status,
-        security_findings=scan_result.to_report_dict()["findings"],
+        security_status=scan_result.security_status,
+        security_findings=scan_result.security_findings,
         propagator_used=propagator_used,
         propagator_fallback=propagator_fallback,
         propagation_deferred=False,
@@ -902,8 +963,8 @@ async def start_conversation(
     return ConversationStartResponse(
         conversation_id=conversation_id,
         run_id=run_id,
-        security_status=scan_result.status,
-        security_findings=scan_result.to_report_dict()["findings"],
+        security_status=scan_result.security_status,
+        security_findings=scan_result.security_findings,
         propagator_used=propagator_used,
         propagator_fallback=propagator_fallback,
         propagation_deferred=propagation_deferred,

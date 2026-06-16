@@ -79,7 +79,7 @@ def test_migration_adds_lineage_columns(tmp_path):
     assert "conversation_id" in columns
     assert "parent_run_id" in columns
     assert "superseded_by_run_id" in columns
-    assert version == 7
+    assert version == 8
 
 
 def test_update_status_superseded(tmp_path):

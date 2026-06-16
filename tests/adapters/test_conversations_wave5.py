@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from skillhub_eval.adapters.api.app import create_app
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.case_sanitizer import SanitizerResult
-from skillhub_eval.core.security_scan import SecurityScanResult
+from skillhub_eval.core.bundle_security import BundleSecurityScanResult
 from skillhub_eval.persistence.sqlite import SqliteRepository
 
 _VALID_BUNDLE = {
@@ -158,7 +158,7 @@ def test_bootstrap_explicit_skill_id_skips_confirm(
 ):
     client, repo = client_with_repo
     monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
-    passed = SecurityScanResult(status="passed", findings=[])
+    passed = BundleSecurityScanResult(intake_status="passed")
 
     new_resp = client.post("/conversations/new")
     conv_id = new_resp.json()["conversation_id"]
@@ -170,7 +170,7 @@ def test_bootstrap_explicit_skill_id_skips_confirm(
             return_value=_VALID_BUNDLE,
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed,
         ),
         patch(
@@ -200,7 +200,7 @@ def test_bootstrap_user_message_skill_id_skips_confirm(
 ):
     client, repo = client_with_repo
     monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
-    passed = SecurityScanResult(status="passed", findings=[])
+    passed = BundleSecurityScanResult(intake_status="passed")
 
     new_resp = client.post("/conversations/new")
     conv_id = new_resp.json()["conversation_id"]
@@ -212,7 +212,7 @@ def test_bootstrap_user_message_skill_id_skips_confirm(
             return_value=_VALID_BUNDLE,
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=passed,
         ),
         patch(
@@ -238,7 +238,7 @@ def test_bootstrap_security_blocked_writes_system_message(
 ):
     client, repo = client_with_repo
     monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
-    blocked = SecurityScanResult(status="blocked", findings=[])
+    blocked = BundleSecurityScanResult(intake_status="blocked", intake_findings=[{"source": "skill_bundle"}])
 
     new_resp = client.post("/conversations/new")
     conv_id = new_resp.json()["conversation_id"]
@@ -250,7 +250,7 @@ def test_bootstrap_security_blocked_writes_system_message(
             return_value=_VALID_BUNDLE,
         ),
         patch(
-            "skillhub_eval.adapters.api.routes.conversations.security_scan",
+            "skillhub_eval.adapters.api.routes.conversations.scan_bundle_security",
             return_value=blocked,
         ),
     ):

@@ -38,7 +38,7 @@ def test_init_db_migration_to_v5_adds_clarifications_json(tmp_path):
         version = conn.execute("PRAGMA user_version").fetchone()[0]
 
     assert "clarifications_json" in columns
-    assert version == 7
+    assert version == 8
 
 
 def test_get_clarifications_returns_none_when_unset(tmp_path):

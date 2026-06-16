@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from skillhub_eval.adapters.api.app import create_app
 from skillhub_eval.adapters.api.deps import get_ds_provider, get_gemini_provider, get_repo
 from skillhub_eval.core.case_sanitizer import SanitizerResult
-from skillhub_eval.core.security_scan import SecurityScanResult
+from skillhub_eval.core.bundle_security import BundleSecurityScanResult
 
 _MOCK_CONV_ID = "conv-upload-123"
 _MOCK_RUN_ID = "run-upload-456"
@@ -79,13 +79,13 @@ def test_upload_zip_creates_originals_and_staging(client, tmp_path, monkeypatch)
     test_client, repo = client
     monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = BundleSecurityScanResult(intake_status="passed")
     sanitizer_result = _make_sanitizer_result()
     payload = _make_zip_bytes(include_skill_md=True)
 
     with (
         patch("skillhub_eval.adapters.api.routes.conversations.ingest_bundle", return_value=_VALID_BUNDLE),
-        patch("skillhub_eval.adapters.api.routes.conversations.security_scan", return_value=passed_result),
+        patch("skillhub_eval.adapters.api.routes.conversations.scan_bundle_security", return_value=passed_result),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer",
             return_value=MagicMock(run=MagicMock(return_value=sanitizer_result)),
@@ -155,13 +155,13 @@ def test_upload_zip_with_single_wrapper_folder_hoists_skill_md(client, tmp_path,
     test_client, repo = client
     monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = BundleSecurityScanResult(intake_status="passed")
     sanitizer_result = _make_sanitizer_result()
     payload = _make_zip_bytes(include_skill_md=True, nested_folder="grill-me")
 
     with (
         patch("skillhub_eval.adapters.api.routes.conversations.ingest_bundle", return_value=_VALID_BUNDLE),
-        patch("skillhub_eval.adapters.api.routes.conversations.security_scan", return_value=passed_result),
+        patch("skillhub_eval.adapters.api.routes.conversations.scan_bundle_security", return_value=passed_result),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer",
             return_value=MagicMock(run=MagicMock(return_value=sanitizer_result)),
@@ -185,7 +185,7 @@ def test_local_ref_json_still_works_and_sets_source_path(client, tmp_path):
     staging = tmp_path / _MOCK_CONV_ID
     staging.mkdir()
 
-    passed_result = SecurityScanResult(status="passed", findings=[])
+    passed_result = BundleSecurityScanResult(intake_status="passed")
     sanitizer_result = _make_sanitizer_result()
 
     resolver = MagicMock()
@@ -198,7 +198,7 @@ def test_local_ref_json_still_works_and_sets_source_path(client, tmp_path):
             return_value=resolver,
         ),
         patch("skillhub_eval.adapters.api.routes.conversations.ingest_bundle", return_value=_VALID_BUNDLE),
-        patch("skillhub_eval.adapters.api.routes.conversations.security_scan", return_value=passed_result),
+        patch("skillhub_eval.adapters.api.routes.conversations.scan_bundle_security", return_value=passed_result),
         patch(
             "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer",
             return_value=MagicMock(run=MagicMock(return_value=sanitizer_result)),
