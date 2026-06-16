@@ -21,6 +21,10 @@ from skillhub_eval.adapters.api.routes.conversations import (
     _phase_eval,
     continue_eval_after_skill_id_confirmed,
 )
+from skillhub_eval.core.bootstrap_errors import (
+    append_bootstrap_failure,
+    format_bootstrap_failure_reply,
+)
 from skillhub_eval.core.bundle_security import gate_security_kwargs, scan_bundle_security
 from skillhub_eval.core.assessment_gate import (
     append_assessment_gate_message,
@@ -894,9 +898,8 @@ async def _handle_skill_id_confirm_chat(
                 background_tasks=background_tasks,
             )
         except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-            reply = f"评估启动失败：{detail}"
-            repo.append_lui_message(conv_id, role="agent", content=reply)
+            append_bootstrap_failure(repo, conv_id, exc.detail)
+            reply = format_bootstrap_failure_reply(exc.detail)
             return ChatResponse(reply=reply, intent="explain_only", bootstrap_status="failed")
         if propagation_deferred:
             status = defer_status or (repo.get_conversation(conv_id) or {}).get("status")
@@ -936,9 +939,8 @@ async def _handle_skill_id_confirm_chat(
                 background_tasks=background_tasks,
             )
         except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-            reply = f"评估启动失败：{detail}"
-            repo.append_lui_message(conv_id, role="agent", content=reply)
+            append_bootstrap_failure(repo, conv_id, exc.detail)
+            reply = format_bootstrap_failure_reply(exc.detail)
             return ChatResponse(reply=reply, intent="explain_only", bootstrap_status="failed")
         if propagation_deferred:
             status = defer_status or (repo.get_conversation(conv_id) or {}).get("status")
@@ -983,9 +985,12 @@ async def _handle_chat_zip_bootstrap(
             conv_id, req, bundle_zip, repo
         )
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        _append_bootstrap_system(repo, conv_id, f"评估启动失败：{detail}")
-        return ChatResponse(reply=f"上传失败：{detail}", intent="explain_only", bootstrap_status="failed")
+        append_bootstrap_failure(repo, conv_id, exc.detail)
+        if isinstance(exc.detail, str):
+            reply = f"上传失败：{exc.detail}"
+        else:
+            reply = format_bootstrap_failure_reply(exc.detail)
+        return ChatResponse(reply=reply, intent="explain_only", bootstrap_status="failed")
 
     bundle = ingest_bundle(str(staging_path))
     skill_id, source, warnings = resolve_skill_id(
@@ -1044,9 +1049,9 @@ async def _handle_chat_zip_bootstrap(
             user_message=message or None,
         )
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        _append_bootstrap_system(repo, conv_id, f"评估启动失败：{detail}")
-        return ChatResponse(reply=f"评估启动失败：{detail}", intent="explain_only", bootstrap_status="failed")
+        append_bootstrap_failure(repo, conv_id, exc.detail)
+        reply = format_bootstrap_failure_reply(exc.detail)
+        return ChatResponse(reply=reply, intent="explain_only", bootstrap_status="failed")
 
     if propagation_deferred:
         status = defer_status or (repo.get_conversation(conv_id) or {}).get("status")

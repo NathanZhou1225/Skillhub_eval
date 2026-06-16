@@ -5,6 +5,8 @@ AggregateStage — implements 1.2 v1.2.1 §6.4 rules + 2.6 average/redline pool 
 from __future__ import annotations
 
 _R5_GAP_THRESHOLD = 10
+# Align with DecisionStage R8 — both below → consensus fail, skip R5 human queue
+_CONSENSUS_FAIL_SCORE_MAX = 70
 REDLINE_TYPES = frozenset({"refusal_case", "adversarial_case"})
 
 
@@ -28,6 +30,21 @@ def _provider_mean(votes: list[dict], model: str) -> float | None:
 def _bundle_status(model_votes: list[dict]) -> str:
     statuses = [v.get("suggested_review_status", "warn") for v in model_votes]
     return "pass" if statuses.count("pass") > len(statuses) / 2 else "fail"
+
+
+def _consensus_fail(
+    ds_score: float,
+    wb_score: float,
+    ds_bundle_status: str,
+    wb_bundle_status: str,
+) -> bool:
+    """Both models agree the bundle fails — large gap alone must not trigger R5."""
+    if ds_bundle_status == "fail" and wb_bundle_status == "fail":
+        return True
+    return (
+        ds_score < _CONSENSUS_FAIL_SCORE_MAX
+        and wb_score < _CONSENSUS_FAIL_SCORE_MAX
+    )
 
 
 def _detect_redline_model_disagreement(votes: list[dict]) -> bool:
@@ -90,8 +107,12 @@ class AggregateStage:
             ds_bundle_status = _bundle_status(ds_votes)
             wb_bundle_status = _bundle_status(wb_votes)
             status_mismatch = (ds_bundle_status == "pass") != (wb_bundle_status == "pass")
+            disagree = gap >= _R5_GAP_THRESHOLD or status_mismatch
 
-            if gap >= _R5_GAP_THRESHOLD or status_mismatch:
+            if disagree and not (
+                not status_mismatch
+                and _consensus_fail(ds_score, wb_score, ds_bundle_status, wb_bundle_status)
+            ):
                 r5_triggered = True
                 score_total = None
                 score_total_source = "null_due_to_disagreement"

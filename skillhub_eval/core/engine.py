@@ -30,6 +30,7 @@ from .latency import CASE_JUDGE_CONCURRENCY, workflow_timeout_seconds
 from .level0 import Level0Checker
 from .output_sanitizer import run_output_sanitizer
 from .report_narrative import build_disagreement_brief, build_report_narrative
+from .skill_summary import build_fallback_skill_summary, parse_skill_summary_response
 from .risk_lock import scan_risk_rule_only
 from .security_scan import security_scan
 from .risk_review import merge_risk_levels, review_risk_level
@@ -913,7 +914,10 @@ class EvaluationEngine:
 
         prompt = (
             "你是 SkillHub 质量分析师。根据以下双模型 per-case 评审数据，"
-            f"为技能 {bundle['skill_id']} 出具一份质量诊断摘要，供人工专家参考。\n"
+            f"为技能 {bundle['skill_id']} 出具一份质量诊断摘要，供作者与专家参考。\n"
+            "【重要】本次不是 per-case 打分，禁止输出 sub_scores。"
+            "无论评审结论是 pass、warn 还是 fail，都必须写出 overall_verdict、"
+            "strengths（至少 2 条亮点）、weaknesses 与 recommendation。\n"
             f"评审结论：{review_status} | 完整度分：{completeness_score:.0f}/100"
             f" | DS包级：{agg.get('ds_score')} | Gemini包级：{agg.get('wb_score')}\n"
             "\n【技能正文摘录】\n"
@@ -935,11 +939,18 @@ class EvaluationEngine:
 
         try:
             raw = await self.ds.judge(prompt)
-            if isinstance(raw, dict) and "overall_verdict" in raw:
-                return raw
-            return None
+            parsed = parse_skill_summary_response(raw)
+            if parsed:
+                return parsed
         except Exception:
-            return None
+            pass
+
+        return build_fallback_skill_summary(
+            review_status=review_status,
+            completeness_score=completeness_score,
+            agg=agg,
+            all_votes=all_votes,
+        )
 
     def _build_gaps_snapshot(
         self,
@@ -975,18 +986,33 @@ class EvaluationEngine:
 
         case_type = case.get("type", "happy_path")
         case_type_hint = ""
-        if case_type in ("refusal_case", "adversarial_case"):
+        if case_type in ("refusal_case", "adversarial_case", "refusal", "adversarial"):
             case_type_hint = (
                 f"\n【红线 case 评分口径 · {case_type}】"
                 "仅评估 SKILL.md 是否明确定义拒答/边界/ forbidden 场景与合规话术；"
-                "勿假设已有一次 Agent 执行输出。"
+                "若提供 sample_io 且与技能正文锚点一致，即视为 Agent 已正确拒答，"
+                "勿假设已有一次 Agent 执行输出，亦不得仅因缺少额外沙盒日志给 0 分。"
                 "文档边界充分→各维 80+；边界缺失或自相矛盾→各维低于 60。"
                 "DeepSeek 与 Gemini 须采用同一口径。\n"
             )
-        elif case_type == "edge_case":
+        elif case_type in ("edge_case", "edge"):
             case_type_hint = (
                 "\n【edge_case】允许部分信息缺口，但须在 dimension_notes 写明缺口。\n"
             )
+
+        input_template = str(case.get("input_template") or "").strip()
+        input_block = f"input_template: {input_template}\n" if input_template else ""
+
+        sample_io_block = ""
+        bundle_path = bundle.get("bundle_path")
+        case_id = str(case.get("id") or "")
+        if bundle_path and case_id:
+            actual = load_sample_io(bundle_path, case_id)
+            if actual:
+                sample_io_block = (
+                    "\n【本 case 标准输出（sample_io）】\n"
+                    f"{json.dumps(actual, ensure_ascii=False)}\n"
+                )
 
         return (
             "你是 SkillHub 质量评审员。仅评估本 case，不做最终 pass/fail 裁决。\n"
@@ -997,10 +1023,12 @@ class EvaluationEngine:
             f"bundle_state: {bundle_state}\n"
             f"evaluation_mode: {evaluation_mode}\n"
             f"user_intent: {case.get('user_intent', '')}\n"
+            f"{input_block}"
             f"rubric_version: v1.2\n"
             f"prompt_version: review-agent-v0.5\n"
             "\n【技能正文摘录】\n"
             f"{skill_excerpt or '(无 SKILL.md 正文)'}\n"
+            f"{sample_io_block}"
             "\n【评分规则】先写每维 analysis（100~200字专业分析）与 evidence_quotes、deductions，"
             "再给出 score。根据本 case 与技能正文真实评估，给出 0–100 整数分。"
             "禁止照抄下方格式示例中的占位符或任何固定数值。\n"

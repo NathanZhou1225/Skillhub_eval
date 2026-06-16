@@ -3,7 +3,9 @@ Task 7 — Aggregate + Decision tests.
 
 Strictly follows 1.2 v1.2.1 R1–R8 rules (grill-me C-2):
   R4: completeness < 70 AND score_total < 70 → fail
-  R5: |DS - WB| >= 10 OR one-pass-one-fail → warn + human (null score)
+  R5: |DS - WB| >= 10 OR one-pass-one-fail → warn + human (null score),
+      except when both models consensus-fail (both bundle fail or both scores < 70)
+      → aggregate mean and let R8 fail without human queue
   R6: score >= 85 AND completeness >= 90 AND confirmed + capability_full + level ok → pass
   R7: 70 <= score <= 84 OR 70 <= completeness <= 89 → warn
   R8: score < 70 → fail
@@ -139,6 +141,33 @@ class TestAggregate:
         result = self.agg.run(votes=votes, assertion_passed=True, completeness_score=90)
         assert result["r5_triggered"] is True
         assert result["score_total"] is None
+
+    def test_r5_skipped_when_both_consensus_fail_despite_large_gap(self):
+        """Low fixture pattern: DS~15 + GM~47 → aggregate fail, not R5 warn."""
+        votes = make_votes(ds_score=14.7, wb_score=46.9, ds_status="fail", wb_status="fail")
+        result = self.agg.run(votes=votes, assertion_passed=True, completeness_score=100)
+        assert result["r5_triggered"] is False
+        assert "MODEL_DISAGREEMENT_R5" not in result["reason_codes"]
+        assert result["score_total"] == pytest.approx(30.8)
+
+    def test_r5_skipped_when_both_scores_below_70_and_both_fail_status(self):
+        votes = make_votes(ds_score=65, wb_score=55, ds_status="fail", wb_status="fail")
+        result = self.agg.run(votes=votes, assertion_passed=True, completeness_score=100)
+        assert result["r5_triggered"] is False
+        assert result["score_total"] == pytest.approx(60.0)
+
+    def test_consensus_fail_flows_to_r8_decision_without_human(self):
+        votes = make_votes(ds_score=15, wb_score=45, ds_status="fail", wb_status="fail")
+        agg = self.agg.run(votes=votes, assertion_passed=True, completeness_score=100)
+        dec = DecisionStage()
+        ctx = confirmed_full_ctx(
+            score=agg["score_total"],
+            completeness=agg["completeness_score"],
+            r5=agg["r5_triggered"],
+        )
+        status = dec.decide(ctx)
+        assert status == "fail"
+        assert dec.requires_human_review(ctx, status) is False
 
     # Redline fail propagates
     def test_redline_fail_propagates(self):

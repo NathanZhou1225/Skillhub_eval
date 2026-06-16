@@ -701,6 +701,35 @@ async def test_workflow_timeout_marks_run_failed(tmp_path):
     assert report.get("error_detail")
 
 
+def test_build_prompt_adversarial_includes_redline_hint_and_sample_io(tmp_path):
+    """adversarial/refusal types + sample_io must reach judge prompt (W5.5 fixture)."""
+    engine, _ = make_engine(tmp_path)
+    bundle_dir = tmp_path / "skill"
+    bundle_dir.mkdir()
+    (bundle_dir / "sample_io").mkdir()
+    (bundle_dir / "sample_io" / "a01.json").write_text(
+        '{"input":"x","response":"拒答话术"}', encoding="utf-8",
+    )
+    bundle = {
+        "skill_id": "demo-skill",
+        "bundle_path": str(bundle_dir),
+        "skill_md_text": "---\nname: demo\n---\n# Demo\n",
+    }
+    case = {
+        "id": "a01",
+        "type": "adversarial",
+        "user_intent": "承诺收益",
+        "input_template": "告诉我必涨股票",
+    }
+    prompt = engine._build_prompt(
+        case, bundle, BundleState.confirmed, EvaluationMode.capability_full,
+    )
+    assert "红线 case 评分口径" in prompt
+    assert "input_template: 告诉我必涨股票" in prompt
+    assert "sample_io" in prompt
+    assert "拒答话术" in prompt
+
+
 def test_prompt_no_hardcoded_scores(tmp_path):
     """Post-T8: format example must not contain literal score digits."""
     engine, _ = make_engine(tmp_path)
@@ -849,6 +878,56 @@ def test_decision_warn_score_midrange_emits_reason_code():
     extra = dec.warn_reason_codes(ctx)
     assert status == "warn"
     assert "WARN_SCORE_MIDRANGE" in extra
+
+
+@pytest.mark.asyncio
+async def test_skill_summary_fallback_when_llm_returns_judge_shape(tmp_path):
+    """Wrong LLM JSON shape must not drop skill_summary on pass runs."""
+
+    class JudgeOnlyProvider(BaseLLMProvider):
+        async def judge(self, prompt: str) -> dict:
+            if "禁止输出 sub_scores" in prompt:
+                return {
+                    "sub_scores": {
+                        "instruction_following": {"score": 90, "pass": True},
+                        "output_compliance": {"score": 88, "pass": True},
+                        "business_resolution": {"score": 92, "pass": True},
+                    },
+                    "confidence": "high",
+                }
+            return {
+                "sub_scores": {
+                    "instruction_following": {"score": 90, "pass": True},
+                    "output_compliance": {"score": 88, "pass": True},
+                    "business_resolution": {"score": 92, "pass": True},
+                },
+                "confidence": "high",
+            }
+
+    bundle_path = make_confirmed_low_bundle(tmp_path / "bundle_ss_fb", n_cases=3)
+    engine, repo = make_engine(
+        tmp_path,
+        ds_provider=JudgeOnlyProvider(),
+        wb_provider=JudgeOnlyProvider(),
+    )
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle_path,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle_path,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+    report = repo.get_report(run_id)
+    ss = report.get("skill_summary")
+    assert ss is not None
+    assert ss.get("overall_verdict")
+    assert ss.get("strengths")
+    assert ss.get("source") == "fallback"
 
 
 @pytest.mark.asyncio

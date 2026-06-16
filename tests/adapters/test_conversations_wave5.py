@@ -262,7 +262,8 @@ def test_bootstrap_security_blocked_writes_system_message(
 
     assert resp.status_code == 422
     messages = repo.get_lui_messages(conv_id)
-    assert any("安全扫描未通过" in m["content"] for m in messages)
+    assert any(m.get("message_type") == "security_blocked" for m in messages)
+    assert any("安全门禁未通过" in m["content"] for m in messages)
 
 
 def test_bootstrap_local_ref_forbidden_without_demo(client_with_repo):

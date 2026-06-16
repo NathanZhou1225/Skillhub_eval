@@ -25,6 +25,7 @@ from skillhub_eval.core.assessment_gate import (
     build_assessment_gate_payload,
     next_gate_version,
 )
+from skillhub_eval.core.bootstrap_errors import append_bootstrap_failure, format_bootstrap_failure_reply
 from skillhub_eval.core.bundle_resolver import BundleResolver
 from skillhub_eval.core.chat_notifications import start_capability_full_eval
 from skillhub_eval.core.case_sanitizer import CaseSanitizer, SanitizerResult
@@ -336,14 +337,9 @@ def _enforce_security_gate(
     scan_result = scan_bundle_security(bundle, staging_path)
     if scan_result.intake_status == "blocked":
         repo.update_conversation_status(conversation_id, "security_blocked")
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "security_status": "blocked",
-                "security_findings": scan_result.security_findings,
-                "conversation_id": conversation_id,
-            },
-        )
+        detail = scan_result.to_gate_dict()
+        detail["conversation_id"] = conversation_id
+        raise HTTPException(status_code=422, detail=detail)
     return scan_result
 
 
@@ -777,8 +773,7 @@ async def bootstrap_conversation(
             conversation_id, resolved_req, bundle_zip, repo
         )
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-        _append_bootstrap_system(repo, conversation_id, f"评估启动失败：{detail}")
+        append_bootstrap_failure(repo, conversation_id, exc.detail)
         raise
 
     bundle = ingest_bundle(str(staging_path))
@@ -847,16 +842,9 @@ async def bootstrap_conversation(
             user_message=resolved_req.user_message or None,
         )
     except HTTPException as exc:
-        detail = exc.detail
-        if isinstance(detail, dict):
-            msg = detail.get("security_status", "security_blocked")
-            _append_bootstrap_system(
-                repo,
-                conversation_id,
-                f"评估启动失败：安全扫描未通过（{msg}）。",
-            )
-            raise HTTPException(status_code=422, detail=detail) from exc
-        _append_bootstrap_system(repo, conversation_id, f"评估启动失败：{detail}")
+        append_bootstrap_failure(repo, conversation_id, exc.detail)
+        if isinstance(exc.detail, dict):
+            raise HTTPException(status_code=422, detail=exc.detail) from exc
         raise
 
     if propagation_deferred:

@@ -968,6 +968,13 @@ function renderMessages(messages) {
       const inner = renderAssessmentGateHtml(m.payload_json || {});
       return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm">${inner}</div></div>`;
     }
+    if (mtype === 'security_blocked' && m.payload_json) {
+      const intro = text
+        ? `<p class="text-sm font-medium text-red-900 mb-2 leading-relaxed">${escapeHtml(text)}</p>`
+        : '';
+      const inner = intro + renderSecurityFindingsHtml(m.payload_json);
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-red-300 bg-red-50/60 p-3 text-sm">${inner}</div></div>`;
+    }
     if (mtype === 'rich_report' && m.payload_json) {
       const inner = renderReportHtml(m.payload_json, _latestConversationStatus || {});
       return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3 text-sm">${inner}</div></div>`;
@@ -1426,6 +1433,13 @@ function openReportFromChat(runId) {
   openRunDetail(runId, { origin: 'chat' });
 }
 
+function verdictBadgeClass(verdict) {
+  const v = String(verdict || '');
+  if (/未通过|失败|拒绝/.test(v)) return 'bg-red-100 text-red-700';
+  if (v.includes('通过')) return 'bg-green-100 text-green-700';
+  return 'bg-amber-100 text-amber-800';
+}
+
 function renderReportHtml(apiDetail, statusObj) {
   if (!apiDetail) return '';
   const phase = apiDetail.report_phase || 'formal';
@@ -1436,13 +1450,9 @@ function renderReportHtml(apiDetail, statusObj) {
   const verdict = apiDetail.verdict_zh || '';
   const nextAction = apiDetail.next_action_zh || '';
   const isFormal = phase === 'formal' || phase === 'formal_pending_review';
-  const verdictBadgeClass = verdict.includes('通过')
-    ? 'bg-green-100 text-green-700'
-    : (verdict.includes('失败') || verdict.includes('拒绝')
-      ? 'bg-red-100 text-red-700'
-      : 'bg-amber-100 text-amber-800');
+  const badgeCls = verdictBadgeClass(verdict);
   const verdictBadge = (isFormal && verdict)
-    ? `<span class="badge ${verdictBadgeClass}">${escapeHtml(verdict)}</span>`
+    ? `<span class="badge ${badgeCls}">${escapeHtml(verdict)}</span>`
     : '';
   const actions = apiDetail.actions || [];
   const scoreBlock = scoreLine
@@ -1905,7 +1915,7 @@ function renderSkillSummaryCard(d, opts = {}) {
   const swGrid = (strItems || weakItems) ? `
     <div class="grid grid-cols-2 gap-2 mb-2">
       <div>${strItems ? `<div class="text-xs font-semibold text-green-700 mb-1">亮点</div>${strItems}` : ''}</div>
-      <div>${weakItems ? `<div class="text-xs font-semibold text-red-700 mb-1">不足</div>${weakItems}` : ''}</div>
+      <div>${weakItems ? `<div class="text-xs font-semibold text-red-700 mb-1">不足</div>${weakItems}` : (strItems ? `<div class="text-xs font-semibold text-gray-500 mb-1">不足</div><div class="text-xs text-gray-500">暂无显著不足</div>` : '')}</div>
     </div>` : '';
 
   const dims = ss.dimension_notes || {};

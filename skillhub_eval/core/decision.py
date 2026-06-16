@@ -4,6 +4,7 @@ DecisionStage — applies PASS gate + R1–R8 priority ladder (1.2 v1.2.1, C-2).
 Priority (highest to lowest):
   R1–R4  hard fail  → always "fail" regardless of scores
   R5     disagreement → always "warn" + human review required
+         (skipped when aggregate stage detects consensus-fail; then R8 may apply)
   PASS gate check (bundle_state=confirmed, evaluation_mode=capability_full)
   R6     score >= 85 AND completeness >= 90 → "pass"
   R7     score 70–84 OR completeness 70–89 → "warn"

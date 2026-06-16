@@ -120,9 +120,17 @@ def _summary_one_liner(report: dict | None) -> str:
     if not report:
         return "评估已完成，可查看完整报告了解详情。"
     summary = report.get("skill_summary") or {}
-    verdict = summary.get("overall_verdict") or summary.get("highlights")
+    verdict = summary.get("overall_verdict")
     if isinstance(verdict, str) and verdict.strip():
         return verdict.strip()[:200]
+    strengths = summary.get("strengths")
+    if isinstance(strengths, list) and strengths:
+        first = strengths[0]
+        if isinstance(first, str) and first.strip():
+            return first.strip()[:200]
+    legacy = summary.get("highlights")
+    if isinstance(legacy, str) and legacy.strip():
+        return legacy.strip()[:200]
     narrative = report.get("narrative") or {}
     headline = narrative.get("headline_zh") or narrative.get("headline")
     if isinstance(headline, str) and headline.strip():
