@@ -82,8 +82,8 @@
 ## 5. 收尾（archive 前）
 
 - [x] 5.1 grill-me 闭合 Open Questions（`design.md`）并修订 delta specs
-- [ ] 5.2 RECORD + Sprint W8 UI 勾选 + 全景说明 §10 UI 一句
-- [ ] 5.3 `/opsx:archive` 本 change + `local-agent-exec-bridge`（网页验收通过后）
+- [x] 5.2 RECORD + Sprint W8 UI 勾选 + 全景说明 §10 UI 一句
+- [x] 5.3 `/opsx:archive` 本 change + `local-agent-exec-bridge`（网页验收通过后）
 
 ## Out of scope（v1.5 / v2）
 

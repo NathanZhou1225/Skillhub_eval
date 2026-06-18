@@ -19,6 +19,7 @@ _SPEC.loader.exec_module(cde)
 
 GOOD_UTF8 = "# 总账文档\n\n## 任务目标\n\n正常中文内容。\n"
 MOJIBAKE_UTF8 = "# RECORD 鈥?SkillHub\n\n> 鎬昏处鏂囨。：记录项目目标。\n"
+ARROW_MOJIBAKE_UTF8 = "Pipeline 鈫? archive\n"
 PRIVATE_USE_UTF8 = "正常\uE001\uE002\uE003\uE004\uE005\uE006前缀\n"
 
 
@@ -31,6 +32,18 @@ def test_mojibake_substring_fails():
     issues = cde.check_decoded_text(MOJIBAKE_UTF8)
     codes = {i.code for i in issues}
     assert "mojibake_substring" in codes
+
+
+def test_arrow_mojibake_substring_fails():
+    issues = cde.check_decoded_text(ARROW_MOJIBAKE_UTF8)
+    codes = {i.code for i in issues}
+    assert "mojibake_substring" in codes
+
+
+def test_default_targets_include_cursor_rules():
+    targets = {p.relative_to(ROOT).as_posix() for p in cde.default_targets(ROOT)}
+    assert ".cursor/rules/doc-encoding-utf8.mdc" in targets
+    assert ".cursor/rules/integrated-ai-workflow.mdc" in targets
 
 
 def test_record_anchor_required():

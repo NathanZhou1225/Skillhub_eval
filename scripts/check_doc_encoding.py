@@ -1,4 +1,4 @@
-"""UTF-8 / mojibake guard for Chinese Markdown (RECORD, .project_memory, docs, openspec)."""
+"""UTF-8 / mojibake guard for Chinese Markdown and Cursor rules."""
 from __future__ import annotations
 
 import argparse
@@ -13,6 +13,8 @@ MOJIBAKE_SUBSTRINGS: tuple[str, ...] = (
     "鎬昏处",
     "浠诲姟鐩",
     "褰撳墠鐘",
+    "鈥",
+    "鈫",
     "璇勪及绯",
 )
 
@@ -94,6 +96,9 @@ def default_targets(root: Path) -> list[Path]:
         base = root / subdir
         if base.is_dir():
             paths.extend(sorted(base.rglob("*.md")))
+    cursor_rules = root / ".cursor" / "rules"
+    if cursor_rules.is_dir():
+        paths.extend(sorted(cursor_rules.rglob("*.mdc")))
     return paths
 
 
@@ -131,8 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
         description=(
-            "Check Chinese Markdown for UTF-8 / mojibake issues "
-            "(default: RECORD.md, .project_memory, docs/, openspec/)."
+            "Check Chinese Markdown and Cursor rules for UTF-8 / mojibake issues "
+            "(default: RECORD.md, .project_memory, docs/, openspec/, .cursor/rules/)."
         )
     )
     parser.add_argument(
@@ -144,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
 
     issues = check_all(root, args.paths)
     if not issues:
-        print("doc encoding OK (RECORD.md, .project_memory, docs/, openspec/)")
+        print("doc encoding OK (RECORD.md, .project_memory, docs/, openspec/, .cursor/rules/)")
         return 0
 
     for issue in issues:

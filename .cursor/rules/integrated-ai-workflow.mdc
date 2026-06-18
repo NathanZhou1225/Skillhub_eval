@@ -1,5 +1,5 @@
-﻿---
-description: SkillHub 鈥?boundaries for OpenSpec, Superpowers, grill-me, and tiered-memory; default feature dev pipeline
+---
+description: SkillHub boundaries for OpenSpec, Superpowers, grill-me, and tiered-memory; default feature dev pipeline
 alwaysApply: true
 ---
 
@@ -11,21 +11,21 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| Program / sprint | `RECORD.md`, `.project_memory/active/SPRINT_*.md` | Phase goals, sprint checkboxes 鈥?**not** feature implementation tasks |
+| Program / sprint | `RECORD.md`, `.project_memory/active/SPRINT_*.md` | Phase goals, sprint checkboxes — **not** feature implementation tasks |
 | Published specs | `docs/specs/`, `docs/guides/` | Normative protocols (Skill metadata, eval standards) |
 | Active feature work | `openspec/changes/<change>/` | proposal, specs, design, **tasks.md** (implementation truth) |
-| Legacy superpowers docs | `docs/superpowers/plans/`, `docs/superpowers/specs/` | Reference only; **new work** 鈫?OpenSpec changes, do not fork parallel plans |
+| Legacy superpowers docs | `docs/superpowers/plans/`, `docs/superpowers/specs/` | Reference only; **new work** → OpenSpec changes, do not fork parallel plans |
 
 ## Default pipeline (SkillHub)
 
-1. **Align sprint** 鈥?read `RECORD.md` + active `SPRINT_*.md` (tiered-memory); do not duplicate into OpenSpec.
-2. **Direction** 鈥?`brainstorming` **or** `/opsx:explore` (one only).
-3. **Spec package** 鈥?`/opsx:propose "<kebab-change>"` 鈫?`openspec/changes/<change>/`.
-4. **Critique** 鈥?`/grill-me` on that change folder; no code until shared understanding.
-5. **Execute** 鈥?`subagent-driven-development`; each subagent = one `tasks.md` item; TDD required.
-6. **Verify** 鈥?`verification-before-completion` (pytest, eval CLI, etc.). After **RECORD** or **`.project_memory`** edits: `pytest tests/test_doc_encoding.py -q` (see **`doc-encoding-utf8`** rule).
-7. **Close** 鈥?`/opsx:archive` then `finishing-a-development-branch`.
-8. **Learn (optional)** 鈥?after close, `harness-retrospective` asks once (Y/N); approved lessons go to `~/.agent_learning/`, **not** RECORD.md or `.project_memory/`.
+1. **Align sprint** — read `RECORD.md` + active `SPRINT_*.md` (tiered-memory); do not duplicate into OpenSpec.
+2. **Direction** — `brainstorming` **or** `/opsx:explore` (one only).
+3. **Spec package** — `/opsx:propose "<kebab-change>"` → `openspec/changes/<change>/`.
+4. **Critique** — `/grill-me` on that change folder; no code until shared understanding.
+5. **Execute** — `subagent-driven-development`; each subagent = one `tasks.md` item; TDD required.
+6. **Verify** — `verification-before-completion` (pytest, eval CLI, etc.). After **RECORD** or **`.project_memory`** edits: `pytest tests/test_doc_encoding.py -q` (see **`doc-encoding-utf8`** rule).
+7. **Close** — `/opsx:archive` then `finishing-a-development-branch`.
+8. **Learn (optional)** — after close, `harness-retrospective` asks once (Y/N); approved lessons go to `~/.agent_learning/`, **not** RECORD.md or `.project_memory/`.
 
 ## Conflict prevention
 
@@ -33,33 +33,33 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 - **Superpowers** owns *how* to build (TDD, subagents, debug, verify, merge).
 - **grill-me** owns *plan validation only* (between steps 3 and 5).
 - **frontend-design** owns *visual layer only* (CSS/HTML structure/copy tone); **not** eval logic, API, or adapters.
-- **tiered-memory** owns sprint backlog 鈥?never replace `tasks.md` with sprint items.
+- **tiered-memory** owns sprint backlog — never replace `tasks.md` with sprint items.
 - **harness-retrospective** owns *cross-project workflow lessons* (`~/.agent_learning/`); project decisions stay in RECORD.md (it may suggest a RECORD row, never writes it).
 
 ## UI layer (SkillHub demo)
 
 Current eval UI (visual-only edits unless user approves logic changes):
 
-- `skillhub_eval/adapters/ui/static/index.html` 鈥?Tailwind CDN + inline styles/scripts
-- Backend: `skillhub_eval/adapters/ui/` 鈥?**do not change** when doing UI polish
+- `skillhub_eval/adapters/ui/static/index.html` — Tailwind CDN + inline styles/scripts
+- Backend: `skillhub_eval/adapters/ui/` — **do not change** when doing UI polish
 
 **UI-only workflow:**
 
 1. Chat with `frontend-design` for direction (design plan first, no code until approved).
 2. Optional: `/opsx:propose "ui-<topic>"` with **Visual direction** in `design.md`; UI tasks tagged `[ui-only]` in `tasks.md`.
-3. Apply visual changes; run existing eval/UI smoke paths 鈥?behavior must match before/after.
+3. Apply visual changes; run existing eval/UI smoke paths — behavior must match before/after.
 
-**Trigger phrases:** 銆屼紭鍖栫晫闈€嶃€屾敼 UI銆嶃€岃瑙夐鏍笺€嶃€屾帓鐗堛€嶃€宧over 鍔ㄦ晥銆嶁啋 load `frontend-design`, not `brainstorming`.
+**Trigger phrases:** "优化界面", "改 UI", "视觉风格", "排版", "hover 动效" → load `frontend-design`, not `brainstorming`.
 
 ## Project conventions (inject into OpenSpec artifacts)
 
 - Python package: `skillhub_eval/`; tests under `tests/`.
-- Normative references: `docs/specs/Skill鍏冩暟鎹畾涔変笌缂栧啓瑙勮寖.md`, `docs/specs/璇勪及鎸囨爣涓庡噯鍏ユ爣鍑?md`.
+- Normative references: `docs/specs/Skill元数据定义与编写规范.md`, `docs/specs/评估指标与准入标准.md`.
 - API/schema names in design must match existing specs (no ad-hoc renames).
-- Secrets: `.env` only 鈥?never commit credentials.
+- Secrets: `.env` only — never commit credentials.
 
 ## OpenSpec CLI
 
 Config: `openspec/config.yaml`. Status: `openspec status --change "<name>" --json`.
 
-When user says "寮€濮嬪疄鐜? or picks subagent mode: confirm active change name and read `tasks.md` first.
+When user says "开始实现" or picks subagent mode: confirm active change name and read `tasks.md` first.

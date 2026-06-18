@@ -10,7 +10,7 @@
 
 **四阶段设计路线**（2026-06-12 重定标）：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ **评估系统完善**（对话式评估、安全门禁、自动补题、专家复核、报告呈现、Demo/部署彩排）→ ④ **集市生态 + 立项提案与商业价值呈现**（listing / Trending / 消费者发现、痛点映射、Demo 材料、可选 IAM/Portal）。
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**W5.5 回归 fixture 三件套 + 评估结果/拦截 UX 热修** ✅（`testskills/stock-radar-fixture-{sec-block,score-low,score-high}`；fail 红标、`security_blocked` 可读说明、共识 fail 聚合、`skill_summary` 兜底；**524 tests**）。**W8 本地 Agent 执行桥** ✅ **代码落地**（OpenSpec `local-agent-exec-bridge` 23/23 tasks；**583 tests**；DB v9 `spot_check_eligible`/`execution_source_used`；fixture `testskills/exec-fixture-minimal` + runbook）— **待用户网页/CLI 实机验收后归档**。OpenSpec 活跃 change：`local-agent-exec-bridge`。**不重写** 1.2 准入阈值（85/70/90）。**当前主线**：W8 实机验收 → `/opsx:archive` → **W7 服务器彩排**；W8.4 多 agent 对照统计待排；W5.5 剧本 B/C + runbook 作为并行小尾。集市生态（原 W6）/ W10 已移至阶段四。阶段二可选收尾已取消。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**W5.5 回归 fixture 三件套 + 评估结果/拦截 UX 热修** ✅（`testskills/stock-radar-fixture-{sec-block,score-low,score-high}`；fail 红标、`security_blocked` 可读说明、共识 fail 聚合、`skill_summary` 兜底；**524 tests**）。**W8 本地 Agent 执行桥 + UI 执行桥** ✅ **收官**（后端 23/23 + UI C01–C16；**595 tests**；DB v9；网页实机验收通过 tiered-memory-sprint-manager + cursor-agent；judge/local agent 超时预算拆分）— OpenSpec 已归档 `archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/`。**不重写** 1.2 准入阈值（85/70/90）。**当前主线**：**W7 服务器彩排**；W8.4 多 agent 对照统计待排；Q-24 时延优化（并行 case_exec、UI Agent 预算展示）待新窗口；W5.5 剧本 B/C + runbook 作为并行小尾。集市生态（原 W6）/ W10 已移至阶段四。阶段二可选收尾已取消。
 
 ---
 
@@ -167,8 +167,8 @@
 | **W5.3.4** | 材料补充卡 UI 精修：去 v1 徽标；2 列表格+红线折叠；gate pill 行；L0 blockquote；历史状态汉化 | ✅ 已收官 |
 | **W5.4** | 评分过程留痕：Prompt v0.5、DB v7 `judge_traces`、分歧合成、`/ui/trace.html`、报告 `has_judge_trace` | ✅ 已收官 + 归档（498+ tests） |
 | **W5.5** | 本地 Demo 验收（三剧本 + runbook）+ 制式 UI + 会话归档 | 🟡 **剧本 A ✅**；**UI 制式/布局/归档 ✅**；**安全 gate 分层+拦截 UX ✅**；剧本 B/C + runbook 待补 |
-| **W8（重定义）** | **本地 Agent 执行桥**（穿透本地 CLI agent 真跑 skill → 回传真实产出 → 复用 judge）；**取代原 W8 Level 2 沙盒 + 原 W9 自建 Harness** | ✅ **代码落地**（583 tests）；🟡 **待实机验收** |
-| **W7（重定位）** | 服务器彩排：服务端仅承载 **judge + 公网中央复核**；executor 留本地 | 🟡 W8 纵切通过后 |
+| **W8（重定义）** | **本地 Agent 执行桥**（穿透本地 CLI agent 真跑 skill → 回传真实产出 → 复用 judge）；**取代原 W8 Level 2 沙盒 + 原 W9 自建 Harness** | ✅ **收官**（595 tests；网页实机验收通过；OpenSpec 已归档 2026-06-18） |
+| **W7（重定位）** | 服务器彩排：服务端仅承载 **judge + 公网中央复核**；executor 留本地 | 🟡 **待启动**（W8 纵切已通过） |
 | ~~**W8 Level 2 沙盒**~~ | ~~引擎接 `PythonSubprocessRunner`~~ | **已废弃**（2026-06-17）：本地 agent 跑任务时已执行脚本，中央代码跑冗余 |
 | ~~**W9 自建 Harness**~~ | ~~中央 Agent Harness~~ | **已废弃**（2026-06-17）：本地 agent 即分布式 Harness |
 | ~~**W6**~~ | ~~集市生态~~ | **已移至阶段四**（见 `SPRINT_phase4-marketplace-biz.md`） |
@@ -200,7 +200,7 @@
 | **W5.3 智能对话** | **✅ 收官 + 归档** — `wave5.3-intelligent-chat`；472 tests；`archive/2026-06-12-wave5.3-intelligent-chat/` |
 | **W5.2 UI 透明化** | **✅ 收官 + 归档** — 447 tests；`archive/2026-06-12-wave5.2-ui-transparency/` |
 | **W5.5 回归 fixture + 拦截 UX 热修** | **✅ 收官** — 三 fixture + UI fail 红标/说明；**524 tests** |
-| **W8 本地 Agent 执行桥** | **✅ 代码落地** — OpenSpec `local-agent-exec-bridge` 23/23；**583 tests**；🟡 **待网页/CLI 实机验收** |
+| **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W4.5 provider-env-factory** | **🟡 待启动** — 双评审槽位完全 env 驱动 |
 
 ---
@@ -249,7 +249,7 @@
 | **FB-20** | **待审/冻结会话删除无说明**（作者误点 × 不知需切专家） | P1 | **✅ 已解决（W5.5 UI 归档）**：`archiveBlockReason` 点击前拦截；侧栏「· 需专家删除」+ hover 提示；切换视角刷新侧栏 |
 | **FB-21** | **补题完成后「门槛通过」仍不开评；「安全已拦截」不明显且无原因说明** | P0 | **✅ 已解决（W5.5 安全热修）**：gate 分层扫描（intake vs eval_cases）；propagator 对抗题不阻断；UI 红色告警 + findings + `hint_zh`；修复嵌入卡「已拦截」颜色 bug |
 
-| **Q-19** | **Level 2 隔离试跑未接入主引擎**：标准规定中/高风险 Pass 须试跑级，当前实际读 sample_io 样例文件 | P1 | **W8 已落地（2026-06-17）**：`ExecutionSource` + 本地 agent；🟡 待实机验收 |
+| **Q-19** | **Level 2 隔离试跑未接入主引擎**：标准规定中/高风险 Pass 须试跑级，当前实际读 sample_io 样例文件 | P1 | **✅ W8 收官（2026-06-18）**：`execution_source: local` + 网页 consent 实机通过；默认仍为 sample_io |
 | **Q-20** | **中央 subprocess 沙盒跑不了内网 skill**（无 VPN/DB） | P1 | **W8 路线已定**：穿透本地 CLI agent；中央 judge 复用 |
 | **Q-21** | **被穿透的本地 agent 以 `bypassPermissions`/`--trust` 全自动跑任意 skill 代码**（含内网权限机器），本身是攻击面 | P1 | **W8.5 已落地**：执行前 consent gate + Security Gate + output sanitizer + `HardenedProfile`（codex 红线） |
 | **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
@@ -390,6 +390,7 @@
 | **砍掉中央代码执行，不留冗余 `PythonSubprocessRunner`** | 本地 agent 跑任务时已执行 skill 脚本，中央再跑 python 冗余；组件留架子供阶段四 Golden Case 按需接 | 物理删除 runner（阶段四可能需确定性复跑） |
 | **执行前 consent 进程内 gate（无 UI）**（W8.5） | v1 用 `EXEC_CONSENT_REQUIRED` + `grant_exec_consent(skill_id)`；Demo 走 CLI/文档 | 首版就做 UI 同意弹窗（阻塞 W8 纵切） |
 | **W8 超时预算拆分（judge vs local agent）**（2026-06-18） | 本地 `case_executing` 与双模型 `model_judging` 分开计时；避免 Agent 真跑占满 `WORKFLOW_TIMEOUT_*`；本地模式 `asyncio.to_thread` 不阻塞 serve | 继续整轮单一 `wait_for`（tiered-memory 3 题 Cursor 实测 `EVAL_WORKFLOW_TIMEOUT`） |
+| **W8 收官归档（2026-06-18）** | 网页实机验收通过后归档 `local-agent-exec-bridge` + `ui-local-exec-bridge`；阶段三主线切 **W7 服务器彩排** | 继续挂活跃 change 等更多优化（阻塞 W7）；把 Q-24 优化并入 W8 再归档（纵切已满足） |
 | **W5.5 安全 gate 分层扫描** | `scan_bundle_security`：**intake**（SKILL.md + scripts）决定 `can_enter_formal` / bootstrap 422；**eval_cases** 单独扫描；`origin=staging_propagator` 的 blocked 命中降级为 info；gate payload 透传 `security_findings` + `security_block_reason_zh`；UI `renderSecurityFindingsHtml` 红色拦截条 | 继续合并扫描 SKILL+cases（补题后对抗题误拦）；仅改 Propagator prompt（不稳定）；引擎与 gate 扫描范围强行统一为仅 SKILL（弱化作者上传恶意 case 检测） |
 
 ---
@@ -424,7 +425,7 @@
 
 ### 新窗口开场句（可复制 · 阶段三评估系统）
 
-> 阶段三定位：**评估系统完善**（不做集市）。**W0–W5.5 已收官**（524 tests）；**W8 本地 Agent 执行桥** ✅ **代码落地**（583 tests）。本窗口主线：**W8 实机验收**（`docs/runbooks/local-agent-exec-validation.md` + `RUN_LOCAL_AGENT=1`）→ `/opsx:archive` → W7。必读 `RECORD.md`、`.project_memory/active/SPRINT_phase3-eval-system.md`、回归包 `testskills/README-fixtures.md`。**不重写** 1.2 阈值。集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
+> 阶段三定位：**评估系统完善**（不做集市）。**W0–W8 已收官**（595 tests；W8 OpenSpec 已归档 2026-06-18）。本窗口主线：**W7 服务器彩排**（judge 上云、executor 留本地）；并行小尾：W5.5 剧本 B/C、Q-24 时延优化。必读 `RECORD.md`、回归包 `testskills/README-fixtures.md`、runbook `docs/runbooks/local-agent-exec-validation.md`。**不重写** 1.2 阈值。集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
 
 ### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
 
@@ -492,7 +493,7 @@
 | Wave 1 change | `openspec/changes/archive/2026-06-09-wave1-taxonomy/` |
 | Wave 3 change | `openspec/changes/archive/2026-06-09-wave3-propagator/` |
 | **W8 本地 Agent 执行桥 runbook** | `docs/runbooks/local-agent-exec-validation.md` |
-| **W8 OpenSpec change（待归档）** | `openspec/changes/local-agent-exec-bridge/` |
+| **W8 OpenSpec change（已归档）** | `openspec/changes/archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W8 设计稿** | `docs/superpowers/specs/2026-06-17-local-agent-exec-bridge-design.md` |
 | **W8 exec fixture** | `testskills/exec-fixture-minimal/` |
 | **Skill 评估系统全景说明 §10** | `docs/guides/Skill评估系统全景说明.md` |
@@ -578,6 +579,8 @@
 | 2026-06-17 | **W8 本地 Agent 执行桥代码落地**：OpenSpec tasks 1–23 完成；**583 tests**；DB v9；fixture + runbook；🟡 待实机验收 |
 | 2026-06-18 | **W5.5 回归 fixture 热修收官**：`stock-radar-fixture-{sec-block,score-low,score-high}`；**524 tests** |
 | 2026-06-18 | **W8 超时预算拆分**：judge `WORKFLOW_*` 与 local agent `LOCAL_AGENT_WORKFLOW_*` 分开计时；`.env` / `.env.example` 已写入 Demo 推荐值；实机 tiered-memory 3 题 Cursor 曾整轮 `EVAL_WORKFLOW_TIMEOUT` → 已解 |
+| 2026-06-18 | **W8 网页实机验收通过**：tiered-memory-sprint-manager + cursor-agent；扫描/Test/正式评全流程；阶段标签「本地 Agent 真跑」→「双模型评估」 |
+| 2026-06-18 | **OpenSpec 归档**：`local-agent-exec-bridge` → `archive/2026-06-18-local-agent-exec-bridge/`；`ui-local-exec-bridge` → `archive/2026-06-18-ui-local-exec-bridge/`；**595 tests** |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 

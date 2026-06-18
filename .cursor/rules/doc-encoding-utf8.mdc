@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Chinese Markdown encoding (UTF-8)
 
-Protects **RECORD.md**, **`.project_memory/**/*.md`**, **`docs/**/*.md`**, and **`openspec/**/*.md`** from double-encoding / mojibake (e.g. `总账文档` → `鎬昏处鏂囨`).
+Protects **RECORD.md**, **`.project_memory/**/*.md`**, **`docs/**/*.md`**, and **`openspec/**/*.md`** from double-encoding / mojibake. Avoid writing literal mojibake samples in tracked docs; tests construct samples in code.
 
 ## Write rules
 
@@ -33,7 +33,7 @@ Other Chinese `.md` paths: `python scripts/check_doc_encoding.py path/to/file.md
 
 ## Detection signals
 
-- Substrings like `鎬昏处`, `浠诲姟鐩`
+- Known mojibake fingerprints detected by `scripts/check_doc_encoding.py`
 - UTF-8 BOM on markdown
 - Spike in Unicode private-use chars (U+E000–F8FF)
 - RECORD missing anchor `总账文档`
