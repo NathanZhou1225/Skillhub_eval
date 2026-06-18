@@ -15,7 +15,28 @@ def clear_exec_consent() -> None:
     _consented_skill_ids.clear()
 
 
+def hydrate_exec_consent_from_db() -> None:
+    """Sync in-memory consent gate from persisted sqlite preferences (survives serve restart)."""
+    try:
+        from skillhub_eval.execution.preferences import get_preferences
+
+        if bool(get_preferences().get("consent_granted")):
+            grant_exec_consent("*")
+    except Exception:
+        pass
+
+
 def has_exec_consent(skill_id: str) -> bool:
     if not settings.exec_consent_required:
         return True
-    return "*" in _consented_skill_ids or skill_id in _consented_skill_ids
+    if "*" in _consented_skill_ids or skill_id in _consented_skill_ids:
+        return True
+    try:
+        from skillhub_eval.execution.preferences import get_preferences
+
+        if bool(get_preferences().get("consent_granted")):
+            grant_exec_consent("*")
+            return True
+    except Exception:
+        pass
+    return False

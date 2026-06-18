@@ -1292,6 +1292,9 @@ async def get_status(
     gap_zero = False
     case_gate_passed = False
     type_coverage: dict = {}
+    stage_progress: list[str] = []
+    if active_run_id:
+        stage_progress = repo.get_stage_progress(str(active_run_id))
     if staging_path.is_dir() and (staging_path / "SKILL.md").is_file():
         bundle = ingest_bundle(str(staging_path))
         gap_zero = _compute_gap_zero(staging_path)
@@ -1304,6 +1307,7 @@ async def get_status(
         "status": conv.get("status"),
         "active_run_id": active_run_id,
         "run_status": active_run.get("status") if active_run else None,
+        "stage_progress": stage_progress,
         "auto_run_count": int(conv.get("auto_run_count", 0)),
         "max_auto_runs": int(conv.get("max_auto_runs", 5)),
         "auto_confirmed": bool(conv.get("auto_confirmed")),

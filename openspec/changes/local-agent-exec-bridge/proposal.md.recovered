@@ -1,0 +1,43 @@
+# Change: local-agent-exec-bridge
+
+> 2026-06-17 grill 淇：回浼犲约由「MCP submit 工具」改涓恒€宻tream-json 流解鏋愩€嶏紙open-design 实测浠?claude 鏈?MCP 注入）；judge 鏂板鎵ц模式 prompt；新澧?entrypoint/execution_source 元数鎹紱红线题分加固妗?降级銆傝瑙?`docs/superpowers/specs/2026-06-17-local-agent-exec-bridge-design.md` §0銆?
+
+## Why
+
+当前评估鍦?`case_executing` 闃舵不真璺?skill：`skillhub_eval/core/engine.py` 直接 `load_sample_io(skill_bundle_path, case_id)` 读取浣滆€呴放的 `sample_io/{case}.json` 作为 `actual_output`（engine.py:313/330/1010锛夈€傚悗果：
+
+- 鍘熻划的涓ぎ subprocess 沙盒（W8 Level 2锛?*结构上跑不了内网 skill**（中澶棤 VPN/DB/Token），而内缃?skill 恰恰鏈€闇€要真璺戙€?
+- 评的鏄€屾潗料是否自娲姐€嶏紝不是「真实使用时能否璺戦€氥€嶃€?
+
+鏈彉更把「真实执琛屻€嶄笅放到寮€鍙戣€呮湰地已配好鐨?CLI agent（claude / codex / cursor-agent），鐢?SkillHub **同机 spawn** 驱动其真璺?skill锛?*解析鍏?stream-json 输出**收集真实产出；评分系统（DSL 鏂█ / 双模鍨?/ 安全 / 聚合 / 决策）结鏋勫鐢紝judge 按执琛?样例分两濂?prompt，`actual_output` 来源改为真实鎵ц銆?
+
+璁捐依据：`nexu-io/open-design`（local-first，daemon + per-agent adapter + stream-json 流解析）。完鏁磋璁＄瑙?`docs/superpowers/specs/2026-06-17-local-agent-exec-bridge-design.md`銆?
+
+## What Changes
+
+- 鏂板 `ExecutionSource` 抽象（Port），引擎 `case_executing` 经它鍙?`actual_output`，取代直璋?`load_sample_io`銆?
+- 鏂板 `SampleIoSource`（包现有行为，作鍥為€€/浣滆€呭彲选）涓?`LocalAgentSource`（驱动本鍦?agent 真跑锛夈€?
+- 鏂板 `LocalAgentRunner`（抄 open-design）：agent 妫€娴?/ 同机 spawn（原鐢?Windows，prompt 缁?stdin锛? **StreamParser 流解鏋?* / 完成判定 / 产物提取 / entrypoint 鎵ц证据校验；v1 鏀寔 claude、codex、cursor-agent（实现顺搴?claude 鈫?codex 鈫?cursor-agent锛夈€?
+- **回传走流解析**（非 MCP）：`actual_output` = 鏈€缁?result 文本 + tool_result + per-run cwd 产物文件 + 鍙€夋敹灏?fenced JSON銆?
+- judge 鏂板**鎵ц模式 prompt**（真跑时按执行结果评）；样例模式（现鏈?doc-centric）保留；流水线结鏋勩€佸弻模型、聚鍚堛€丷1–R8 决策不变銆?
+- 鏂板 `PerRunWorkspace`：每题每次运行从 staging clone 临时 cwd；有界并发（榛樿 2，可配）+ 限流閫€閬裤€?
+- 鏂板元数鎹瓧娈?`entrypoint`（has_scripts 必填锛夈€乣execution_source`（per-skill，默认随 env `EXEC_SOURCE`锛夈€?
+- 红线题：happy/edge 涓?agent 真跑；红线真跑仅 codex 加固档（`--sandbox workspace-write` + `network_access=false`），claude/cursor 红线降级 doc-centric銆?
+- 信任模型分阶段（v1：信任本地，judge pass→PASS，标 `spot_check_eligible` 涓?history 鍙瓫）；鎵ц来源鍙€?+ 降级鍥為€€矩阵銆?
+- 安全：执行前同意、权限约束在 per-run 鐩綍、与现有 Security Gate 鎵撻€氥€佸洖传过 output sanitizer銆?
+- `level_achieved`：本地真跑（鏈?entrypoint 证据锛? level_2（source=local_agent）；sample_io = level_1；废寮?`has_scripts AND self.sandbox` 判定銆?
+
+## Non-Goals
+
+- `submit_case_output` MCP 工具 / `SkillHubMcpServer`鈥斺€攇rill 后删除（cursor/codex 鏃?MCP 注入，不通用锛夈€?
+- 澶?agent 对照缁熻（W8.4锛夆€斺€旀湰变更鍙繚证三 agent 各能单独璺戦€氥€?
+- 鍏綉涓ぎ复核 / 鑷姩分级 PASS鈥斺€斿睘鐩爣态（多用鎴?上云），v1 不做銆?
+- 网络妗?/ 上云 transport鈥斺€攙1 鍙仛同机 spawn銆?
+- claude/cursor 红线容器加固（WSL+firejail锛夆€斺€旂洰鏍囨€併€?
+- hybrid 会话分组鈥斺€旀祴鍑恒€屽お鎱€嶅啀璇淬€?
+- 涓ぎ纭畾性代码跑 / Golden Case / 上架后健搴锋鏌モ€斺€斿凡移阶段四（W10锛夈€?
+- 物理删除 `skillhub_eval/sandbox/python_subprocess.py`鈥斺€旂暀架子，按安全鍗忚鍙﹁纭銆?
+
+## Relation to SPRINT
+
+闃舵涓?· Wave 8（重定义 2026-06-17），覆盖 W8.1–W8.6锛岃 `.project_memory/active/SPRINT_phase3-eval-system.md`。取代原 W8 Level 2 涓ぎ沙盒 + 鍘?W9 鑷缓 Harness。受影响规范文档：`docs/specs/Skill元数鎹畾义与编写规范.md`（新澧?`entrypoint`/`execution_source`、returns_schema / sample_io锛夈€乣docs/specs/评估指标与准入标鍑?md`（准入与信任、level 璇箟锛夈€?

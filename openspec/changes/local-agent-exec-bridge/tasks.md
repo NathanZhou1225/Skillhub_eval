@@ -1,126 +1,126 @@
-﻿# Tasks: local-agent-exec-bridge
+# Tasks: local-agent-exec-bridge
 
-> 鎵ц鏂瑰紡锛歴ubagent-driven-development锛屾瘡椤逛竴涓?subagent锛孴DD锛堝厛绾㈠悗缁匡級銆?
-> 楠岃瘉鍩虹嚎锛氱幇鏈?`pytest`锛?24 tests锛? fixture 涓変欢濂椾笉鍥炲綊銆?
-> 瀹炵幇椤哄簭锛歐8.1 claude 鈫?codex 鈫?cursor-agent锛涘叾浣欐寜 wave 椤哄簭銆?
-> grill 淇锛氬洖浼犺蛋娴佽В鏋愶紙鏃?MCP server锛夛紱judge 鍙屾ā寮忥紱鏂板 entrypoint/execution_source 鍏冩暟鎹?+ 璇佹嵁鏍￠獙锛涚孩绾垮姞鍥?闄嶇骇銆?
+> 执行方式：subagent-driven-development，每项一个 subagent，TDD（先红后绿）。
+> 验证基线：现有 `pytest`（524+ tests），fixture 三件套不回归。
+> 实现顺序：W8.1 claude → codex → cursor-agent；其余按 wave 顺序。
+> grill 修订：回传走流解析（无 MCP server）；judge 双模式；新增 entrypoint/execution_source 元数据 + 证据校验；红线加固/降级。
 
-## W8.2-pre 鎺ョ紳涓庡绾﹂鏋讹紙鍏堢珛鎶借薄锛?
+## W8.2-pre 接缝与契约骨架（先立抽象）
 
-- [x] 1. `ExecutionSource` Port + `ExecResult`/`RunOutcome`/`ParsedStream` 鏁版嵁绫?
-  - Files: `skillhub_eval/core/ports.py`銆乣skillhub_eval/core/schemas/report.py`
-  - 瀛楁锛歚actual_output`銆乣source`(`local_agent`/`sample_io`)銆乣confidence`銆乣transcript_ref`銆乣usage`銆乣status`(`ok`/`incomplete`)銆乣level`(`level_1`/`level_2`)
+- [x] 1. `ExecutionSource` Port + `ExecResult`/`RunOutcome`/`ParsedStream` 数据类
+  - Files: `skillhub_eval/core/ports.py`、`skillhub_eval/core/schemas/report.py`
+  - 字段：`actual_output`、`source`(`local_agent`/`sample_io`)、`confidence`、`transcript_ref`、`usage`、`status`(`ok`/`incomplete`)、`level`(`level_1`/`level_2`)
   - Verify: `pytest tests/core/test_ports.py -v`
 
-- [x] 2. `SampleIoSource`锛氬寘鐜版湁 `load_sample_io`锛屽疄鐜?`ExecutionSource`
-  - Files: `skillhub_eval/core/sample_io_source.py`銆乣tests/core/test_sample_io_source.py`
-  - 琛屼负椤讳笌鐜版湁 `load_sample_io` 绛変环锛堝惈 None鈫抯kip 璇箟锛夛紱source=sample_io銆乴evel=level_1
+- [x] 2. `SampleIoSource`：包现有 `load_sample_io`，实现 `ExecutionSource`
+  - Files: `skillhub_eval/core/sample_io_source.py`、`tests/core/test_sample_io_source.py`
+  - 行为须与现有 `load_sample_io` 等价（含 None→skip 语义）；source=sample_io、level=level_1
   - Verify: `pytest tests/core/test_sample_io_source.py -v`
 
-- [x] 3. 寮曟搸鎺ョ紳鏀归€狅細`case_executing` 涓夊锛坋ngine.py:313/330/1010锛夌粡 `ExecutionSource`
-  - Files: `skillhub_eval/core/engine.py`銆乣skillhub_eval/settings.py`锛堝 `EXEC_SOURCE` 榛樿 `sample_io`锛?
-  - 榛樿 `sample_io` 鈫?琛屼负涓庢敼閫犲墠瀹屽叏涓€鑷?
-  - Verify: `pytest tests/ -q`锛堝叏閲忓洖褰掞紝纭 0 琛屼负鍙樺寲锛?
+- [x] 3. 引擎接缝改造：`case_executing` 三处（engine.py:313/330/1010）经 `ExecutionSource`
+  - Files: `skillhub_eval/core/engine.py`、`skillhub_eval/settings.py`（增 `EXEC_SOURCE` 默认 `sample_io`）
+  - 默认 `sample_io` → 行为与改造前完全一致
+  - Verify: `pytest tests/ -q`（全量回归，确认 0 行为变化）
 
-## W8.1 鎵ц浼犺緭灞傦紙鎶?open-design锛屾祦瑙ｆ瀽锛宑laude鈫抍odex鈫抍ursor-agent锛?
+## W8.1 执行传输层（抄 open-design，流解析，claude→codex→cursor-agent）
 
-- [x] 4. `Adapter` 鍗忚 + `LocalAgentRunner` 楠ㄦ灦锛坉etect/spawn/瀹屾垚鍒ゅ畾锛?
-  - Files: `skillhub_eval/execution/runner.py`銆乣tests/execution/test_runner.py`
-  - 鍚屾満 spawn锛堝師鐢?Windows锛宲rompt 缁?stdin锛夛紱瀹屾垚鍒ゅ畾涓ゅ眰锛氬瓙杩涚▼ exit + 娴?`{type:"result"}`
-  - Verify: `pytest tests/execution/test_runner.py -v`锛坒ake 瀛愯繘绋?+ fake 娴?fixture锛?
+- [x] 4. `Adapter` 协议 + `LocalAgentRunner` 骨架（detect/spawn/完成判定）
+  - Files: `skillhub_eval/execution/runner.py`、`tests/execution/test_runner.py`
+  - 同机 spawn（原生 Windows，prompt 经 stdin）；完成判定两层：子进程 exit + 流 `{type:"result"}`
+  - Verify: `pytest tests/execution/test_runner.py -v`（fake 子进程 + fake 流 fixture）
 
-- [x] 5. `StreamParser` + `ArtifactCollector`锛堟渶缁堟枃鏈?+ tool_result + cwd 浜х墿 + 鏀跺熬 fenced JSON锛?
-  - Files: `skillhub_eval/execution/stream_parser.py`銆乣tests/execution/test_stream_parser.py`
-  - 鐢?open-design 褰曞埗鐨勬祦鏍锋湰椹卞姩锛涙敹灏?JSON 瑙ｆ瀽澶辫触 鈫?鍚堟垚鍏滃簳
+- [x] 5. `StreamParser` + `ArtifactCollector`（最终文本 + tool_result + cwd 产物 + 收尾 fenced JSON）
+  - Files: `skillhub_eval/execution/stream_parser.py`、`tests/execution/test_stream_parser.py`
+  - 用 open-design 录制的流样本驱动；收尾 JSON 解析失败 → 合成兜底
   - Verify: `pytest tests/execution/test_stream_parser.py -v`
 
-- [x] 6. claude adapter锛坄-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions`锛? claude-stream-json 瑙ｆ瀽
-  - Files: `skillhub_eval/execution/adapters/claude.py`銆乣tests/execution/test_adapter_claude.py`
+- [x] 6. claude adapter（`-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions`）+ claude-stream-json 解析
+  - Files: `skillhub_eval/execution/adapters/claude.py`、`tests/execution/test_adapter_claude.py`
   - Verify: `pytest tests/execution/test_adapter_claude.py -v`
 
-- [x] 7. codex adapter锛坄exec --json --sandbox workspace-write -c sandbox_workspace_write.network_access=<bool> -c default_permissions=":workspace" -C <cwd>`锛? codex 浜嬩欢娴佽В鏋?
-  - Files: `skillhub_eval/execution/adapters/codex.py`銆乣tests/execution/test_adapter_codex.py`
+- [x] 7. codex adapter（`exec --json --sandbox workspace-write ...`）+ codex 事件流解析
+  - Files: `skillhub_eval/execution/adapters/codex.py`、`tests/execution/test_adapter_codex.py`
   - Verify: `pytest tests/execution/test_adapter_codex.py -v`
 
-- [x] 8. cursor-agent adapter锛坄--print --output-format stream-json --stream-partial-output --force --trust --workspace <cwd>`锛? 绉佹湁 eventParser锛堝幓閲嶏級
-  - Files: `skillhub_eval/execution/adapters/cursor_agent.py`銆乣tests/execution/test_adapter_cursor_agent.py`
-  - 鍙傜収 open-design `emitCursorTextDelta` 鏂囨湰鍘婚噸閫昏緫
+- [x] 8. cursor-agent adapter（`--print --output-format stream-json ...`）+ 私有 eventParser（去重）
+  - Files: `skillhub_eval/execution/adapters/cursor_agent.py`、`tests/execution/test_adapter_cursor_agent.py`
+  - 参照 open-design `emitCursorTextDelta` 文本去重逻辑
   - Verify: `pytest tests/execution/test_adapter_cursor_agent.py -v`
 
-## W8.2 鍏冩暟鎹?+ 璇佹嵁 + LocalAgentSource
+## W8.2 元数据 + 证据 + LocalAgentSource
 
-- [x] 9. 鍏冩暟鎹柊澧?`entrypoint`/`execution_source`锛氳鑼?+ ingest 瑙ｆ瀽 + 鏍￠獙
-  - Files: `docs/specs/Skill鍏冩暟鎹畾涔変笌缂栧啓瑙勮寖.md`銆乣skillhub_eval/core/ingest.py`銆乣tests/core/test_ingest_entrypoint.py`
-  - has_scripts 蹇呭～ `entrypoint`锛涚己澶?鈫?鏍￠獙鎶ラ敊
+- [x] 9. 元数据新增 `entrypoint`/`execution_source`：规范 + ingest 解析 + 校验
+  - Files: `docs/specs/Skill元数据定义与编写规范.md`、`skillhub_eval/core/ingest.py`、`tests/core/test_ingest_entrypoint.py`
+  - has_scripts 必填 `entrypoint`；缺失 → 校验报错
   - Verify: `pytest tests/core/test_ingest_entrypoint.py -v`
 
-- [x] 10. `EvidenceVerifier`锛歵ool_result 鏄惁璺戣繃澹版槑鐨?entrypoint
-  - Files: `skillhub_eval/execution/evidence.py`銆乣tests/execution/test_evidence.py`
+- [x] 10. `EvidenceVerifier`：tool_result 是否跑过声明的 entrypoint
+  - Files: `skillhub_eval/execution/evidence.py`、`tests/execution/test_evidence.py`
   - Verify: `pytest tests/execution/test_evidence.py -v`
 
-- [x] 11. `PerRunWorkspace`锛歴taging鈫抪er-run clone / 娓呯悊 / 鐣欒瘉
-  - Files: `skillhub_eval/execution/workspace.py`銆乣tests/execution/test_workspace.py`
-  - Verify: `pytest tests/execution/test_workspace.py -v`锛坈lone 闅旂 + 骞惰鏃犲啿绐?+ 娓呯悊锛?
+- [x] 11. `PerRunWorkspace`：staging→per-run clone / 清理 / 留证
+  - Files: `skillhub_eval/execution/workspace.py`、`tests/execution/test_workspace.py`
+  - Verify: `pytest tests/execution/test_workspace.py -v`（clone 隔离 + 并行无冲突 + 清理）
 
-- [x] 12. `harness_prompt`锛氬己鍒剁敤 skill + 璋?entrypoint + 鏀跺熬 JSON
-  - Files: `skillhub_eval/execution/harness_prompt.py`銆乣tests/execution/test_harness_prompt.py`
+- [x] 12. `harness_prompt`：强制用 skill + 调 entrypoint + 收尾 JSON
+  - Files: `skillhub_eval/execution/harness_prompt.py`、`tests/execution/test_harness_prompt.py`
   - Verify: `pytest tests/execution/test_harness_prompt.py -v`
 
-- [x] 13. `LocalAgentSource`锛氱紪鎺?runner + workspace + 璇佹嵁鏍￠獙锛屼骇鍑?`ExecResult`
-  - Files: `skillhub_eval/execution/local_agent_source.py`銆乣tests/execution/test_local_agent_source.py`
-  - `Semaphore` 鏈夌晫骞跺彂锛坄EXEC_CONCURRENCY` 榛樿 2锛? 闄愭祦閫€閬?+ per-risk 瓒呮椂
-  - Verify: `pytest tests/execution/test_local_agent_source.py -v`锛坒ake adapter 椹卞姩锛?
+- [x] 13. `LocalAgentSource`：编排 runner + workspace + 证据校验，产出 `ExecResult`
+  - Files: `skillhub_eval/execution/local_agent_source.py`、`tests/execution/test_local_agent_source.py`
+  - `Semaphore` 有界并发（`EXEC_CONCURRENCY` 默认 2）+ 限流退避 + per-risk 超时
+  - Verify: `pytest tests/execution/test_local_agent_source.py -v`（fake adapter 驱动）
 
-## W8.2 judge 鍙屾ā寮?
+## W8.2 judge 双模式
 
-- [x] 14. `_build_case_prompt` 鍔犳墽琛?鏍蜂緥鍙屾ā寮忥紙鎸?`ExecResult.source`锛?
-  - Files: `skillhub_eval/core/engine.py`銆乣tests/core/test_judge_dual_mode.py`
-  - 鎵ц妯″紡 rubric 璇勬墽琛岀粨鏋滐紱鏍蜂緥妯″紡淇濇寔鐜版湁 doc-centric锛堝惈绾㈢嚎 doc 鍙ｅ緞锛?
+- [x] 14. `_build_case_prompt` 加执行/样例双模式（按 `ExecResult.source`）
+  - Files: `skillhub_eval/core/engine.py`、`tests/core/test_judge_dual_mode.py`
+  - 执行模式 rubric 评执行结果；样例模式保持现有 doc-centric（含红线 doc 口径）
   - Verify: `pytest tests/core/test_judge_dual_mode.py -v`
 
-## W8.3 鏉ユ簮璺敱 + 闄嶇骇 + 淇′换 v1 + level
+## W8.3 来源路由 + 降级 + 信任 v1 + level
 
-- [x] 15. 鎵ц鏉ユ簮璺敱锛坧er-skill `execution_source` > env锛? 闄嶇骇鐭╅樀
-  - Files: `skillhub_eval/core/execution_source.py`銆乣tests/core/test_execution_source_routing.py`
-  - 鏃?agent/鏈櫥褰曗啋鏁磋疆 sample_io锛涘崟棰樺け璐?鏃犺瘉鎹啋鍥為€€ sample_io锛屾棤鏍蜂緥鈫抈incomplete`
+- [x] 15. 执行来源路由（per-skill `execution_source` > env）+ 降级矩阵
+  - Files: `skillhub_eval/core/execution_source.py`、`tests/core/test_execution_source_routing.py`
+  - 无 agent/未登录→整轮 sample_io；单题失败/无证据→回退 sample_io，无样例→incomplete
   - Verify: `pytest tests/core/test_execution_source_routing.py -v`
 
-- [x] 16. `level_achieved` 鏀圭湅鎵ц璇佹嵁 + 淇′换 v1 鎺ョ嚎
-  - Files: `skillhub_eval/core/engine.py`锛堝簾寮?:296 `has_scripts AND self.sandbox`锛沴evel_2=鏈夎瘉鎹湡璺戯紱pass鈫扨ASS 鏍?`spot_check_eligible`锛夈€乣tests/core/test_level_and_trust.py`
+- [x] 16. `level_achieved` 改看执行证据 + 信任 v1 接线
+  - Files: `skillhub_eval/core/engine.py`（废弃 :296 `has_scripts AND self.sandbox`；level_2=有证据真跑；pass→PASS 标 `spot_check_eligible`）、`tests/core/test_level_and_trust.py`
   - Verify: `pytest tests/core/test_level_and_trust.py -v`
 
-- [x] 17. history 鍙瓫锛歚spot_check_eligible` / `source` 鎸佷箙鍖?+ 绛涢€?
-  - Files: `skillhub_eval/persistence/sqlite.py`銆乣skillhub_eval/persistence/repository.py`銆乣tests/persistence/test_spotcheck_filter.py`
+- [x] 17. history 可筛：`spot_check_eligible` / `source` 持久化 + 筛选
+  - Files: `skillhub_eval/persistence/sqlite.py`、`skillhub_eval/persistence/repository.py`、`tests/persistence/test_spotcheck_filter.py`
   - Verify: `pytest tests/persistence/test_spotcheck_filter.py -v`
 
-## W8.5 瀹夊叏 + 绾㈢嚎鍔犲浐
+## W8.5 安全 + 红线加固
 
-- [x] 18. 鎵ц鍓嶅悓鎰?+ 鏉冮檺鐩綍绾︽潫 + 涓?Security Gate 鎵撻€?
-  - Files: `skillhub_eval/execution/local_agent_source.py`銆乣skillhub_eval/core/engine.py`銆乣tests/execution/test_exec_consent_and_gate.py`
-  - blocked bundle 涓?spawn锛涙湭鍚屾剰涓?spawn锛涙潈闄愪粎闄?per-run 鐩綍
+- [x] 18. 执行前同意 + 权限目录约束 + 与 Security Gate 打通
+  - Files: `skillhub_eval/execution/local_agent_source.py`、`skillhub_eval/core/engine.py`、`tests/execution/test_exec_consent_and_gate.py`
+  - blocked bundle 不 spawn；未同意不 spawn；权限仅限 per-run 目录
   - Verify: `pytest tests/execution/test_exec_consent_and_gate.py -v`
 
-- [x] 19. `HardenedProfile`锛歝odex 绾㈢嚎鍔犲浐妗ｏ紱claude/cursor 绾㈢嚎闄嶇骇 doc-centric
-  - Files: `skillhub_eval/execution/profile.py`銆乣skillhub_eval/execution/local_agent_source.py`銆乣tests/execution/test_hardened_profile.py`
-  - codex 绾㈢嚎锛氱澶栬仈 + 闄?fs锛沜laude/cursor 绾㈢嚎锛氶檷绾?+ 鎶ュ憡鏍囧師鍥?
+- [x] 19. `HardenedProfile`：codex 红线加固档；claude/cursor 红线降级 doc-centric
+  - Files: `skillhub_eval/execution/profile.py`、`skillhub_eval/execution/local_agent_source.py`、`tests/execution/test_hardened_profile.py`
+  - codex 红线：禁外联 + 限 fs；claude/cursor 红线：降级 + 报告标原因
   - Verify: `pytest tests/execution/test_hardened_profile.py -v`
 
-- [x] 20. 鍥炰紶杩?output sanitizer锛堝鐢?`run_output_sanitizer`锛?
-  - Files: `skillhub_eval/execution/local_agent_source.py`銆乣tests/execution/test_exec_sanitizer.py`
+- [x] 20. 回传过 output sanitizer（复用 `run_output_sanitizer`）
+  - Files: `skillhub_eval/execution/local_agent_source.py`、`tests/execution/test_exec_sanitizer.py`
   - Verify: `pytest tests/execution/test_exec_sanitizer.py -v`
 
-## W8.6 绔埌绔獙鏀?
+## W8.6 端到端验收
 
-- [x] 21. 鍙墽琛?fixture skill锛堝惈 `entrypoint`锛屽啓涓棿鏂囦欢 + 缁撴瀯鍖栦骇鍑猴級
-  - Files: `testskills/<exec-fixture>/...`锛圫KILL.md + frontmatter `entrypoint` + 鑴氭湰 + eval_cases + returns_schema锛?
-  - Verify: `pytest tests/ -q`锛坒ixture 琚?ingest/鏍￠獙鎺ュ彈锛?
+- [x] 21. 可执行 fixture skill（含 `entrypoint`，写中间文件 + 结构化产出）
+  - Files: `testskills/exec-fixture-minimal/`（SKILL.md + frontmatter `entrypoint` + 脚本 + eval_cases + returns_schema）
+  - Verify: `pytest tests/ -q`（fixture 被 ingest/校验接受）
 
-- [x] 22. 绔埌绔細涓?agent 鍚勮窇閫氬悓涓€ fixture 涓€娆?+ runbook
-  - Files: `docs/runbooks/local-agent-exec-validation.md`銆乣tests/execution/test_e2e_local_exec.py`锛堟爣 `@pytest.mark.requires_local_agent`锛岄粯璁?skip锛?
-  - Verify: 鏈湴鎵嬪姩 `pytest -m requires_local_agent -v`锛堜笁 agent锛? `pytest tests/ -q`锛堝叏閲忎笉鍥炲綊锛?
+- [x] 22. 端到端：三 agent 各跑通同一 fixture 一次 + runbook
+  - Files: `docs/runbooks/local-agent-exec-validation.md`、`tests/execution/test_e2e_local_exec.py`（标 `@pytest.mark.requires_local_agent`，默认 skip）
+  - Verify: 本地手动 `pytest -m requires_local_agent -v`（三 agent）+ `pytest tests/ -q`（全量不回归）
 
-## 鏀跺熬
+## 收尾
 
-- [x] 23. 鏂囨。瀵归綈锛氬叏鏅鏄?搂10 鎵ц灞傜幇鐘躲€丷ECORD 娴佹按銆丼print W8 鍕鹃€?
-  - Files: `docs/guides/Skill璇勪及绯荤粺鍏ㄦ櫙璇存槑.md`銆乣RECORD.md`銆乣.project_memory/active/SPRINT_phase3-eval-system.md`
-  - Verify: 浜哄伐 review + `pytest tests/ -q`
+- [x] 23. 文档对齐：全景说明 §10 执行层现状、RECORD 流水、Sprint W8 勾选
+  - Files: `docs/guides/Skill评估系统全景说明.md`、`RECORD.md`、`.project_memory/active/SPRINT_phase3-eval-system.md`
+  - Verify: 人工 review + `pytest tests/ -q`

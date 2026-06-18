@@ -1,0 +1,39 @@
+---
+description: UTF-8 encoding discipline for Chinese Markdown (RECORD, .project_memory); mojibake prevention
+alwaysApply: true
+---
+
+# Chinese Markdown encoding (UTF-8)
+
+Protects **RECORD.md**, **`.project_memory/**/*.md`**, **`docs/**/*.md`**, and **`openspec/**/*.md`** from double-encoding / mojibake (e.g. `总账文档` → `鎬昏处鏂囨`).
+
+## Write rules
+
+1. **Encoding**: UTF-8 **without BOM** only. Python: `open(path, "w", encoding="utf-8", newline="\n")`.
+2. **Shell**: Do **not** overwrite Chinese `.md` via PowerShell `Out-File` or shell redirection unless UTF-8 is guaranteed (`chcp 65001`, `PYTHONIOENCODING=utf-8`).
+3. **RECORD.md**: **Patch sections only** — never rewrite the entire file in one shot. Sprint truth lives in `.project_memory/active/SPRINT_*.md`; RECORD summarizes + points.
+4. **After edits**: Run `pytest tests/test_doc_encoding.py -q` or `python scripts/check_doc_encoding.py`. Extra paths: `python scripts/check_doc_encoding.py path/to/file.md`.
+
+## If corruption is suspected
+
+- Do **not** commit garbled text.
+- Recovery (incident only): `python scripts/restore_record.py --output RECORD.recovered.md` then review; `python scripts/restore_record.py --write` only after explicit approval.
+- Git fallback: `git show 88f5891:RECORD.md`.
+
+## Scope
+
+Automated check (pytest `tests/test_doc_encoding.py`) covers:
+
+- `RECORD.md`
+- `.project_memory/**/*.md`
+- `docs/**/*.md`
+- `openspec/**/*.md`
+
+Other Chinese `.md` paths: `python scripts/check_doc_encoding.py path/to/file.md`.
+
+## Detection signals
+
+- Substrings like `鎬昏处`, `浠诲姟鐩`
+- UTF-8 BOM on markdown
+- Spike in Unicode private-use chars (U+E000–F8FF)
+- RECORD missing anchor `总账文档`

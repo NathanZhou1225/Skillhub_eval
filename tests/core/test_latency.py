@@ -19,6 +19,13 @@ def test_workflow_timeout_by_risk():
     assert WORKFLOW_TIMEOUT_BY_RISK[RiskLevel.high] == 900
 
 
+def test_local_agent_workflow_timeout_by_risk():
+    from skillhub_eval.core.latency import local_agent_workflow_timeout_seconds
+
+    assert local_agent_workflow_timeout_seconds(RiskLevel.low) == 1800
+    assert local_agent_workflow_timeout_seconds(RiskLevel.high) == 5400
+
+
 def test_case_concurrency_and_provider_timeout_constants():
     assert CASE_JUDGE_CONCURRENCY == 3
     assert Settings.model_fields["provider_call_timeout_s"].default == 90.0

@@ -1,0 +1,352 @@
+# 鏈湴 Agent 鎵ц妗?鈥?璁捐稿（W8 重定义）
+
+> 日期锛?026-06-17（含同日 grill-me 淇锛?
+> 鐘舵€侊細Grill 瀹氱锛?1 椤硅计变更已并入；下涓€姝?OpenSpec change 鍚屾 鈫?实现锛?
+> 范围：阶段三 · Wave 8（重定义，取代原 W8 Level 2 涓ぎ沙盒 + 鍘?W9 鑷缓 Harness锛?
+> 相关：`RECORD.md`锛?026-06-17 决策缁勩€丵-19/20/21/22锛夈€乣.project_memory/active/SPRINT_phase3-eval-system.md`（W8.0–W8.6锛夈€乣docs/guides/Skill评估系统全景说明.md` §10.5
+> 璁捐依据：`nexu-io/open-design`（local-first，daemon + per-agent adapter + **stream-json 流解鏋?*锛?
+
+---
+
+## 0. Grill 淇鎽樿锛?026-06-17锛?
+
+鏈缁?grill-me 鍚庡初版做了 11 项改鍔紝**两项推翻初版核心鍋囪**，务必先读：
+
+| # | 变更 | 类型 |
+|---|------|------|
+| G1 | **砍掉 `submit_case_output` MCP 工具，改「流解析」统涓€回传**（open-design 里只鏈?claude 鏈?MCP 注入，cursor-agent/codex 都没有，其真实机制就鏄В鏋?stream-json锛夈€俙SkillHubMcpServer` 组件 v1 删除 | 推翻 D3 |
+| G2 | **judge 闈炪€屽畬全不鍔ㄣ€嶏細鏂板鎵ц模式 prompt 分支**（现 prompt 鏄?doc-centric 璇?SKILL.md；真跑时要按鎵ц结果评）。流水线结构不动，prompt 分两濂?| 淇 D5/D6 前提 |
+| G3 | has_scripts 鎶€鑳借 **entrypoint 鎵ц证据**（tool_result 证明真跑过），否则降绾?incomplete | 鏂板 |
+| G4 | 鏂板 **`entrypoint` 元数鎹瓧娈?*（has_scripts 必填）；鏀?`docs/specs/Skill元数鎹畾义与编写规范.md` + ingest + 校验 | 鏂板 |
+| G5 | 鏂板 **per-skill `execution_source` 瀛楁** + env `EXEC_SOURCE` 兜底榛樿 | 鏂板 |
+| G6 | **强制鐢?harness prompt**（明纭懡浠?agent 鐢?cwd 鐨?skill 并调 entrypoint锛?| 鏂板 |
+| G7 | **原生 Windows 鍙，不闇€ WSL**（open-design 适配器专涓?Windows CreateProcess 限制璧?stdin，已读源码确认） | 纭 |
+| G8 | **红线棰?*：happy/edge 涓?agent 真跑；红线真跑只鏈?**codex** 能上加固档（`--sandbox workspace-write` + `network_access=false`），**claude/cursor 红线降级 doc-centric** | 收紧 D2 |
+| G9 | **level_2 = 鏈湴真跑（有 entrypoint 证据锛? source=local_agent；sample_io = level_1**；废寮?`has_scripts AND self.sandbox` 判定 | 淇 |
+| G10 | **涓撳鎶芥绾汉宸?*，但鏈湴真跑 PASS 必须琚爣记且 history 鍙瓫 | 收紧 D6 |
+| G11 | **并发榛樿 2 + 限流鑷姩閫€閬?*锛堟鍒?429 鈫?閫€并发鍒?1 + 指数閫€避重试） | 细化 D2 |
+
+适配实现顺序随之调整（理由变了）锛?*claude（claude-stream-json 鏈€成熟）→ codex（自带沙箱，红线鍞竴鍙湡跑）鈫?cursor-agent（json-event-stream + 私有 eventParser锛?*銆?
+
+---
+
+## 1. 背景与目鏍?
+
+### 1.1 闂
+
+当前评估鍦?`case_executing` 闃舵**不真璺?skill**锛岃€屾槸浠庣鐩樿取作者事先放入的 `sample_io/{case}.json` 作为 `actual_output`（engine.py:313/330/1010锛夈€傚悗果：
+
+- 涓ぎ subprocess 沙盒（原 W8 计划锛?*结构上跑不了内网 skill**（无 VPN/DB/Token锛夆€斺€旇€屽唴缃?skill 恰恰鏈€闇€要真璺戙€?
+- 评的鏄€屾潗料是否自娲姐€嶏紝不是「真实使用时能否璺戦€氥€嶃€?
+
+### 1.2 鐩爣
+
+鎶娿€岀湡实执琛屻€?*下放到开鍙戣€呮湰地已配好鐨?CLI agent**（cursor-agent / codex / claude），鐢?SkillHub 同机 spawn 驱动其真璺?skill锛?*解析鍏?stream-json 娴?*收集真实产出；评分系统（DSL 鏂█ / 双模鍨?/ 安全 / 聚合 / 决策锛?*结构不变、prompt 分执琛?样例涓ゅ**，`actual_output` 来源改为真实鎵ц銆?
+
+### 1.3 取代关系
+
+- 取代鍘?**W8 Level 2 涓ぎ沙盒**：本鍦?agent 跑任务时已执琛?skill 脚本，中澶啀鐙珛 `python run.py` 冗余銆?
+- 取代鍘?**W9 鑷缓 Agent Harness**：开鍙戣€呮湰地已配好鐨?CLI agent 鍗炽€屽垎布式 Harness銆嶃€?
+- 鍘?**W10 Golden Case + 上架后健搴锋鏌?*：移至阶段四（与上架联动锛夈€?
+- `PythonSubprocessRunner`（`skillhub_eval/sandbox/python_subprocess.py`）留架子，仅闃舵鍥?Golden Case 闇€「精纭柇瑷€ + 纭畾鎬у璺戙€嶆椂按需接最小版锛?*不物理删闄?*銆?
+
+---
+
+## 2. 已锁定决策（brainstorm + grill 2026-06-17锛?
+
+| # | 决策 | 取舍 |
+|---|------|------|
+| D1 部署/传输 | **同机 spawn**：后绔洿鎺?spawn 子进程，无网络桥 | 排除网络妗?MCP-over-network（先鏈湴，上云再鎹?transport锛?|
+| D2 鎵ц粒度 | **姣忛闅旂 + 有界并发**（默璁?2，可配）+ risk 分级超时 + 限流閫€避（G11锛?| 排除单会话全涓茶（慢、红绾胯污染）；hybrid 待测出太慢再涓?|
+| D3 输出契约 | ~~MCP submit 工具~~ 鈫?**【G1 鏀广€戞祦解析统一契约**：解鏋?stream-json 取最缁?result 文本 + tool_result + per-run cwd 产物文件 + 鍙€夋敹灏?fenced JSON | 排除 MCP submit（cursor/codex 鏃?MCP 注入，仅 claude 有；涓嶉€氱敤锛?|
+| D4 工作鐩綍 | **姣忔杩愯临时 clone**：从 staging 克隆 per-run 鐩綍浣?cwd | 排除共享 staging（并行写冲突锛夈€佸彧璇?staging（写涓棿文件跑不起来锛?|
+| D5 璺緞关系 | **增量 + 鍥為€€ + 来源鍙€?*：作鑰呴€夋墽行来源（per-skill 瀛楁，G5）；agent 缺失/失败 鈫?鑷姩鍥為€€ sample_io | 排除完全替代、并璺戝照（W8.4锛?|
+| D6 信任（分闃舵锛?| **v1 信任鏈湴**：judge pass→PASS；抽妫€绾汉工但鍙瓫（G10锛夈€?*鐩爣鎬?*：公网中澶鏍?/ 内网涓撳签收 | 排除 v1 建中澶核（过早锛夈€佷竴寰嬬收（鎱級、永久信任（多用户漏洞） |
+| D7 鏂█策略 | **结构鎬?+ 璇箟为主**锛屽蹇?agent 非确瀹?| 排除精确值断瑷€（换 agent/模型 flaky锛?|
+| D8 v1 agent 闆?| **claude 鈫?codex 鈫?cursor-agent**（G1 后按解析鍣ㄥ杂度/红线能力排序）；澶?agent 对照 鈫?W8.4 | 排除 v1 鍙墦閫?1 涓紱全量 agent（YAGNI锛?|
+| D9 判子模式（G2锛?| **鎵ц模式 prompt 分支**：真跑→鎵ц结果 rubric；sample_io→现鏈?doc-centric prompt | 排除「prompt 不动直接濉?actual_output」（红线口径鑷浉矛盾锛?|
+| D10 鎵ц证据（G3锛?| has_scripts 鎶€鑳借 tool_result 证明 entrypoint 真跑；无证据→降绾?incomplete | 排除鍙俊文本输出（agent 鍙粫 pipeline 手编锛?|
+| D11 红线闅旂（G8锛?| 红线真跑仅在加固档下；codex 用原生沙箱，claude/cursor 无加固档→红线降绾?doc-centric | 排除原生 Windows 防火澧?ACL（脆弱）、强行全 WSL（工程量大） |
+
+---
+
+## 3. 架构与组浠?
+
+```
+┌─ 引擎（core/engine.py，server-side async）─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹? 鈥?gate 通过 鈫?capability_full 鈫?case_executing                       鈹?
+鈹?        鈹?                                                             鈹?
+鈹?        鈻? 通过 ExecutionSource 抽象鍙?actual_output（替换直璋?load_sample_io锛?
+鈹? ┌─ ExecutionSource 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
+鈹? 鈹? LocalAgentSource   ←→  SampleIoSource（回閫€/鍙€夛級             鈹?  鈹?
+鈹? └─鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
+鈹?         鈻?                                                           鈹?
+鈹? judge（执行模寮?/ 样例模式 鍙?prompt）→ aggregate 鈫?decision           鈹?
+└─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+            鈹?LocalAgentSource 调用
+            鈻?
+┌─ LocalAgentRunner（抄 open-design）─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+鈹? 鈥?detect锛氭测本地已瑁?已登褰?agent（claude/codex/cursor-agent）│
+鈹? 鈥?per-agent adapter：buildArgs + stdin 投喂 prompt              鈹?
+鈹? 鈥?spawn 子进程（同机，原鐢?Windows锛?                           鈹?
+鈹? 鈥?StreamParser：按 streamFormat 解析 stream-json               鈹?
+鈹? 鈥?完成判定：子进程 exit + 流终缁?result 事件                    鈹?
+鈹? 鈥?ArtifactCollector：最终文鏈?+ tool_result + cwd 产物 + usage  鈹?
+鈹? 鈥?EvidenceVerifier：tool_result 鏄惁跑过声明鐨?entrypoint       鈹?
+└─鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+        鈻?
+┌─ PerRunWorkspace 鈹€鈹?┌─ HardenedProfile 鈹€鈹€鈹€鈹€鈹€鈹?┌─ 并发 Semaphore 鈹€鈹?
+鈹? staging→clone     鈹?鈹?codex: workspace-write 鈹?鈹?榛樿 2，可閰?     鈹?
+鈹? 跑后清理/留证      鈹?鈹?+ network_access=false 鈹?鈹?限流鈫掗€€ 1 + 閫€閬? 鈹?
+└─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹?claude/cursor: 无→降级 鈹?└─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                       └─鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+```
+
+> **G1：无 `SkillHubMcpServer`**。回传不闈?MCP，靠 `StreamParser` 解析子进绋?stdout 鐨?stream-json銆傞闈紙user_intent / 输入 / entrypoint 要求）直接写杩?harness prompt銆?
+
+### 组件职责与边鐣?
+
+| 组件 | 做什涔?| 怎么鐢?| 依赖 |
+|------|--------|--------|------|
+| `ExecutionSource`（抽璞?Port锛?| 给定 case + bundle，返鍥?`ExecResult`（actual_output + 证据 + source + level锛?| 引擎 `case_executing` 鍞竴调用鐐?| 两个实现 |
+| `SampleIoSource` | 现有行为锛氳 `sample_io/{case}.json` | 鍥為€€ / 浣滆€呴€?sample_io | `ingest.load_sample_io` |
+| `LocalAgentSource` | 驱动鏈湴 agent 真跑、收集回浼犮€佸苟鍙?限流 | 浣滆€呴€夈€屾湰地真璺戙€嶄笖 agent 鍙敤 | Runner + Workspace + HardenedProfile |
+| `LocalAgentRunner` | detect / spawn / StreamParser / 完成判定 / ArtifactCollector / EvidenceVerifier | 每个 per-run 调一娆?| 同机 CLI agent；adapter registry |
+| `StreamParser`（per-agent锛?| 鎸?`streamFormat`/`eventParser` 解析 stream-json | Runner 鍐?| 鈥?|
+| `EvidenceVerifier` | tool_result 鏄惁鎵ц了声鏄?entrypoint | has_scripts 鎶€鑳?| entrypoint 元数鎹?|
+| `PerRunWorkspace` | clone staging→per-run 临时鐩綍；清鐞?留证 | 姣忛姣忔杩愯 | staging |
+| `HardenedProfile` | codex 娌欑档（禁网/闄?fs）；claude/cursor 无→红线降级 | 红线棰?| adapter 能力 |
+| 并发控制 | `Semaphore`（默璁?2锛? 限流閫€閬?| 包裹姣忛杩愯 | settings/.env |
+
+---
+
+## 4. 数据娴?
+
+```mermaid
+flowchart TD
+    G["assessment_gate 通过 鈫?capability_full"] --> SRC{鎵ц来源? per-skill 瀛楁/env 榛樿}
+    SRC -->|鏈湴真跑 涓?agent 鍙敤| RT{case 类型?}
+    SRC -->|浣滆€呴€?sample_io / 鏃?agent| FB["SampleIoSource(标低缃俊, level_1)"]
+    RT -->|happy/edge| CE["涓?agent 任一真跑(有界并发 2)"]
+    RT -->|refusal/adversarial| HARD{有加固档?}
+    HARD -->|codex 娌欑| CE
+    HARD -->|claude/cursor 无加固| FB
+    CE --> CL["姣忛:PerRunWorkspace clone staging→临鏃?cwd"]
+    CL --> SP["spawn 鏈湴 agent(harness prompt:强制鐢?skill+璋?entrypoint)"]
+    SP --> RUN["agent 鎵ц(调脚鏈?工具)"]
+    RUN --> PARSE["StreamParser 解析 stream-json"]
+    PARSE --> DONE["完成判定:子进绋?exit + 娴?result 事件"]
+    DONE --> EV{has_scripts? entrypoint 证据?}
+    EV -->|有证据| AO["actual_output = 鏈€终文鏈?+ tool_result + cwd 产物; level_2"]
+    EV -->|无证据| FB
+    AO --> SAN["output sanitizer(PII/密钥)"]
+    SAN --> J["judge 鎵ц模式 prompt(双模型按鎵ц结果璇?"]
+    FB --> JS["judge 样例模式 prompt(doc-centric)"]
+    J --> AGG["aggregate 鈫?decision(R1–R8 不变)"]
+    JS --> AGG
+    AGG --> V1["v1:pass→PASS(鏍?spot_check_eligible, history 鍙瓫);warn/R5→专瀹?]
+```
+
+---
+
+## 5. 鎵ц单元与并发（D2 / G11锛?
+
+- **姣忛涓€次独立运琛?*：每閬?case spawn 干净 agent 会话；输入隔绂汇€佷骇物一涓€对应；红绾块涓嶈上下文污鏌撱€?
+- **有界并发**：`Semaphore(N)`锛?*榛樿 N=2**（放 `.env` 鍙厤锛夈€傚苟行是压缩 high-risk 澶氶墙钟时间的主杠杆銆?
+- **限流閫€避（G11锛?*：StreamParser 妫€鍒?rate-limit/429 鈫?鑷姩閫€并发鍒?1 + 指数閫€避重璇曡题；持续失败 鈫?璇ラ进降级矩闃点€?
+- **per-case 超时**：沿鐢?risk 分级超时预算；单题超时进降级矩阵銆?
+- **耗时实测鍏堣**：v1 涓嶉寤?hybrid 分组；W8.6 用真瀹?high-risk skill 娴嬪钟时间，超阈值再考虑銆?
+
+---
+
+## 6. 工作鐩綍与隔离（D4锛?
+
+- 姣忛姣忔杩愯浠?**staging 练习鍖?* clone 出独绔?per-run 临时鐩綍作为 agent `cwd`銆?
+- 骞惰杩愯各有鐙珛鐩綍，避免文件写冲突銆?
+- 权限：happy/edge 沿用 open-design 全自动姿态（claude `bypassPermissions`、cursor `--force --trust`、codex `workspace-write`），约束在临时目褰?+ 评估期；不动 `originals` 鍘熺鍖恒€佷笉鍔?staging 母本銆?
+- 红线棰樿 §11 加固妗ｃ€?
+- 跑后榛樿清理；可配置保留作证鎹?瀹¤（与 transcript 涓€并存 run 鐩綍锛夈€?
+
+---
+
+## 7. 回传契约：流解析（D3 / G1锛?
+
+> **不用 MCP submit**。open-design 实测：只鏈?claude 鏈?`externalMcpInjection`（写 cwd `.mcp.json`），cursor-agent / codex 都没有；它们的产出全闈?*解析 stream-json**銆?
+
+### 7.1 完成判定（两层，瀹炶 open-design daemon锛?
+
+1. **进程灞?*：子进程 `exit`（code/signal锛夆€斺€旂‖完成銆?
+2. **流层**：stream-json 终结 `{type:"result"}` 事件（带 `usage`/`duration_ms`/閿欒鐘舵€侊級鈥斺€旇义完鎴愩€?
+
+### 7.2 产物提取（ArtifactCollector锛?
+
+| 类别 | 来源 | 鐢ㄩ€?|
+|------|------|------|
+| 鏈€终文鏈?| 鍚?`streamFormat` 鐨?result/assistant 文本 | 璇箟璇勫主输鍏?|
+| `tool_result` | agent 调脚鏈?工具鐨?stdout + exit_code/isError | **鎵ц证据（G3锛?*；结构化 DSL 来源 |
+| cwd 产物文件 | per-run 临时鐩綍鏂板/改动文件锛堝 pipeline 生成鐨?HTML/JSON锛?| 交付物证鎹?|
+| 收尾 fenced JSON | harness prompt 要求 agent 鏈熬打印的结构化块（best-effort锛?| 匹配 returns_schema 的结构化 actual_output |
+| usage/duration | result 事件 | 成本/耗时鍙娴?|
+
+**actual_output 缁勮**：优先收灏?fenced JSON（若解析成功且匹閰?returns_schema）；否则用最终文鏈?+ tool_result + cwd 产物的合鎴愩€倀hree 璺瘉鎹竴并存鍏?transcript_ref 供双模型璇汇€?
+
+### 7.3 鍚?agent 流格式（瀹炶源码锛?
+
+| agent | streamFormat | eventParser | 备注 |
+|-------|--------------|-------------|------|
+| claude | `claude-stream-json` | 内置 | `-p --input-format stream-json --output-format stream-json --verbose` |
+| codex | `json-event-stream` | `codex` | `exec --json ...`；带原生娌欑 |
+| cursor-agent | `json-event-stream` | `cursor-agent`锛堢有，文本去重逻辑瑙?`emitCursorTextDelta`锛?| `--print --output-format stream-json --stream-partial-output` |
+
+---
+
+## 8. 引擎接缝涓?v1 agent 适配（D1/D8/G7锛?
+
+### 8.1 接缝
+
+引擎 `case_executing` 现状直调 `load_sample_io`（engine.py:313/330，judge prompt:1010锛夈€傛敼为经 `ExecutionSource.get_actual_output(case, bundle, ctx) -> ExecResult`锛?
+
+- 榛樿实现鎸夈€屾墽行来婧愩€嶏紙per-skill 瀛楁 > env 榛樿，G5）路由到 `LocalAgentSource` 鎴?`SampleIoSource`銆?
+- **judge 流水线结构不鍔?*，但**鎸?ExecResult.source 閫?prompt 模式**（执琛?/ 样例锛岃 §10锛夈€?
+
+### 8.2 v1 涓?agent 适配（抄 open-design；G1 后无 MCP 注入项）
+
+每个 agent 绉绘：① 妫€娴?登录探测；② `buildArgs` + **stdin 投喂**（避寮€ Windows CreateProcess ~32KB 限制，G7）；鈶?StreamParser銆?
+
+| 顺序 | agent | buildArgs（实读） | 解析 | 娌欑能力 |
+|---|-------|-------------------|------|----------|
+| 1 | claude | `-p --input-format stream-json --output-format stream-json --verbose --permission-mode bypassPermissions` | claude-stream-json（最成熟，先做） | 无（全信任）鈫?红线降级 |
+| 2 | codex | `exec --json --skip-git-repo-check --sandbox workspace-write -c sandbox_workspace_write.network_access=<bool> -c default_permissions=":workspace" -C <cwd>` | json-event-stream + codex parser | **原生娌欑**（红线唯涓€鍙湡跑） |
+| 3 | cursor-agent | `--print --output-format stream-json --stream-partial-output --force --trust --workspace <cwd>` | json-event-stream + cursor parser锛堢有） | 无（全信任）鈫?红线降级 |
+
+- 登录探测：claude/codex 各自 CLI；cursor-agent 鐢?`cursor-agent status`（auth required 时给寮曞锛夈€?
+- prompt 全部缁?stdin（G7：open-design 注释明确涓?Windows `spawn ENAMETOOLONG` 鑰岃计）銆?
+
+### 8.3 Harness prompt（强制用，G6锛?
+
+标准 harness prompt 模板对每涓?case 注入锛?
+
+- skill 鍦?cwd锛?*必须按其 SKILL.md 使用鏈?skill**锛?
+- has_scripts 鎶€能：**必须调用声明鐨?entrypoint**锛堣 §9锛夊理本输入锛?*绂佹手编/绕过 pipeline**锛?
+- 鏈?case 鐨?user_intent / input_template锛?
+- 收尾**打印涓€涓?fenced JSON**（匹閰?returns_schema）作结构化产出（best-effort锛夈€?
+
+---
+
+## 9. 元数鎹柊增字段（G4 / G5锛?
+
+鏀?`docs/specs/Skill元数鎹畾义与编写规范.md` + `core/ingest.py` 解析 + 校验锛?
+
+| 瀛楁 | 必填 | 鍚箟 |
+|------|------|------|
+| `entrypoint` | has_scripts 鎶€能必濉?| 真实鎵ц入口锛堝 `scripts/run_diagnosis_pipeline.sh`锛夈€侲videnceVerifier 用它姣斿 tool_result 鎵ц的命令（G3锛夈€傛敮鎾?a02 绫汇€屽繀须走 pipeline 而非鍒嗘」用渚?|
+| `execution_source` | 否（榛樿闅?env锛?| 浣滆€呴€夋墽行来源：`local`（本地真跑）/ `sample_io`。per-skill 优先浜?env `EXEC_SOURCE`（G5锛?|
+
+---
+
+## 10. 判子双模式（D9 / G2锛?
+
+鐜?`_build_case_prompt`（engine.py:983-1060）是 **doc-centric**（评 SKILL.md 摘录 + 鍙€?sample_io锛夈€傛敼为按 `ExecResult.source` 选：
+
+| 模式 | 触发 | rubric 取向 |
+|------|------|-------------|
+| **样例模式**（现有，保留锛?| source=sample_io（回閫€/浣滆€呴€夛級 | 璇?SKILL.md 定义鏄惁清晰鑷唇（含现有红线 doc 口径锛?|
+| **鎵ц模式**（新增） | source=local_agent（真跑） | 璇?*鎵ц结果**：产出是鍚︾鍚?user_intent/returns_schema、是否真璺戦€氾紙璇?tool_result/产物锛夈€佺孩绾块看真实拒绛旇涓?|
+
+- 双模型（DeepSeek + Gemini）调用结鏋勩€佽仛鍚堛€佸喅绛?R1–R8、human_review 璺敱**均不鍔?*銆?
+- 红线题在鎵ц模式下仅瀵?*真跑了的**（codex 加固档）评真瀹炶为；claude/cursor 红线走样例模式（G8锛夈€?
+
+---
+
+## 11. 安全与红线加固档（W8.5 / G8锛?
+
+- **鎵ц前同鎰?*：spawn 前作者明纭悓意（涓€娆℃€?会话级），告鐭ャ€屽皢以全鑷姩权限在本机临时目录运琛岃 skill 代码」；鏈悓意不 spawn銆?
+- **鐩綍约束**：全鑷姩权限仅在 per-run clone 鐩綍；不瑙?originals / staging 母本 / 仓库其它璺緞銆?
+- **与现鏈?Security Gate 鎵撻€?*：进入本地执行前已过 intake 安全鎵弿（`core/bundle_security.py`/`security_scan.py`）；blocked 不进鎵ц妗ャ€?
+- **回传校验**：解析出鐨?actual_output 杩?output sanitizer锛堝鐢?`core/output_sanitizer.py`，PII/密钥锛夈€?
+- **红线加固档（G8锛?*锛?
+  - **codex**：`--sandbox workspace-write` + `network_access=false` + `default_permissions=":workspace"` 鈫?绂佸鑱?+ 闄?fs，红绾块真跑銆?
+  - **claude / cursor-agent**：原生无网络/fs 约束（`bypassPermissions` / `--force --trust`），原生 Windows 鏃犲鍣?鈫?**红线题自动降绾?doc-centric**，报告标明原鍥犮€?
+  - happy/edge 涓?agent 均真璺戙€?
+
+---
+
+## 12. 信任模型（D6 / G10，分闃舵锛?
+
+| | v1（现鍦級 | 鐩爣态（多用鎴?上云后） |
+|--|-----------|------------------------|
+| 场景 | 同机、内部员宸ャ€佷綔者本人在鑷繁机器璺?| 引入不可淇＄三方 |
+| 信任 | **信任鏈湴**：judge（双模型璇?transcript）pass→PASS锛?*鎶芥绾汉工但 PASS 鏍?`spot_check_eligible` 涓?history 鍙瓫**（G10锛?| 鍏綉题中澶?agent 复跑楂橀险子集；内网题专瀹剁鏀?|
+| 浼€犻闄?| 「已知暂鍙椼€嶏紙同机/浣滆€呰瘎鑷繁 skill，动机低）；闈犺义校楠?+ 安全 gate + 鍙瓫鎶芥缓解 | 涓ぎ复核/签收收紧 |
+
+- v1 不改 R1–R8 涓?human_review 璺敱：warn / R5 仍进涓撳銆?
+- v1 鏂板鍙槸「本地真跑产鍑?+ 鎵ц模式评分」喂缁?judge；pass 走现有终鎬併€?
+
+---
+
+## 13. 降级矩阵（D5锛?
+
+| 情况 | 行为 |
+|------|------|
+| 鏈测到鏈湴 agent / 浣滆€呴€?sample_io | 整轮璧?`SampleIoSource`（样例模式评，标低置信，level_1锛?|
+| agent 鏈櫥录（auth 缺失锛?| 鍥為€€ + 提示浣滆€呭幓 CLI 登录后重璇?|
+| 红线棰?+ claude/cursor（无加固档，G8锛?| 该红绾块降级 doc-centric（样例模式），报告标原因 |
+| has_scripts 但无 entrypoint 鎵ц证据（G3锛?| 璇ラ鍥為€€ sample_io（若有）；否则标 `incomplete` 涓嶈 pass |
+| 鍗曢超时 / exec fail | 鍥為€€璇ラ sample_io（若有）；否鍒?`incomplete`锛?*已锁锛屄?6 鈶?关闭**锛?|
+| 限流持续失败（G11锛?| 閫€并发鍒?1 + 閫€避后仍失璐?鈫?璇ラ进上述失败分鏀?|
+| 全部失败 | 等同现有 sample_io 璺緞，功能不閫€鍖?|
+
+---
+
+## 14. v1 范围涓?YAGNI
+
+**鍋?*：同机原鐢?Windows spawn；三 agent（claude→codex→cursor-agent）；流解析回传；姣忛闅旂 + 并发 2 + 限流閫€避；per-run clone；ExecutionSource 接缝 + 鍥為€€ + per-skill 来源；执行模寮?prompt；entrypoint/execution_source 元数鎹?+ 证据校验；红线加固档（codex锛?降级（claude/cursor）；v1 信任鏈湴 + 鍙瓫鎶芥；执行前同意銆?
+
+**不做（推后）**锛?
+- ~~`submit_case_output` MCP 工具 / `SkillHubMcpServer`~~ 鈫?G1 删除
+- 澶?agent 对照缁熻 鈫?W8.4
+- 鍏綉涓ぎ复核 / 鑷姩分级 PASS 鈫?鐩爣鎬?
+- 网络妗?/ 上云 transport 鈫?鐩爣鎬?
+- claude/cursor 红线容器加固（WSL+firejail）→ 鐩爣鎬?
+- hybrid 会话分组 鈫?测出澶參鍐嶈
+- 涓ぎ纭畾性代码跑 / Golden Case 鈫?闃舵鍥?W10
+
+---
+
+## 15. Wave 分解锛堝榻?Sprint锛?
+
+- **W8.0** 鏈璁＄（grill 瀹氱）→ OpenSpec change
+- **W8.1** 传输层：claude 鈫?codex 鈫?cursor-agent（detect / spawn / stdin / StreamParser；无 MCP 注入锛?
+- **W8.2** `ExecutionSource` 接缝 + 流解析回传（ArtifactCollector锛? judge 双模式接绾?
+- **W8.3** per-skill 鎵ц来源 + 降级鍥為€€ + 信任 v1（pass→PASS 鏍囪鍙瓫锛? 接现有专瀹?缁堟€?
+- **W8.4** 澶?agent 对照缁熻
+- **W8.5** 安全：执行前同意 + 鐩綍约束 + Security Gate 鎵撻€?+ output sanitizer + 红线加固档（codex锛?降级（claude/cursor锛?
+- **W8.6** 鍙墽琛?fixture + entrypoint 证据校验 + 涓?agent 绔埌绔獙鏀?+ `docs/runbooks/local-agent-exec-validation.md`
+
+> 元数鎹瓧段（entrypoint / execution_source，G4/G5锛? 判子双模式（G2锛? EvidenceVerifier（G3）穿插在 W8.2/W8.3 落地銆?
+
+---
+
+## 16. 风险与未鍐?
+
+| # | 鏈喅/风险 | 处理 |
+|---|-----------|------|
+| 鈶?| ~~鍗曢失败鍥為€€ vs incomplete~~ | **已锁**：有 sample_io 鍥為€€，无鍒?incomplete锛埪?3锛?|
+| 鈶?| cursor-agent 私有 eventParser 解析复杂搴?| 放最后做；参鐓?open-design `emitCursorTextDelta` 去重逻辑 |
+| 鈶?| agent 不按 harness prompt 璋?entrypoint | 强制 prompt + EvidenceVerifier 妫€测无证据 鈫?retry 涓€娆?鈫?降级 |
+| 鈶?| 收尾 fenced JSON 解析失败 | best-effort；失败则用文鏈?+ tool_result + cwd 产物合成 actual_output |
+| 鈶?| 非确瀹氭€у鑷?judge 复跑波动 | 鏂█走结鏋勬€?+ 璇箟锛涘娆?澶?agent 缁熻鐣?W8.4 |
+| 鈶?| 浼€?report（v1 信任鏈湴锛?| 已知暂受锛涜义校楠?+ 安全 gate + 鍙瓫人工鎶芥；目鏍囨€佹敹绱?|
+| 鈶?| claude/cursor 红线 v1 无法真跑 | 接受：v1 红线真跑浠?codex；其余降绾?doc-centric，目鏍囨€佸器加鍥?|
+
+---
+
+## 17. 验收标准
+
+- 鏈湴 CLI agent（claude/codex/cursor-agent 任一）真璺?鈮? 涓?skill（含 1 涓彲鎵ц fixture，带 `entrypoint`）→ **流解鏋?*回传真实产出 鈫?judge **鎵ц模式** 鍑?Pass/Warn/Fail銆?
+- has_scripts 鎶€能：鏈?entrypoint 鎵ц证据鎵嶈真执行（level_2）；无证鎹寜降级矩阵銆?
+- 浣滆€呭彲鍦?per-skill「本地真璺?/ sample_io」间选择；无 agent/失败时自动回閫€、功能不閫€鍖栥€?
+- 红线题：codex 加固档真跑；claude/cursor 降级 doc-centric 且报告标原因銆?
+- v1：judge pass 鈫?PASS（标 `spot_check_eligible`，history 鍙瓫）；warn/R5 鈫?涓撳銆?
+- 现有 524 tests + fixture 三件套不回归銆?
+- 涓?agent 各跑通一次同涓€ fixture（W8.4 再做对照缁熻锛夈€?

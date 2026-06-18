@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     workflow_timeout_low_s: int = 600
     workflow_timeout_medium_s: int = 600
     workflow_timeout_high_s: int = 900
+    # Local-agent case_exec budget (separate from judge workflow_timeout_* above)
+    local_agent_workflow_timeout_low_s: int = 1800
+    local_agent_workflow_timeout_medium_s: int = 2400
+    local_agent_workflow_timeout_high_s: int = 5400
     divergence_synthesis_timeout_s: float = 120.0
 
     # Local agent execution bridge (W8) — default sample_io preserves pre-W8 behavior

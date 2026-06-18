@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import queue
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol, runtime_checkable
 
@@ -57,10 +60,15 @@ class LocalAgentRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
-        stdout, _stderr = proc.communicate(input=prompt, timeout=timeout_s)
-        exit_code = proc.returncode if getattr(proc, "returncode", None) is not None else proc.wait()
-        lines = stdout.splitlines() if stdout else []
+        if getattr(proc, "stdout", None) is None:
+            stdout, _stderr = proc.communicate(input=prompt, timeout=timeout_s)
+            lines = stdout.splitlines() if stdout else []
+            exit_code = proc.returncode if proc.returncode is not None else proc.wait()
+        else:
+            lines, exit_code = self._stream_until_complete(proc, prompt, timeout_s)
         parsed = parse_stream_events(lines)
         return RunOutcome(
             exit_code=exit_code or 0,
@@ -68,9 +76,70 @@ class LocalAgentRunner:
             duration_ms=parsed.duration_ms,
         )
 
+    def _stream_until_complete(
+        self,
+        proc: subprocess.Popen,
+        prompt: str,
+        timeout_s: float,
+    ) -> tuple[list[str], int]:
+        if proc.stdin:
+            proc.stdin.write(prompt)
+            proc.stdin.close()
+
+        lines: list[str] = []
+        line_queue: queue.Queue[str | None] = queue.Queue()
+
+        def _reader() -> None:
+            try:
+                assert proc.stdout is not None
+                for raw in proc.stdout:
+                    line_queue.put(raw.rstrip("\n\r"))
+            finally:
+                line_queue.put(None)
+
+        threading.Thread(target=_reader, daemon=True).start()
+        deadline = time.monotonic() + timeout_s
+        stream_complete = False
+
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                line = line_queue.get(timeout=min(1.0, remaining))
+            except queue.Empty:
+                if proc.poll() is not None:
+                    break
+                continue
+            if line is None:
+                break
+            lines.append(line)
+            if parse_stream_events(lines).is_complete:
+                stream_complete = True
+                break
+
+        if proc.poll() is None:
+            proc.kill()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+
+        while True:
+            try:
+                extra = line_queue.get_nowait()
+            except queue.Empty:
+                break
+            if extra is None:
+                break
+            if not stream_complete:
+                lines.append(extra)
+
+        exit_code = proc.returncode if proc.returncode is not None else proc.wait()
+        return lines, exit_code
+
     def is_run_complete(self, outcome: RunOutcome) -> bool:
-        """Two-layer completion: process exit + stream result event."""
-        if outcome.exit_code != 0:
-            return False
+        """Stream-json completion is authoritative (Codex may be killed after turn.completed)."""
         parsed = outcome.parsed_stream
         return parsed is not None and parsed.is_complete
+

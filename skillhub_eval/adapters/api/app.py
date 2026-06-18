@@ -22,6 +22,7 @@ from skillhub_eval.adapters.api.routes.taxonomy import router as taxonomy_router
 from skillhub_eval.adapters.api.routes.conversations import router as conversations_router
 from skillhub_eval.adapters.api.routes.chat import router as chat_router
 from skillhub_eval.adapters.api.routes.exec import router as exec_router
+from skillhub_eval.execution.consent import hydrate_exec_consent_from_db
 
 
 class _NoCacheUiHtmlMiddleware(BaseHTTPMiddleware):
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
     )
     app.add_middleware(_NoCacheUiHtmlMiddleware)
+    hydrate_exec_consent_from_db()
 
     # ── static UI (Task 11) ────────────────────────────────────────────────────
     ui_static = Path(__file__).parent.parent / "ui" / "static"

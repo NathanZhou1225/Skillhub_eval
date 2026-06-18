@@ -28,3 +28,25 @@ def test_parse_stream_ignores_malformed_lines():
     lines = ["not-json", json.dumps({"type": "result"})]
     parsed = parse_stream_events(lines)
     assert parsed.is_complete
+
+
+def test_parse_stream_codex_turn_completed():
+    lines = [
+        json.dumps({"type": "thread.started", "thread_id": "t1"}),
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"id": "i0", "type": "agent_message", "text": "OK"},
+            }
+        ),
+        json.dumps(
+            {
+                "type": "turn.completed",
+                "usage": {"input_tokens": 10, "output_tokens": 1},
+            }
+        ),
+    ]
+    parsed = parse_stream_events(lines)
+    assert parsed.is_complete
+    assert parsed.final_text == "OK"
+    assert parsed.usage == {"input_tokens": 10, "output_tokens": 1}

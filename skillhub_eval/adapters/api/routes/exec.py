@@ -79,8 +79,9 @@ def scan_agents() -> AgentScanResponse:
         detected = bin_path is not None
         model_hint = getattr(adapter, "model", None) if adapter else None
         auth_status = None
-        if agent_id == "cursor-agent":
-            auth_status = _probe_cursor_auth_status()
+        if agent_id == "cursor-agent" and detected:
+            # Defer auth probe to Test — `cursor-agent auth status` can hang on Windows.
+            auth_status = "unknown"
         agents.append(
             AgentScanItem(
                 id=agent_id,
@@ -137,7 +138,7 @@ def test_agent(agent_id: str) -> AgentTestResponse:
             adapter,
             "Reply OK",
             cwd=".",
-            timeout_s=5.0,
+            timeout_s=60.0,
         )
     except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
         return AgentTestResponse(
@@ -157,24 +158,34 @@ def test_agent(agent_id: str) -> AgentTestResponse:
 
 
 def _probe_cursor_auth_status() -> str:
-    """Best-effort auth probe; never launches a harness run."""
+    """Best-effort auth probe for explicit checks; scan skips this (can hang on Windows)."""
     adapter = _resolve_adapter("cursor-agent")
     if not adapter or not adapter.detect():
         return "unknown"
+    bin_path = adapter.resolved_bin()
+    proc = subprocess.Popen(
+        [bin_path, "auth", "status"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
     try:
-        proc = subprocess.run(
-            [adapter.resolved_bin(), "auth", "status"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        stdout, stderr = proc.communicate(timeout=1.5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.communicate(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+        return "unknown"
+    except OSError:
         return "unknown"
 
+    text_out = (stdout or b"").decode("utf-8", errors="replace")
+    text_err = (stderr or b"").decode("utf-8", errors="replace")
     if proc.returncode == 0:
         return "ok"
-    output = f"{proc.stdout}\n{proc.stderr}".lower()
+    output = f"{text_out}\n{text_err}".lower()
     if any(token in output for token in ("not logged", "unauth", "sign in", "login")):
         return "fail"
     return "unknown"

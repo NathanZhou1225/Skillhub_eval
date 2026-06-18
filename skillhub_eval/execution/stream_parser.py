@@ -36,17 +36,24 @@ def parse_stream_events(lines: Iterable[str]) -> ParsedStream:
             delta = event.get("delta") or event.get("text") or ""
             if isinstance(delta, str) and delta:
                 final_text_parts.append(delta)
+        elif event_type == "item.completed":
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text") or ""
+                if isinstance(text, str) and text:
+                    final_text_parts.append(text)
         elif event_type == "tool_result":
             tool_results.append(event)
-        elif event_type == "result":
+        elif event_type in ("result", "turn.completed"):
             is_complete = True
             if isinstance(event.get("usage"), dict):
                 usage = event["usage"]
             if event.get("duration_ms") is not None:
                 duration_ms = int(event["duration_ms"])
-            result_text = event.get("result") or event.get("text")
-            if isinstance(result_text, str) and result_text:
-                final_text_parts.append(result_text)
+            if event_type == "result":
+                result_text = event.get("result") or event.get("text")
+                if isinstance(result_text, str) and result_text:
+                    final_text_parts.append(result_text)
 
     return ParsedStream(
         final_text= "".join(final_text_parts),

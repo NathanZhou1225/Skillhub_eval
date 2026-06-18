@@ -409,6 +409,7 @@ let _optimisticPending = false;
 let _optimisticPendingLabel = '';
 let _execScanCache = { scanned_at: null, agents: [] };
 let _execScanLoading = false;
+let _execScanSeq = 0;
 let _execPreferences = null;
 let _execPollTimer = null;
 let _execBannerDismissed = false;
@@ -466,6 +467,29 @@ function stageLabelForExec(stage, execSource) {
     return '校验样例输出';
   }
   return STAGE_ZH[stage] || stage || '评估';
+}
+
+function evalProgressLabel(stage, execSource) {
+  const source = execSource || getExecSource();
+  const agent = _execPreferences?.exec_agent || 'local';
+  const agentLabel = EXEC_AGENT_LABELS[agent] || agent;
+  const s = stage || '';
+  if (source === 'local') {
+    if (s === 'case_executing') {
+      return `正在进行本地 Agent 真跑（${agentLabel}），每个案例约需 30–60 秒，请稍候…`;
+    }
+    if (s === 'code_asserting') return '正在校验本地 Agent 输出…';
+    if (s === 'model_judging') return '本地 Agent 执行完成，正在进行双模型评估…';
+    if (s === 'aggregating') return '正在汇总评估结果…';
+    if (s === 'risk_locking' || s === 'normalizing') {
+      return '正在准备正式评估（锁定风险与整理条件）…';
+    }
+    if (s === 'level0_checking' || s === 'pending') return '正在启动正式评估…';
+    return '正式评估进行中（本地 Agent 模式）…';
+  }
+  if (s === 'model_judging') return '正在进行双模型评估…';
+  if (s === 'case_executing') return '正在加载样例输出…';
+  return '正在进行正式评估，请稍候…';
 }
 
 function getLatestAssessmentGatePayload(messages = _messagesCache) {
@@ -663,14 +687,19 @@ const STAGE_ZH = {
   aggregating: '汇总结果',
 };
 
-function activityPhaseLabel(phase) {
+function activityPhaseLabel(phase, statusObj) {
+  if (phase === 'formal_eval') {
+    const stages = getStatusValue(statusObj || _latestConversationStatus || {}, ['stage_progress'], []);
+    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
+    return evalProgressLabel(last, getExecSource());
+  }
   const map = {
     thinking: '正在理解你的意思，请稍候…',
     enriching_plan: '正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…',
     checking_requirements: '正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…',
     propagating: '正在自动生成评估题目，请稍候（约 1–2 分钟）…',
     initial_eval: '正在进行初评体检，请稍候（约 1–3 分钟）…',
-    formal_eval: '正在进行正式双模型评估，请稍候…',
+    formal_eval: evalProgressLabel(null, getExecSource()),
     writing_draft: '正在生成修改草案，请稍候…',
   };
   return map[phase] || map.thinking;
@@ -686,8 +715,7 @@ function syncPendingFromRunStatus(statusObj) {
     _optimisticPending = true;
     const stages = getStatusValue(statusObj, ['stage_progress'], []);
     const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
-    const stageZh = stageLabelForExec(last, getExecSource()).replace(/<[^>]+>/g, '');
-    _optimisticPendingLabel = `正在${stageZh}，请稍候…`;
+    _optimisticPendingLabel = evalProgressLabel(last, getExecSource());
     return;
   }
   if (!_optimisticPending) {
@@ -1171,18 +1199,21 @@ function closeExecSettingsDrawer() {
 function renderExecAgentCards() {
   const wrap = document.getElementById('exec-agent-cards');
   if (!wrap) return;
-  if (_execScanLoading) {
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  if (_execScanLoading && !agents.length) {
     wrap.innerHTML = '<p class="text-xs text-gray-400 flex items-center gap-2"><span class="exec-spin"></span>扫描 Agent 中…</p>';
     return;
   }
-  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
   if (!agents.length) {
     wrap.innerHTML = '<p class="text-xs text-gray-400">未扫描到 Agent 列表，请点击「重新扫描」。</p>';
     return;
   }
 
+  const refreshHint = _execScanLoading
+    ? '<p class="text-xs text-blue-700 flex items-center gap-2 mb-2"><span class="exec-spin"></span>正在刷新扫描结果…</p>'
+    : '';
   const selected = _execPreferences?.exec_agent || '';
-  wrap.innerHTML = agents.map((agent) => {
+  wrap.innerHTML = refreshHint + agents.map((agent) => {
     const detected = !!agent.detected;
     const checked = selected === agent.id;
     const cardClass = checked
@@ -1242,19 +1273,19 @@ function renderExecDrawer() {
 }
 
 async function fetchExecScan(silent = false) {
-  if (!_execScanLoading) {
-    _execScanLoading = true;
-    renderExecScanSummary();
-    renderExecAgentCards();
-  }
+  const seq = ++_execScanSeq;
+  _execScanLoading = true;
+  renderExecScanSummary();
+  renderExecAgentCards();
   try {
     const data = await apiFetch('/api/exec/agents/scan');
+    if (seq !== _execScanSeq) return _execScanCache;
     _execScanCache = data || { scanned_at: null, agents: [] };
     renderExecBridgeIndicator();
-    renderExecDrawer();
     if (!silent) toast('Agent 扫描完成');
     return _execScanCache;
   } catch (e) {
+    if (seq !== _execScanSeq) return _execScanCache;
     if (!silent) toast(`扫描 Agent 失败：${e.message}`, false);
     const summary = document.getElementById('exec-scan-summary');
     if (summary) {
@@ -1263,9 +1294,13 @@ async function fetchExecScan(silent = false) {
     }
     return _execScanCache;
   } finally {
-    _execScanLoading = false;
-    renderExecScanSummary();
-    renderExecAgentCards();
+    if (seq === _execScanSeq) {
+      _execScanLoading = false;
+      renderExecScanSummary();
+      renderExecAgentCards();
+      const reason = document.getElementById('exec-ready-reason');
+      if (reason) reason.textContent = getExecReadyReason();
+    }
   }
 }
 
@@ -1765,10 +1800,13 @@ function renderAssessmentGatePassedHtml(payload) {
   const optionalNote = optional.length
     ? `<p class="mt-2 text-xs text-slate-500">另有 ${optional.length} 项可选改进，不影响本次正式评估。</p>`
     : '';
+  const stages = getStatusValue(_latestConversationStatus || {}, ['stage_progress'], []);
+  const lastStage = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
+  const progressText = evalProgressLabel(lastStage, getExecSource());
   return `
     <div class="text-sm font-semibold text-slate-900">评估条件检查</div>
     <div class="mt-2 px-3 py-2.5 border border-green-200 rounded-lg bg-green-50/90 text-xs text-green-900 leading-relaxed">
-      <span class="font-semibold">评估需求已满足</span>，正在自动进行正式双模型评估，请稍候…
+      <span class="font-semibold">评估需求已满足</span>，${escapeHtml(progressText)}
     </div>
     ${optionalNote}
   `;
@@ -2348,7 +2386,7 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
     }
     if (chatResp?.activity_phase && KEEP_PENDING_PHASES.has(chatResp.activity_phase)) {
       _optimisticPending = true;
-      _optimisticPendingLabel = activityPhaseLabel(chatResp.activity_phase);
+      _optimisticPendingLabel = activityPhaseLabel(chatResp.activity_phase, _latestConversationStatus);
       renderMessages(_messagesCache);
     }
     _pendingZipFile = null;

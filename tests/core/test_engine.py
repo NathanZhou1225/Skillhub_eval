@@ -701,6 +701,44 @@ async def test_workflow_timeout_marks_run_failed(tmp_path):
     assert report.get("error_detail")
 
 
+@pytest.mark.asyncio
+async def test_local_agent_phase_has_separate_timeout(tmp_path, monkeypatch):
+    """Slow local case_exec uses local-agent budget, not judge workflow budget."""
+    import time
+
+    bundle = make_confirmed_low_bundle(tmp_path / "bundle")
+    engine, repo = make_engine(tmp_path)
+    engine._local_agent_workflow_timeout = 0.15
+    engine._workflow_timeout = 600.0
+
+    def slow_case_exec(_skill_bundle_path, _cases, _bundle):
+        time.sleep(0.5)
+
+    async def _immediate_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", _immediate_to_thread)
+    monkeypatch.setattr(engine, "_uses_local_execution", lambda _bundle: True)
+    monkeypatch.setattr(engine, "_run_case_exec_phase", slow_case_exec)
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert report is not None
+    assert "EVAL_LOCAL_AGENT_TIMEOUT" in report["reason_codes"]
+
+
 def test_build_prompt_adversarial_includes_redline_hint_and_sample_io(tmp_path):
     """adversarial/refusal types + sample_io must reach judge prompt (W5.5 fixture)."""
     engine, _ = make_engine(tmp_path)

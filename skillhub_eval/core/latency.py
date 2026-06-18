@@ -32,6 +32,7 @@ PROVIDER_CALL_TIMEOUT_HIGH_RISK_S = provider_call_timeout_high_risk_s()
 
 
 def workflow_timeout_seconds(risk: RiskLevel) -> int:
+    """Judge-phase budget (model_judging → report); excludes local agent case_exec."""
     s = _settings()
     mapping = {
         RiskLevel.low: int(s.workflow_timeout_low_s),
@@ -39,6 +40,17 @@ def workflow_timeout_seconds(risk: RiskLevel) -> int:
         RiskLevel.high: int(s.workflow_timeout_high_s),
     }
     return mapping.get(risk, int(s.workflow_timeout_low_s))
+
+
+def local_agent_workflow_timeout_seconds(risk: RiskLevel) -> int:
+    """Wall-clock budget for local CLI case_exec (+ code_assert); not counted toward judge budget."""
+    s = _settings()
+    mapping = {
+        RiskLevel.low: int(s.local_agent_workflow_timeout_low_s),
+        RiskLevel.medium: int(s.local_agent_workflow_timeout_medium_s),
+        RiskLevel.high: int(s.local_agent_workflow_timeout_high_s),
+    }
+    return mapping.get(risk, int(s.local_agent_workflow_timeout_low_s))
 
 
 WORKFLOW_TIMEOUT_BY_RISK: dict[RiskLevel, int] = {

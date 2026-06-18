@@ -70,7 +70,7 @@ See [Spot-check queue filter](#spot-check-queue-filter) for history API verifica
 | GET | `/api/exec/preferences` | `{ exec_source, exec_agent, consent_granted, ready, ready_reason }` |
 | PUT | `/api/exec/preferences` | Update `exec_source` / `exec_agent` |
 | POST | `/api/exec/consent` | Grant execution consent (global) |
-| POST | `/api/exec/agents/{id}/test` | ~5s smoke via `LocalAgentRunner` |
+| POST | `/api/exec/agents/{id}/test` | ~60s smoke via `LocalAgentRunner` |
 
 OpenAPI: <http://127.0.0.1:8000/docs> (tag `exec`).
 
@@ -83,6 +83,18 @@ python -m pytest tests/execution/test_e2e_local_exec.py -v
 ```
 
 Uses env + Python consent (`grant_exec_consent`); does not exercise the web UI.
+
+## Timeout tuning (`.env`)
+
+Judge and local-agent phases use **separate** budgets (2026-06-18). See `.env.example` for names. Demo starting points:
+
+| Variable | Demo value | Phase |
+|----------|------------|--------|
+| `WORKFLOW_TIMEOUT_HIGH_S` | 1200 | Dual-model judge only |
+| `LOCAL_AGENT_WORKFLOW_TIMEOUT_HIGH_S` | 7200 | Local CLI `case_executing` only |
+| `PROVIDER_CALL_TIMEOUT_HIGH_RISK_S` | 300 | Per judge LLM call |
+
+Restart `serve` after edits. Future: parallel multi-case local exec — see `RECORD.md` Q-24.
 
 ## Full regression (no local agents required)
 

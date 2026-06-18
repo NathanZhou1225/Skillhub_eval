@@ -62,10 +62,6 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "skillhub_eval.execution.cli_detect.find_cli_binary", fake_find_cli
     )
-    monkeypatch.setattr(
-        "skillhub_eval.adapters.api.routes.exec._probe_cursor_auth_status",
-        lambda: "ok",
-    )
 
     app = create_app()
     with TestClient(app, raise_server_exceptions=True) as c:
@@ -83,7 +79,7 @@ def test_scan_and_preferences(client: TestClient):
     assert [a["detected"] for a in agents] == [True, False, True]
     assert agents[0]["bin_path"] == "/bin/claude"
     assert agents[1]["detect_hint"]
-    assert agents[2]["auth_status"] == "ok"
+    assert agents[2]["auth_status"] == "unknown"  # scan defers auth probe (Test button)
 
     pref_resp = client.get("/api/exec/preferences")
     assert pref_resp.status_code == 200

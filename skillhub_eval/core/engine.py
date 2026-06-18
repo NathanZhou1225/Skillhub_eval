@@ -27,7 +27,11 @@ from .gaps import scan_gaps
 from .provider_summary import build_provider_summary
 from .execution_source import RoutingExecutionSource
 from .ingest import ingest_bundle
-from .latency import CASE_JUDGE_CONCURRENCY, workflow_timeout_seconds
+from .latency import (
+    CASE_JUDGE_CONCURRENCY,
+    local_agent_workflow_timeout_seconds,
+    workflow_timeout_seconds,
+)
 from .level0 import Level0Checker
 from .output_sanitizer import run_output_sanitizer
 from .report_narrative import build_disagreement_brief, build_report_narrative
@@ -92,6 +96,9 @@ class EvaluationEngine:
         self._dec = DecisionStage()
         self._dsl = DslEngine()
         self._workflow_timeout: float = float(workflow_timeout_seconds(RiskLevel.low))
+        self._local_agent_workflow_timeout: float = float(
+            local_agent_workflow_timeout_seconds(RiskLevel.low)
+        )
         self._case_judge_sem = asyncio.Semaphore(CASE_JUDGE_CONCURRENCY)
 
     def _resolve_exec_for_case(
@@ -173,17 +180,7 @@ class EvaluationEngine:
         """
         self._terminal_run_ids: list[str] = []
         try:
-            await asyncio.wait_for(
-                self._execute(run_id, skill_bundle_path, bundle_state, evaluation_mode),
-                timeout=self._workflow_timeout,
-            )
-        except asyncio.TimeoutError:
-            self._save_timeout(
-                run_id,
-                skill_bundle_path,
-                bundle_state,
-                evaluation_mode,
-            )
+            await self._execute(run_id, skill_bundle_path, bundle_state, evaluation_mode)
         finally:
             for terminal_run_id in self._terminal_run_ids:
                 await on_run_terminal_chat_notifications(
@@ -272,6 +269,9 @@ class EvaluationEngine:
 
         def _apply_risk_timeouts(level: RiskLevel) -> None:
             self._workflow_timeout = float(workflow_timeout_seconds(level))
+            self._local_agent_workflow_timeout = float(
+                local_agent_workflow_timeout_seconds(level)
+            )
             from skillhub_eval.core.latency import (
                 provider_call_timeout_high_risk_s,
                 provider_call_timeout_s,
@@ -369,13 +369,28 @@ class EvaluationEngine:
         repo.append_stage(run_id, "case_executing")
 
         cases = bundle["eval_cases"]
-        for case in cases:
-            self._resolve_exec_for_case(
+        try:
+            if self._uses_local_execution(bundle):
+                await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._run_case_exec_phase,
+                        skill_bundle_path,
+                        cases,
+                        bundle,
+                    ),
+                    timeout=self._local_agent_workflow_timeout,
+                )
+            else:
+                self._run_case_exec_phase(skill_bundle_path, cases, bundle)
+        except asyncio.TimeoutError:
+            self._save_timeout(
+                run_id,
                 skill_bundle_path,
-                case.get("id", ""),
-                case=case,
-                bundle=bundle,
+                bundle_state,
+                evaluation_mode,
+                timeout_phase="local_agent",
             )
+            return
         level_achieved = self._compute_level_achieved()
         self._log_stage_timing(run_id, "case_executing", t_case_exec)
 
@@ -424,6 +439,58 @@ class EvaluationEngine:
                 ],
             )
             return
+
+        # ── Phase 5–7: Model judging + aggregate (judge-phase timeout only) ────
+        try:
+            await asyncio.wait_for(
+                self._judge_and_finalize(
+                    run_id=run_id,
+                    skill_bundle_path=skill_bundle_path,
+                    bundle=bundle,
+                    bundle_state=bundle_state,
+                    evaluation_mode=evaluation_mode,
+                    cases=cases,
+                    is_confirmed=is_confirmed,
+                    risk_locked=risk_locked,
+                    risk_provenance=risk_provenance,
+                    sec_result=sec_result,
+                    san_result=san_result,
+                    type_coverage=type_coverage,
+                    all_assertions_passed=all_assertions_passed,
+                    redline_fail=redline_fail,
+                    level_achieved=level_achieved,
+                ),
+                timeout=self._workflow_timeout,
+            )
+        except asyncio.TimeoutError:
+            self._save_timeout(
+                run_id,
+                skill_bundle_path,
+                bundle_state,
+                evaluation_mode,
+                timeout_phase="judge",
+            )
+
+    async def _judge_and_finalize(
+        self,
+        *,
+        run_id: str,
+        skill_bundle_path: str,
+        bundle: dict,
+        bundle_state: BundleState,
+        evaluation_mode: EvaluationMode,
+        cases: list[dict],
+        is_confirmed: bool,
+        risk_locked: RiskLevel,
+        risk_provenance: RiskLockProvenance,
+        sec_result,
+        san_result,
+        type_coverage: dict[str, int],
+        all_assertions_passed: bool,
+        redline_fail: bool,
+        level_achieved: str,
+    ) -> None:
+        repo = self.repo
 
         # ── Phase 5: Model Judging (T7: Semaphore-limited parallel cases) ────
         t_model_judge = time.monotonic()
@@ -609,6 +676,25 @@ class EvaluationEngine:
         # Persist report JSON to disk
         self._write_report_file(run_id, report)
         self._maybe_append_rich_report(run_id)
+
+    def _uses_local_execution(self, bundle: dict) -> bool:
+        from skillhub_eval.core.execution_source import resolve_execution_source_name
+
+        return resolve_execution_source_name(bundle) == "local"
+
+    def _run_case_exec_phase(
+        self,
+        skill_bundle_path: str,
+        cases: list[dict],
+        bundle: dict,
+    ) -> None:
+        for case in cases:
+            self._resolve_exec_for_case(
+                skill_bundle_path,
+                case.get("id", ""),
+                case=case,
+                bundle=bundle,
+            )
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -909,11 +995,27 @@ class EvaluationEngine:
         skill_bundle_path: str,
         bundle_state: BundleState,
         evaluation_mode: EvaluationMode,
+        *,
+        timeout_phase: str = "judge",
     ) -> None:
-        """T4: workflow timeout — failed report with stage_progress preserved."""
+        """Workflow timeout — failed report with stage_progress preserved."""
+        if timeout_phase == "local_agent":
+            timeout_s = self._local_agent_workflow_timeout
+            reason_codes = ["EVAL_LOCAL_AGENT_TIMEOUT"]
+            error_detail = (
+                f"Local agent case execution exceeded {timeout_s}s timeout"
+            )
+            event_name = "eval_local_agent_timeout"
+        else:
+            timeout_s = self._workflow_timeout
+            reason_codes = ["EVAL_WORKFLOW_TIMEOUT"]
+            error_detail = f"Judge workflow exceeded {timeout_s}s timeout"
+            event_name = "eval_workflow_timeout"
+
         self.repo.log_event(
-            run_id, "eval_workflow_timeout",
-            {"timeout_s": self._workflow_timeout},
+            run_id,
+            event_name,
+            {"timeout_s": timeout_s, "phase": timeout_phase},
         )
 
         run = self.repo.get_run(run_id)
@@ -931,7 +1033,6 @@ class EvaluationEngine:
         if run and run.get("risk_level_locked"):
             locked = RiskLevel(run["risk_level_locked"])
 
-        reason_codes = ["EVAL_WORKFLOW_TIMEOUT"]
         report = EvaluationReport(
             run_id=run_id,
             skill_id=bundle.get("skill_id", "?"),
@@ -952,7 +1053,7 @@ class EvaluationEngine:
             completeness_score=self._calc_completeness(bundle),
             reason_codes=reason_codes,
             stage_progress=self.repo.get_stage_progress(run_id),
-            error_detail=f"Workflow exceeded {self._workflow_timeout}s timeout",
+            error_detail=error_detail,
             rubric_version="v1.2",
             prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),

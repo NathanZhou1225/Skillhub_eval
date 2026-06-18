@@ -23,7 +23,7 @@ Follow **user skill `integrated-ai-workflow`** for cross-tool rules. This rule a
 3. **Spec package** 鈥?`/opsx:propose "<kebab-change>"` 鈫?`openspec/changes/<change>/`.
 4. **Critique** 鈥?`/grill-me` on that change folder; no code until shared understanding.
 5. **Execute** 鈥?`subagent-driven-development`; each subagent = one `tasks.md` item; TDD required.
-6. **Verify** 鈥?`verification-before-completion` (pytest, eval CLI, etc.).
+6. **Verify** 鈥?`verification-before-completion` (pytest, eval CLI, etc.). After **RECORD** or **`.project_memory`** edits: `pytest tests/test_doc_encoding.py -q` (see **`doc-encoding-utf8`** rule).
 7. **Close** 鈥?`/opsx:archive` then `finishing-a-development-branch`.
 8. **Learn (optional)** 鈥?after close, `harness-retrospective` asks once (Y/N); approved lessons go to `~/.agent_learning/`, **not** RECORD.md or `.project_memory/`.
 

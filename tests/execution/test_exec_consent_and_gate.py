@@ -29,7 +29,13 @@ def _reset_consent():
     clear_exec_consent()
 
 
-def test_local_agent_requires_consent_before_spawn(tmp_path):
+def test_local_agent_requires_consent_before_spawn(tmp_path, monkeypatch):
+    from skillhub_eval.persistence.sqlite import SqliteRepository
+    from skillhub_eval.settings import settings
+
+    db_path = str(tmp_path / "no-consent.db")
+    monkeypatch.setattr(settings, "eval_db_path", db_path)
+    SqliteRepository(db_path).init_db()
     bundle = {
         "skill_id": "needs-consent",
         "bundle_path": str(tmp_path),
@@ -65,3 +71,19 @@ def test_local_agent_requires_consent_before_spawn(tmp_path):
     )
     assert _CountingAdapter.calls == 1
     assert result2.status in ("ok", "incomplete")
+
+
+def test_has_exec_consent_survives_memory_clear_from_sqlite(tmp_path, monkeypatch):
+    """UI consent persists in sqlite; engine must honor it after serve restart."""
+    from skillhub_eval.execution.consent import has_exec_consent
+    from skillhub_eval.execution.preferences import grant_persisted_consent
+    from skillhub_eval.persistence.sqlite import SqliteRepository
+    from skillhub_eval.settings import settings
+
+    db_path = str(tmp_path / "consent.db")
+    monkeypatch.setattr(settings, "eval_db_path", db_path)
+    monkeypatch.setattr(settings, "exec_consent_required", True)
+    SqliteRepository(db_path).init_db()
+    grant_persisted_consent(db_path=db_path)
+    clear_exec_consent()
+    assert has_exec_consent("restarted-skill") is True
