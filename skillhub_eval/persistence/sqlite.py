@@ -102,11 +102,18 @@ CREATE TABLE IF NOT EXISTS lui_messages (
     content TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS exec_preferences (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    exec_source TEXT NOT NULL DEFAULT 'local',
+    exec_agent TEXT NOT NULL DEFAULT 'claude',
+    consent_granted INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
 """
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 10
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -249,6 +256,17 @@ class SqliteRepository:
                 )
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS exec_preferences (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    exec_source TEXT NOT NULL DEFAULT 'local',
+                    exec_agent TEXT NOT NULL DEFAULT 'claude',
+                    consent_granted INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
 
             version = cursor.execute("PRAGMA user_version").fetchone()[0]
             if version < 1:
@@ -371,7 +389,90 @@ class SqliteRepository:
                         "ALTER TABLE conversations ADD COLUMN archived_at TEXT"
                     )
                 cursor.execute("PRAGMA user_version = 8")
+
+            if version < 9:
+                run_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('evaluation_runs')"
+                    ).fetchall()
+                }
+                if "spot_check_eligible" not in run_cols:
+                    cursor.execute(
+                        "ALTER TABLE evaluation_runs "
+                        "ADD COLUMN spot_check_eligible INTEGER NOT NULL DEFAULT 0"
+                    )
+                if "execution_source_used" not in run_cols:
+                    cursor.execute(
+                        "ALTER TABLE evaluation_runs "
+                        "ADD COLUMN execution_source_used TEXT"
+                    )
+                cursor.execute("PRAGMA user_version = 9")
+            if version < 10:
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS exec_preferences (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        exec_source TEXT NOT NULL DEFAULT 'local',
+                        exec_agent TEXT NOT NULL DEFAULT 'claude',
+                        consent_granted INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cursor.execute("PRAGMA user_version = 10")
         return datetime.now(UTC).isoformat()
+
+    def get_exec_preferences(self) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM exec_preferences WHERE id = 1"
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_exec_preferences(
+        self,
+        *,
+        exec_source: str | None = None,
+        exec_agent: str | None = None,
+        consent_granted: bool | None = None,
+    ) -> dict:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM exec_preferences WHERE id = 1"
+            ).fetchone()
+            source = (
+                exec_source
+                if exec_source is not None
+                else (row["exec_source"] if row else "local")
+            )
+            agent = (
+                exec_agent
+                if exec_agent is not None
+                else (row["exec_agent"] if row else "claude")
+            )
+            consent = (
+                bool(consent_granted)
+                if consent_granted is not None
+                else bool(row["consent_granted"]) if row else False
+            )
+            conn.execute(
+                """
+                INSERT INTO exec_preferences (
+                    id, exec_source, exec_agent, consent_granted, updated_at
+                ) VALUES (1, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    exec_source=excluded.exec_source,
+                    exec_agent=excluded.exec_agent,
+                    consent_granted=excluded.consent_granted,
+                    updated_at=excluded.updated_at
+                """,
+                (source, agent, 1 if consent else 0, self._now()),
+            )
+            saved = conn.execute(
+                "SELECT * FROM exec_preferences WHERE id = 1"
+            ).fetchone()
+        return dict(saved)
 
     def create_conversation(
         self,
@@ -744,6 +845,8 @@ class SqliteRepository:
             "orchestration_mode",
             "completed_at",
             "superseded_by_run_id",
+            "spot_check_eligible",
+            "execution_source_used",
         }
         for key, value in kwargs.items():
             if key in allowed:
@@ -861,17 +964,26 @@ class SqliteRepository:
         self,
         limit: int = 50,
         human_review_required: bool | None = None,
+        spot_check_eligible: bool | None = None,
+        execution_source_used: str | None = None,
     ) -> list[dict]:
         query = (
             "SELECT run_id, skill_id, status, review_status, score_total, "
             "score_total_source, reason_codes, bundle_state, evaluation_mode, "
-            "human_review_required, conversation_id, created_at "
+            "human_review_required, conversation_id, created_at, "
+            "spot_check_eligible, execution_source_used "
             "FROM evaluation_runs WHERE status != 'superseded'"
         )
         params: list = []
         if human_review_required is not None:
             query += " AND human_review_required=?"
             params.append(1 if human_review_required else 0)
+        if spot_check_eligible is not None:
+            query += " AND spot_check_eligible=?"
+            params.append(1 if spot_check_eligible else 0)
+        if execution_source_used is not None:
+            query += " AND execution_source_used=?"
+            params.append(execution_source_used)
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         with self._conn() as conn:

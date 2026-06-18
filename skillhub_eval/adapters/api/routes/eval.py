@@ -144,12 +144,16 @@ async def get_report_trace(
 async def list_history(
     limit: int = 50,
     human_review_only: bool = False,
+    spot_check_only: bool = False,
+    execution_source: str | None = None,
     repo: Annotated[Repository, Depends(get_repo)] = None,
 ) -> dict:
     """List evaluation history. Pass ?human_review_only=true for expert queue."""
     runs = repo.list_history(
         limit=limit,
         human_review_required=True if human_review_only else None,
+        spot_check_eligible=True if spot_check_only else None,
+        execution_source_used=execution_source,
     )
     return {"total": len(runs), "runs": runs}
 

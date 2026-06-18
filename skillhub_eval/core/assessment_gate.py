@@ -124,6 +124,7 @@ def build_assessment_gate_payload(
     return {
         "run_id": run_id,
         "gate_version": gate_version,
+        "execution_source": bundle.get("execution_source"),
         "gaps": gaps,
         "blocking_gaps": blocking_gaps,
         "optional_gaps": optional_gaps,

@@ -97,6 +97,8 @@ skill-name/
 | `sample_io/` | 是 | 无法真实执行时的模拟输入输出；也是人工抽检证据 |
 | `references/` | 否 | 术语、业务规则、示例等渐进式上下文 |
 | `scripts/` | 否 | 沙盒执行脚本；有脚本则进入 Level 2 执行 |
+| `entrypoint` | has_scripts 时**必填** | 真实执行入口路径（如 `scripts/run.py` 或 `scripts/run_diagnosis_pipeline.sh`）；W8 本地执行桥用于校验 tool_result 证据 |
+| `execution_source` | 否 | 执行来源：`local`（本地 agent 真跑）或 `sample_io`（作者样例）；缺省跟随环境变量 `EXEC_SOURCE` |
 
 第一版 demo 不要求所有 Skill 都可真实执行，但要求所有 Skill 都可被评估 Agent 读取、打分和归因。
 

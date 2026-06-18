@@ -11,6 +11,7 @@ can apply them at different points in the pipeline:
                         degraded and pre-confirm paths skip the gate
 """
 
+from .ingest import validate_execution_meta
 from .schemas.enums import RiskLevel, CASE_COUNT_GATES, CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
 
 
@@ -58,6 +59,16 @@ class Level0Checker:
                 "field": "risk_level",
                 "detail": f"risk_level 值无效：{risk_raw!r}，可选值为 low / high",
             })
+            return {
+                "passed": False,
+                "reason_codes": reason_codes,
+                "evidence": evidence,
+            }
+
+        meta_issues = validate_execution_meta(bundle)
+        if meta_issues:
+            reason_codes.append("LEVEL0_SCHEMA_FAIL")
+            evidence.extend(meta_issues)
             return {
                 "passed": False,
                 "reason_codes": reason_codes,

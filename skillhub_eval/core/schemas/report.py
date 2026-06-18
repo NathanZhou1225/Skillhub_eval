@@ -7,6 +7,32 @@ from pydantic import BaseModel, Field
 from .enums import BundleState, EvaluationMode, RiskLevel, ReviewStatus, RunStatus
 
 
+class ParsedStream(BaseModel):
+    final_text: str = ""
+    tool_results: list[dict] = Field(default_factory=list)
+    usage: dict | None = None
+    duration_ms: int | None = None
+    is_complete: bool = False
+
+
+class RunOutcome(BaseModel):
+    exit_code: int = 0
+    parsed_stream: ParsedStream | None = None
+    transcript_ref: str | None = None
+    duration_ms: int | None = None
+
+
+class ExecResult(BaseModel):
+    actual_output: dict | None = None
+    source: str = "sample_io"  # sample_io | local_agent
+    confidence: str = "high"  # high | low
+    transcript_ref: str | None = None
+    usage: dict | None = None
+    status: str = "ok"  # ok | incomplete
+    level: str = "level_1"  # level_1 | level_2
+    degrade_reason: str | None = None
+
+
 class DimensionScores(BaseModel):
     instruction_following: float | None = None
     output_compliance: float | None = None
@@ -118,6 +144,8 @@ class EvaluationReport(BaseModel):
     output_sanitizer_status: str | None = None   # "passed" | "leak"
     output_sanitizer_findings: list[dict] = Field(default_factory=list)
     case_type_coverage: dict[str, int] = Field(default_factory=dict)
+    spot_check_eligible: bool = False
+    execution_source_used: str | None = None
     # e.g. {"happy_path": 3, "edge": 2, "refusal": 0, "adversarial": 0}
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"

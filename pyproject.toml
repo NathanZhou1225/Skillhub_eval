@@ -30,3 +30,6 @@ include = ["skillhub_eval*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "requires_local_agent: needs installed CLI agent; set RUN_LOCAL_AGENT=1",
+]

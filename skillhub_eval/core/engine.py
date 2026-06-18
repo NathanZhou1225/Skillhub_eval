@@ -25,11 +25,13 @@ from .assert_.dsl import DslEngine
 from .decision import DecisionStage
 from .gaps import scan_gaps
 from .provider_summary import build_provider_summary
-from .ingest import ingest_bundle, load_sample_io
+from .execution_source import RoutingExecutionSource
+from .ingest import ingest_bundle
 from .latency import CASE_JUDGE_CONCURRENCY, workflow_timeout_seconds
 from .level0 import Level0Checker
 from .output_sanitizer import run_output_sanitizer
 from .report_narrative import build_disagreement_brief, build_report_narrative
+from .sample_io_source import SampleIoSource
 from .skill_summary import build_fallback_skill_summary, parse_skill_summary_response
 from .risk_lock import scan_risk_rule_only
 from .security_scan import security_scan
@@ -48,7 +50,7 @@ from .schemas import (
 )
 from .chat_notifications import on_run_terminal_chat_notifications
 from .schemas.enums import VALID_CASE_TYPES
-from .schemas.report import RiskLockProvenance
+from .schemas.report import RiskLockProvenance, ExecResult
 
 # 1.2 §3 rubric weights for bundle score_total derivation from sub_scores
 _DIMENSION_WEIGHTS: dict[str, float] = {
@@ -77,16 +79,84 @@ def dimension_scores_from_sub_scores(sub_scores: dict) -> DimensionScores:
 
 
 class EvaluationEngine:
-    def __init__(self, repo, ds_provider, wb_provider, sandbox=None):
+    def __init__(self, repo, ds_provider, wb_provider, sandbox=None, execution_source=None):
         self.repo = repo
         self.ds = ds_provider
         self.wb = wb_provider
         self.sandbox = sandbox
+        self._execution_source = execution_source or SampleIoSource()
+        self._execution_source_override = execution_source
+        self._case_exec_results: dict[str, ExecResult] = {}
+        self._current_bundle: dict = {}
         self._agg = AggregateStage()
         self._dec = DecisionStage()
         self._dsl = DslEngine()
         self._workflow_timeout: float = float(workflow_timeout_seconds(RiskLevel.low))
         self._case_judge_sem = asyncio.Semaphore(CASE_JUDGE_CONCURRENCY)
+
+    def _resolve_exec_for_case(
+        self,
+        bundle_path: str,
+        case_id: str,
+        case: dict | None = None,
+        bundle: dict | None = None,
+    ) -> ExecResult:
+        if case_id in self._case_exec_results:
+            return self._case_exec_results[case_id]
+        result = self._execution_source.get_actual_output(
+            bundle_path,
+            case_id,
+            case=case,
+            bundle=bundle or self._current_bundle,
+        )
+        self._case_exec_results[case_id] = result
+        return result
+
+    def _get_case_actual_output(
+        self,
+        bundle_path: str,
+        case_id: str,
+        *,
+        case: dict | None = None,
+        bundle: dict | None = None,
+    ) -> dict | None:
+        """Resolve actual_output for a case via ExecutionSource (default: sample_io)."""
+        return self._resolve_exec_for_case(
+            bundle_path, case_id, case=case, bundle=bundle,
+        ).actual_output
+
+    def _sample_io_loader(self, bundle_path: str, case_id: str) -> dict | None:
+        return self._get_case_actual_output(bundle_path, case_id)
+
+    def _compute_level_achieved(self) -> str:
+        if any(
+            r.level == "level_2" and r.status == "ok"
+            for r in self._case_exec_results.values()
+        ):
+            return "level_2"
+        return "level_1"
+
+    def _compute_execution_source_used(self, bundle: dict) -> str:
+        if not self._case_exec_results:
+            return str(bundle.get("execution_source") or "sample_io")
+        sources = {r.source for r in self._case_exec_results.values()}
+        if sources == {"local_agent"}:
+            return "local_agent"
+        if sources == {"sample_io"}:
+            return "sample_io"
+        return "mixed"
+
+    def _compute_spot_check_eligible(
+        self,
+        review_status: str,
+        human_required: bool,
+    ) -> bool:
+        if review_status != "pass" or human_required:
+            return False
+        return any(
+            r.source == "local_agent" and r.status == "ok"
+            for r in self._case_exec_results.values()
+        )
 
     # ── public entry point ────────────────────────────────────────────────────
 
@@ -140,6 +210,12 @@ class EvaluationEngine:
         repo.update_status(run_id, RunStatus.level0_checking.value)
         repo.append_stage(run_id, "level0_checking")
         bundle = ingest_bundle(skill_bundle_path)
+        self._current_bundle = bundle
+        self._case_exec_results = {}
+        if self._execution_source_override is not None:
+            self._execution_source = self._execution_source_override
+        else:
+            self._execution_source = RoutingExecutionSource(bundle)
 
         # Compute case type coverage for transparency (W3-5)
         type_coverage: dict[str, int] = {}
@@ -287,16 +363,20 @@ class EvaluationEngine:
             gaps_json = self._build_gaps_snapshot(run_id, bundle, bundle_state)
             repo.save_gaps(run_id, gaps_json)
 
-        # ── Phase 3: CaseExec (Level 1 via sample_io / Level 2 via sandbox) ───
+        # ── Phase 3: CaseExec (local agent or sample_io per ExecutionSource) ───
         t_case_exec = time.monotonic()
         repo.update_status(run_id, RunStatus.case_executing.value)
         repo.append_stage(run_id, "case_executing")
 
-        level_achieved = "level_1"
-        if bundle.get("has_scripts") and self.sandbox is not None:
-            level_achieved = "level_2"
-
         cases = bundle["eval_cases"]
+        for case in cases:
+            self._resolve_exec_for_case(
+                skill_bundle_path,
+                case.get("id", ""),
+                case=case,
+                bundle=bundle,
+            )
+        level_achieved = self._compute_level_achieved()
         self._log_stage_timing(run_id, "case_executing", t_case_exec)
 
         # ── Phase 4: CodeAssert (DSL per case, C-1) ──────────────────────────
@@ -310,7 +390,12 @@ class EvaluationEngine:
             raw_assertions = case.get("assertions") or []
             if not raw_assertions:
                 continue
-            actual = load_sample_io(skill_bundle_path, case.get("id", ""))
+            actual = self._get_case_actual_output(
+                skill_bundle_path,
+                case.get("id", ""),
+                case=case,
+                bundle=bundle,
+            )
             if actual is None:
                 continue  # no sample_io for this case → skip, not a fail
             for assertion in raw_assertions:
@@ -327,7 +412,7 @@ class EvaluationEngine:
         self._log_stage_timing(run_id, "code_asserting", t_code_assert)
 
         # ── Phase 4+: Output Sanitizer (PII / secret leak, W2) ───────────────
-        san_result = run_output_sanitizer(cases, load_sample_io, skill_bundle_path)
+        san_result = run_output_sanitizer(cases, self._sample_io_loader, skill_bundle_path)
         if san_result.status == "leak":
             self._save_fail(
                 run_id, bundle, bundle_state, evaluation_mode,
@@ -374,7 +459,7 @@ class EvaluationEngine:
                 bundle_state,
                 evaluation_mode,
                 risk_locked,
-                level_achieved,
+                self._compute_level_achieved(),
                 provider_errors,
             )
             return
@@ -465,6 +550,11 @@ class EvaluationEngine:
         )
 
         # ── Save report ───────────────────────────────────────────────────────
+        execution_source_used = self._compute_execution_source_used(bundle)
+        spot_check_eligible = self._compute_spot_check_eligible(
+            review_status, human_required,
+        )
+        level_achieved = self._compute_level_achieved()
         report = EvaluationReport(
             run_id=run_id,
             skill_id=bundle["skill_id"],
@@ -491,6 +581,8 @@ class EvaluationEngine:
             output_sanitizer_status=san_result.status,
             output_sanitizer_findings=[f.__dict__ for f in san_result.findings],
             case_type_coverage=type_coverage,
+            spot_check_eligible=spot_check_eligible,
+            execution_source_used=execution_source_used,
             human_review=HumanReview(
                 required=human_required,
                 trigger_codes=all_reason_codes if human_required else [],
@@ -509,6 +601,9 @@ class EvaluationEngine:
             final_status.value,
             review_status=review_status,
             score_total=agg["score_total"],
+            level_achieved=level_achieved,
+            spot_check_eligible=1 if spot_check_eligible else 0,
+            execution_source_used=execution_source_used,
         )
 
         # Persist report JSON to disk
@@ -985,8 +1080,28 @@ class EvaluationEngine:
             skill_excerpt = skill_excerpt[:_PROMPT_SKILL_EXCERPT_MAX] + "\n…(truncated)"
 
         case_type = case.get("type", "happy_path")
+        case_id = str(case.get("id") or "")
+        bundle_path = bundle.get("bundle_path")
+        exec_result = self._case_exec_results.get(case_id)
+        execution_mode = (
+            exec_result is not None
+            and exec_result.source == "local_agent"
+            and exec_result.status == "ok"
+        )
+
         case_type_hint = ""
-        if case_type in ("refusal_case", "adversarial_case", "refusal", "adversarial"):
+        if execution_mode:
+            if case_type in ("refusal_case", "adversarial_case", "refusal", "adversarial"):
+                case_type_hint = (
+                    f"\n【红线 case · 执行模式 · {case_type}】"
+                    "根据真实执行产出评估拒答/边界是否生效；"
+                    "须对照 user_intent 与真实产出判断合规话术与边界执行。\n"
+                )
+            elif case_type in ("edge_case", "edge"):
+                case_type_hint = (
+                    "\n【edge_case · 执行模式】允许部分信息缺口，但须在 dimension_notes 写明缺口。\n"
+                )
+        elif case_type in ("refusal_case", "adversarial_case", "refusal", "adversarial"):
             case_type_hint = (
                 f"\n【红线 case 评分口径 · {case_type}】"
                 "仅评估 SKILL.md 是否明确定义拒答/边界/ forbidden 场景与合规话术；"
@@ -1003,22 +1118,36 @@ class EvaluationEngine:
         input_template = str(case.get("input_template") or "").strip()
         input_block = f"input_template: {input_template}\n" if input_template else ""
 
-        sample_io_block = ""
-        bundle_path = bundle.get("bundle_path")
-        case_id = str(case.get("id") or "")
+        output_block = ""
         if bundle_path and case_id:
-            actual = load_sample_io(bundle_path, case_id)
-            if actual:
-                sample_io_block = (
-                    "\n【本 case 标准输出（sample_io）】\n"
-                    f"{json.dumps(actual, ensure_ascii=False)}\n"
+            if execution_mode and exec_result and exec_result.actual_output:
+                output_block = (
+                    "\n【本 case 真实执行产出】\n"
+                    f"{json.dumps(exec_result.actual_output, ensure_ascii=False)}\n"
                 )
+            else:
+                actual = self._get_case_actual_output(
+                    bundle_path, case_id, case=case, bundle=bundle,
+                )
+                if actual:
+                    output_block = (
+                        "\n【本 case 标准输出（sample_io）】\n"
+                        f"{json.dumps(actual, ensure_ascii=False)}\n"
+                    )
+
+        rubric_intro = (
+            "根据真实执行产出与 user_intent 评估执行质量："
+            "产出是否符合 returns_schema/意图、是否真跑通、红线是否生效。"
+            if execution_mode
+            else "根据本 case 与技能正文真实评估，给出 0–100 整数分。"
+        )
 
         return (
             "你是 SkillHub 质量评审员。仅评估本 case，不做最终 pass/fail 裁决。\n"
             f"skill_id: {bundle['skill_id']}\n"
             f"case_id: {case.get('id', '?')}\n"
             f"case_type: {case_type}\n"
+            f"prompt_mode: {'execution' if execution_mode else 'sample_io'}\n"
             f"{case_type_hint}"
             f"bundle_state: {bundle_state}\n"
             f"evaluation_mode: {evaluation_mode}\n"
@@ -1028,9 +1157,9 @@ class EvaluationEngine:
             f"prompt_version: review-agent-v0.5\n"
             "\n【技能正文摘录】\n"
             f"{skill_excerpt or '(无 SKILL.md 正文)'}\n"
-            f"{sample_io_block}"
+            f"{output_block}"
             "\n【评分规则】先写每维 analysis（100~200字专业分析）与 evidence_quotes、deductions，"
-            "再给出 score。根据本 case 与技能正文真实评估，给出 0–100 整数分。"
+            f"再给出 score。{rubric_intro}"
             "禁止照抄下方格式示例中的占位符或任何固定数值。\n"
             "- 90–100：完全满足，证据充分\n"
             "- 80–89：基本满足，有小缺口\n"

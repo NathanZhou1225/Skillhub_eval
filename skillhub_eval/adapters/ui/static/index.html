@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-  <meta name="skillhub-ui-build" content="w5.5-form-archive-hints" />
+  <meta name="skillhub-ui-build" content="w8-exec-bridge-ui" />
   <title>SkillHub 对话评估</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -69,7 +69,18 @@
     .fade-in { animation: fadeIn .25s ease-in; }
     @keyframes fadeIn { from {opacity:0; transform:translateY(4px)} to {opacity:1; transform:translateY(0)} }
     @media (prefers-reduced-motion: reduce) {
-      .fade-in, .animate-pulse { animation: none; }
+      .fade-in, .animate-pulse, .exec-spin { animation: none; }
+    }
+    @keyframes execSpin { to { transform: rotate(360deg); } }
+    .exec-spin {
+      display: inline-block;
+      width: 0.875rem;
+      height: 0.875rem;
+      border: 2px solid #C7D0D9;
+      border-top-color: #0F4C81;
+      border-radius: 9999px;
+      animation: execSpin 0.75s linear infinite;
+      vertical-align: -0.15em;
     }
   </style>
 </head>
@@ -91,14 +102,35 @@
         专家<span id="expert-pending-dot" class="hidden absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 keep-round"></span>
       </button>
     </div>
+    <!-- C01 ExecBridgeIndicator -->
+    <button id="exec-bridge-indicator" type="button" onclick="openExecSettingsDrawer()"
+      class="text-xs px-2 py-1 border border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100 transition">
+      评估模式：样例自证
+    </button>
+    <button type="button" onclick="openExecSettingsDrawer()"
+      class="text-xs text-gray-500 hover:text-blue-700 underline underline-offset-2">执行设置</button>
+    <span id="exec-sample-hint" class="hidden text-xs text-gray-400">当前为样例评估模式</span>
     <button type="button" onclick="toggleDemoMode()" id="btn-demo-mode" class="text-xs text-gray-400 hover:text-blue-600">Demo</button>
     <span id="api-status" class="text-xs text-gray-400">连接中…</span>
-    <span id="ui-build-tag" class="run-ref text-xs text-gray-300" title="UI 版本，用于确认是否加载最新页面">UI w5.5-form-archive</span>
+    <span id="ui-build-tag" class="run-ref text-xs text-gray-300" title="UI 版本，用于确认是否加载最新页面">UI w8-exec-bridge-ui</span>
     <button onclick="toggleDebugPanel()" class="hidden text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border border-gray-300 hover:border-blue-300 transition">Debug</button>
     <button onclick="location.reload()" class="text-xs text-gray-500 hover:text-blue-600 px-3 py-1 border border-gray-300 hover:border-blue-300 transition">刷新</button>
     <a href="/docs" target="_blank" class="text-xs text-blue-600 hover:underline">Swagger →</a>
   </div>
 </header>
+
+<!-- C16 ExecBridge local-not-ready banner -->
+<div id="exec-ready-banner" class="hidden bg-blue-50 border-b-2 border-blue-600 px-6 py-2.5 text-xs text-blue-900">
+  <div class="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+    <span id="exec-ready-banner-text">本地执行未就绪：请先在执行设置中完成 Agent 环境检查后再开始正式评估。</span>
+    <div class="flex items-center gap-2">
+      <button type="button" onclick="switchExecBannerToSample()"
+        class="px-2.5 py-1 border border-blue-300 text-blue-800 bg-white hover:bg-blue-100 transition">改用样例评估</button>
+      <button type="button" onclick="dismissExecBanner()"
+        class="px-2.5 py-1 border border-blue-300 text-blue-700 hover:bg-blue-100 transition">知道了</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Tab Bar ───────────────────────────────────────────────────────────────── -->
 <nav class="bg-white border-b border-gray-200 px-6 flex gap-1">
@@ -250,6 +282,17 @@
           <button onclick="loadHistory()" class="text-xs text-blue-600 hover:underline ml-3">刷新</button>
         </div>
       </div>
+      <div class="px-6 py-3 border-b border-gray-100 bg-gray-50/70 flex flex-wrap items-center gap-2 text-xs">
+        <span class="text-gray-500 mr-1">筛选：</span>
+        <button id="history-chip-all" type="button" onclick="setHistoryFilter('all')"
+          class="tab-active py-1.5 border border-transparent">全部</button>
+        <button id="history-chip-sample" type="button" onclick="setHistoryFilter('sample')"
+          class="tab-inactive py-1.5 border border-gray-300">样例评估</button>
+        <button id="history-chip-local" type="button" onclick="setHistoryFilter('local')"
+          class="tab-inactive py-1.5 border border-gray-300">本地真跑</button>
+        <button id="history-chip-spotcheck" type="button" onclick="setHistoryFilter('spotcheck')"
+          class="tab-inactive py-1.5 border border-gray-300">待专家抽检</button>
+      </div>
       <div id="history-table" class="overflow-x-auto">
         <p class="text-sm text-gray-400 text-center py-10">加载中…</p>
       </div>
@@ -257,6 +300,76 @@
   </div>
 
 </main>
+
+<!-- C02 ExecBridge drawer -->
+<div id="exec-drawer-overlay" class="hidden fixed inset-0 z-40 bg-black/20" onclick="if(event.target===this)closeExecSettingsDrawer()">
+  <aside class="absolute right-0 top-0 h-full w-[420px] bg-white border-l-2 border-gray-900 shadow-xl p-5 overflow-y-auto">
+    <div class="flex items-center justify-between">
+      <h3 class="font-semibold text-gray-900">执行设置</h3>
+      <button type="button" onclick="closeExecSettingsDrawer()" class="text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button>
+    </div>
+    <p class="text-xs text-gray-500 mt-1">切换本地真跑与样例评估；变更会即时保存。</p>
+
+    <div class="mt-4 space-y-3">
+      <div class="text-xs font-medium text-gray-700">评估来源</div>
+      <label class="block border border-gray-300 px-3 py-2 cursor-pointer hover:border-blue-400 transition">
+        <div class="flex items-start gap-2">
+          <input id="exec-source-local" type="radio" name="exec-source" value="local" onchange="onExecSourceRadioChange(this.value)" />
+          <div>
+            <div class="text-sm text-gray-900 font-medium">本地真跑</div>
+            <div class="text-xs text-gray-500 mt-0.5">通过本机 CLI Agent 执行 skill 并回传真实结果</div>
+          </div>
+        </div>
+      </label>
+      <label class="block border border-gray-300 px-3 py-2 cursor-pointer hover:border-blue-400 transition">
+        <div class="flex items-start gap-2">
+          <input id="exec-source-sample" type="radio" name="exec-source" value="sample_io" onchange="onExecSourceRadioChange(this.value)" />
+          <div>
+            <div class="text-sm text-gray-900 font-medium">样例评估</div>
+            <div class="text-xs text-gray-500 mt-0.5">使用 `sample_io` 作为评估输入输出</div>
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <section id="exec-local-settings" class="mt-5 space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="text-xs font-medium text-gray-700">本地 Agent 选择</div>
+        <button type="button" id="exec-rescan-btn" onclick="rescanExecAgents()"
+          class="text-xs px-2 py-1 border border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-700 transition inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait">
+          <span id="exec-rescan-spinner" class="exec-spin hidden" aria-hidden="true"></span>
+          <span id="exec-rescan-label">重新扫描</span>
+        </button>
+      </div>
+      <p id="exec-scan-summary" class="text-xs text-gray-500 leading-relaxed min-h-[1.25rem]">等待扫描…</p>
+      <div id="exec-agent-cards" class="space-y-2">
+        <p class="text-xs text-gray-400">扫描中…</p>
+      </div>
+
+      <label class="flex items-start gap-2 border border-gray-200 px-3 py-2 bg-gray-50">
+        <input id="exec-consent-checkbox" type="checkbox" class="mt-0.5" onchange="onExecConsentCheckbox(this.checked)" />
+        <span class="text-xs text-gray-700 leading-relaxed">我已知悉并同意在本机执行 Skill 入口命令（仅对本地执行模式生效）。</span>
+      </label>
+      <p id="exec-ready-reason" class="text-xs text-gray-500"></p>
+    </section>
+  </aside>
+</div>
+
+<!-- G5/G10 Exec source conflict modal -->
+<div id="exec-conflict-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45" onclick="if(event.target===this)hideExecConflictModal()">
+  <div class="bg-white border-2 border-gray-900 shadow-xl max-w-md w-full p-5 space-y-3" onclick="event.stopPropagation()">
+    <div class="text-sm font-semibold text-gray-900">执行来源冲突</div>
+    <p class="text-xs text-gray-700 leading-relaxed">
+      当前 Skill 需要<span class="font-medium text-gray-900">本地真跑</span>，但你的执行设置是<span class="font-medium text-gray-900">样例评估</span>。请选择本次正式评估的执行方式。
+    </p>
+    <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-200">
+      <button type="button" onclick="proceedFormalWithSample()"
+        class="px-3 py-1.5 text-xs border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">仍用样例评估</button>
+      <button type="button" onclick="switchToLocalAndProceed()"
+        class="px-3 py-1.5 text-xs border border-blue-600 bg-blue-600 text-white hover:bg-blue-700">切换本地真跑</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Run detail modal ──────────────────────────────────────────────────────── -->
 <div id="detail-modal" class="hidden fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/40" onclick="if(event.target===this)closeRunDetail()">
@@ -294,6 +407,18 @@ const DEMO_MODE_KEY = 'skillhub_demo_local_ref';
 let _pendingZipFile = null;
 let _optimisticPending = false;
 let _optimisticPendingLabel = '';
+let _execScanCache = { scanned_at: null, agents: [] };
+let _execScanLoading = false;
+let _execPreferences = null;
+let _execPollTimer = null;
+let _execBannerDismissed = false;
+const _execAgentTestStatus = {};
+let _bridgePromptEl = null;
+let _pendingFormalResume = false;
+let _pendingFormalAction = null;
+let _execConflictContext = null;
+let _skipFormalConflictOnce = false;
+let _historyFilterKey = 'all';
 
 const ACTION_PROPAGATE = '__ACTION_PROPAGATE__';
 const ACTION_MANUAL_UPLOAD = '__ACTION_MANUAL_UPLOAD__';
@@ -319,6 +444,143 @@ function activityPhaseForAction(payloadText) {
   if (t === ACTION_PROPAGATE) return 'propagating';
   if (t === ACTION_DRAFT_WRITE_FILE) return 'writing_draft';
   return 'thinking';
+}
+
+function isFormalActionMessage(payloadText) {
+  const t = String(payloadText || '').trim();
+  return t === ACTION_START_FORMAL || t === '__SYSTEM_ACTION_CONFIRM_ALL__';
+}
+
+function getExecSource() {
+  return _execPreferences?.exec_source || 'sample_io';
+}
+
+function shouldBlockFormalEval() {
+  return getExecSource() === 'local' && !_execPreferences?.ready;
+}
+
+function stageLabelForExec(stage, execSource) {
+  const source = execSource || getExecSource();
+  if (stage === 'case_executing') {
+    if (source === 'local') return '本地 Agent 真跑中 <span class="badge bg-blue-100 text-blue-700 border-blue-200">[LOCAL]</span>';
+    return '校验样例输出';
+  }
+  return STAGE_ZH[stage] || stage || '评估';
+}
+
+function getLatestAssessmentGatePayload(messages = _messagesCache) {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const mt = messages[i]?.message_type || 'text';
+    if (mt !== 'assessment_gate_result') continue;
+    return messages[i]?.payload_json || null;
+  }
+  return null;
+}
+
+function clearBridgePromptCard() {
+  if (_bridgePromptEl?.parentElement) {
+    _bridgePromptEl.parentElement.removeChild(_bridgePromptEl);
+  }
+  _bridgePromptEl = null;
+}
+
+function renderBridgePromptCard() {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  const shouldShow = !!_pendingFormalAction;
+  if (!shouldShow) {
+    clearBridgePromptCard();
+    return;
+  }
+  if (_bridgePromptEl && _bridgePromptEl.parentElement !== container) {
+    _bridgePromptEl = null;
+  }
+  if (!_bridgePromptEl) {
+    _bridgePromptEl = document.createElement('div');
+    _bridgePromptEl.className = 'flex justify-start';
+  }
+  const ready = !!_execPreferences?.ready;
+  const borderCls = ready
+    ? 'border-green-300 border-l-4 border-l-green-600 bg-green-50/80'
+    : 'border-amber-300 border-l-4 border-l-amber-600 bg-amber-50/80';
+  const title = ready ? '本地执行环境已就绪' : '本地执行暂未就绪';
+  const body = ready
+    ? '检测到本地执行已可用，正在自动续跑正式评估…'
+    : `正式评估已暂停：${escapeHtml(getExecReadyReason())}`;
+  const steps = ready ? '' : `
+    <ol class="list-decimal list-inside text-xs text-amber-900/90 mt-1 space-y-0.5">
+      <li>打开右上角「执行设置」并选择可用 Agent</li>
+      <li>确认 Agent 已登录，必要时点击 Test</li>
+      <li>勾选本地执行同意项</li>
+    </ol>
+    <p class="mt-2 text-xs text-amber-800">正在监听…</p>`;
+  _bridgePromptEl.innerHTML = `
+    <div class="max-w-[95%] w-full rounded-2xl border ${borderCls} p-3 text-sm">
+      <div class="text-sm font-semibold ${ready ? 'text-green-900' : 'text-amber-900'}">${title}</div>
+      <p class="mt-1 text-xs ${ready ? 'text-green-800' : 'text-amber-800'}">${body}</p>
+      ${steps}
+    </div>`;
+  container.appendChild(_bridgePromptEl);
+}
+
+function showBridgePromptCard(actionToken) {
+  _pendingFormalAction = actionToken || ACTION_START_FORMAL;
+  _pendingFormalResume = true;
+  renderMessages(_messagesCache);
+}
+
+async function resumePendingFormalEval() {
+  if (!_pendingFormalAction) return;
+  if (shouldBlockFormalEval()) {
+    renderBridgePromptCard();
+    return;
+  }
+  const action = _pendingFormalAction;
+  _pendingFormalAction = null;
+  _pendingFormalResume = false;
+  renderMessages(_messagesCache);
+  await sendConversationMessage(action, true);
+}
+
+function shouldShowExecConflictModal(bundleExecutionSource) {
+  return bundleExecutionSource === 'local' && getExecSource() === 'sample_io';
+}
+
+function showExecConflictModal(actionToken) {
+  _execConflictContext = { actionToken: actionToken || ACTION_START_FORMAL };
+  document.getElementById('exec-conflict-modal')?.classList.remove('hidden');
+}
+
+function hideExecConflictModal() {
+  document.getElementById('exec-conflict-modal')?.classList.add('hidden');
+}
+
+function continuePendingFormalAfterConflict() {
+  const action = _execConflictContext?.actionToken || ACTION_START_FORMAL;
+  _execConflictContext = null;
+  if (shouldBlockFormalEval()) {
+    showBridgePromptCard(action);
+    return;
+  }
+  sendConversationMessage(action, true);
+}
+
+function proceedFormalWithSample() {
+  _skipFormalConflictOnce = true;
+  hideExecConflictModal();
+  continuePendingFormalAfterConflict();
+}
+
+async function switchToLocalAndProceed() {
+  try {
+    await putExecPreferences({ exec_source: 'local' });
+    hideExecConflictModal();
+    openExecSettingsDrawer();
+    continuePendingFormalAfterConflict();
+  } catch (e) {
+    toast(`切换失败：${e.message}`, false);
+  }
 }
 
 function formatSecurityZh(payload, field) {
@@ -395,7 +657,7 @@ const STAGE_ZH = {
   level0_checking: '检查包结构',
   risk_locking: '锁定风险等级',
   normalizing: '整理评估条件',
-  case_executing: '运行样例题',
+  case_executing: '执行评测案例',
   code_asserting: '校验输出',
   model_judging: '双模型评估中',
   aggregating: '汇总结果',
@@ -424,7 +686,7 @@ function syncPendingFromRunStatus(statusObj) {
     _optimisticPending = true;
     const stages = getStatusValue(statusObj, ['stage_progress'], []);
     const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
-    const stageZh = last && STAGE_ZH[last] ? STAGE_ZH[last] : '评估';
+    const stageZh = stageLabelForExec(last, getExecSource()).replace(/<[^>]+>/g, '');
     _optimisticPendingLabel = `正在${stageZh}，请稍候…`;
     return;
   }
@@ -768,6 +1030,343 @@ async function apiFetch(path, opts={}) {
   return JSON.parse(text);
 }
 
+const EXEC_AGENT_LABELS = {
+  claude: 'Claude CLI',
+  codex: 'Codex CLI',
+  'cursor-agent': 'Cursor Agent',
+};
+
+function getExecAgentLabel(agentId) {
+  if (!agentId) return '未选择 Agent';
+  const list = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const match = list.find((a) => a.id === agentId);
+  return match?.label || EXEC_AGENT_LABELS[agentId] || agentId;
+}
+
+const EXEC_READY_REASON_ZH = {
+  consent_required: '请先勾选下方「同意本机执行」',
+  agent_unavailable: '所选 Agent 未在本机检测到（请重新扫描或检查 PATH）',
+  agent_not_selected: '请先选择一个已检测到的 Agent',
+  invalid_exec_source: '执行来源无效',
+};
+
+function formatExecReadyReason(reason) {
+  if (!reason) return '';
+  return EXEC_READY_REASON_ZH[reason] || reason;
+}
+
+function getExecReadyReason() {
+  if (!_execPreferences) return '';
+  if (_execPreferences.ready_reason) return formatExecReadyReason(_execPreferences.ready_reason);
+  if (_execPreferences.ready) return '本地执行就绪，可直接开始正式评估。';
+  return '本地执行未就绪，请检查 Agent 安装、登录状态与同意项。';
+}
+
+function formatScanTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch (_) {
+    return '';
+  }
+}
+
+function renderExecScanSummary() {
+  const el = document.getElementById('exec-scan-summary');
+  const btn = document.getElementById('exec-rescan-btn');
+  const spinner = document.getElementById('exec-rescan-spinner');
+  const label = document.getElementById('exec-rescan-label');
+  if (btn) btn.disabled = _execScanLoading;
+  spinner?.classList.toggle('hidden', !_execScanLoading);
+  if (label) label.textContent = _execScanLoading ? '扫描中…' : '重新扫描';
+  if (!el) return;
+
+  if (_execScanLoading) {
+    el.className = 'text-xs text-blue-700 leading-relaxed min-h-[1.25rem]';
+    el.textContent = '正在扫描本机 CLI Agent（claude / codex / cursor-agent）…';
+    return;
+  }
+
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  if (!agents.length) {
+    el.className = 'text-xs text-amber-800 leading-relaxed min-h-[1.25rem]';
+    el.textContent = '尚未完成扫描，请点击「重新扫描」。';
+    return;
+  }
+
+  const detected = agents.filter((a) => a.detected);
+  const missed = agents.filter((a) => !a.detected);
+  const ts = formatScanTime(_execScanCache.scanned_at);
+  const parts = [];
+  if (detected.length) {
+    parts.push(`已检测到 ${detected.length} 个：${detected.map((a) => {
+      const path = a.bin_path ? `（${a.bin_path}）` : '';
+      return `${a.label || a.id}${path}`;
+    }).join('、')}`);
+  }
+  if (missed.length) {
+    parts.push(`未检测到：${missed.map((a) => a.label || a.id).join('、')}`);
+  }
+  el.className = detected.length
+    ? 'text-xs text-green-800 leading-relaxed min-h-[1.25rem]'
+    : 'text-xs text-amber-800 leading-relaxed min-h-[1.25rem]';
+  el.textContent = `扫描完成${ts ? `（${ts}）` : ''}。${parts.join('；')}`;
+}
+
+function renderExecBridgeIndicator() {
+  const pill = document.getElementById('exec-bridge-indicator');
+  const hint = document.getElementById('exec-sample-hint');
+  if (!pill) return;
+
+  const source = _execPreferences?.exec_source || 'sample_io';
+  const ready = !!_execPreferences?.ready;
+  const agentLabel = getExecAgentLabel(_execPreferences?.exec_agent);
+
+  if (source === 'local' && ready) {
+    pill.textContent = `本地执行：${agentLabel}`;
+    pill.className = 'text-xs px-2 py-1 border border-green-300 text-green-800 bg-green-50 hover:bg-green-100 transition';
+  } else if (source === 'local') {
+    pill.textContent = '本地执行：未就绪';
+    pill.className = 'text-xs px-2 py-1 border border-red-300 text-red-800 bg-red-50 hover:bg-red-100 transition';
+  } else {
+    pill.textContent = '评估模式：样例自证';
+    pill.className = 'text-xs px-2 py-1 border border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100 transition';
+  }
+
+  hint?.classList.toggle('hidden', source !== 'sample_io');
+}
+
+function renderExecBanner() {
+  const el = document.getElementById('exec-ready-banner');
+  const text = document.getElementById('exec-ready-banner-text');
+  if (!el || !_execPreferences) return;
+  const source = _execPreferences.exec_source || 'sample_io';
+  const ready = !!_execPreferences.ready;
+  const shouldShow = source === 'local' && !ready && !_execBannerDismissed;
+  el.classList.toggle('hidden', !shouldShow);
+  if (shouldShow && text) {
+    text.textContent = `本地执行未就绪：${getExecReadyReason()}`;
+  }
+}
+
+function dismissExecBanner() {
+  _execBannerDismissed = true;
+  renderExecBanner();
+}
+
+async function switchExecBannerToSample() {
+  await putExecPreferences({ exec_source: 'sample_io' });
+  _execBannerDismissed = false;
+}
+
+function openExecSettingsDrawer() {
+  document.getElementById('exec-drawer-overlay')?.classList.remove('hidden');
+  renderExecDrawer();
+}
+
+function closeExecSettingsDrawer() {
+  document.getElementById('exec-drawer-overlay')?.classList.add('hidden');
+}
+
+function renderExecAgentCards() {
+  const wrap = document.getElementById('exec-agent-cards');
+  if (!wrap) return;
+  if (_execScanLoading) {
+    wrap.innerHTML = '<p class="text-xs text-gray-400 flex items-center gap-2"><span class="exec-spin"></span>扫描 Agent 中…</p>';
+    return;
+  }
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  if (!agents.length) {
+    wrap.innerHTML = '<p class="text-xs text-gray-400">未扫描到 Agent 列表，请点击「重新扫描」。</p>';
+    return;
+  }
+
+  const selected = _execPreferences?.exec_agent || '';
+  wrap.innerHTML = agents.map((agent) => {
+    const detected = !!agent.detected;
+    const checked = selected === agent.id;
+    const cardClass = checked
+      ? 'border border-blue-300 border-l-[3px] border-l-blue-600 bg-blue-50'
+      : 'border border-gray-200 border-l-[3px] border-l-transparent bg-white';
+    const disabledClass = detected ? '' : ' opacity-60';
+    const auth = agent.auth_status ? `<span class="text-[11px] text-gray-500">认证：${escapeHtml(agent.auth_status)}</span>` : '';
+    const model = agent.model_hint ? `<span class="text-[11px] text-gray-500">模型：${escapeHtml(agent.model_hint)}</span>` : '';
+    const statusLine = detected
+      ? `<div class="text-xs text-green-700 mt-0.5">已检测到${agent.bin_path ? `：${escapeHtml(agent.bin_path)}` : ''}</div>`
+      : `<div class="text-xs text-amber-800 mt-0.5">未检测到（不可选）</div>
+         ${agent.detect_hint ? `<div class="text-[11px] text-gray-500 mt-1 leading-relaxed">${escapeHtml(agent.detect_hint)}</div>` : ''}`;
+    const testMsg = _execAgentTestStatus[agent.id] || '';
+    const testClass = /通过|ok|成功/i.test(testMsg)
+      ? 'text-green-700'
+      : (/失败|error|未|fail/i.test(testMsg) ? 'text-red-700' : 'text-gray-500');
+
+    return `
+      <label class="block px-3 py-2 cursor-pointer transition ${cardClass}${disabledClass}" onclick="${detected ? `onExecAgentRadioChange('${escapeHtml(agent.id)}')` : ''}">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex items-start gap-2 min-w-0">
+            <input type="radio" name="exec-agent" ${checked ? 'checked' : ''} ${detected ? '' : 'disabled'}
+              onchange="onExecAgentRadioChange('${escapeHtml(agent.id)}')" />
+            <div class="min-w-0">
+              <div class="text-sm font-medium text-gray-900">${escapeHtml(agent.label || EXEC_AGENT_LABELS[agent.id] || agent.id)}</div>
+              ${statusLine}
+              <div class="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">${auth}${model}</div>
+            </div>
+          </div>
+          <button type="button" ${detected ? '' : 'disabled'}
+            class="shrink-0 text-xs px-2 py-1 border border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-700 disabled:opacity-50"
+            onclick="event.stopPropagation(); testExecAgent('${escapeHtml(agent.id)}')">Test</button>
+        </div>
+        <div class="text-xs mt-1.5 ${testClass}">${escapeHtml(testMsg)}</div>
+      </label>`;
+  }).join('');
+}
+
+function renderExecDrawer() {
+  const source = _execPreferences?.exec_source || 'sample_io';
+  const localRadio = document.getElementById('exec-source-local');
+  const sampleRadio = document.getElementById('exec-source-sample');
+  if (localRadio) localRadio.checked = source === 'local';
+  if (sampleRadio) sampleRadio.checked = source !== 'local';
+
+  const localSection = document.getElementById('exec-local-settings');
+  localSection?.classList.toggle('hidden', source !== 'local');
+
+  const consent = document.getElementById('exec-consent-checkbox');
+  if (consent) consent.checked = !!_execPreferences?.consent_granted;
+
+  const reason = document.getElementById('exec-ready-reason');
+  if (reason) reason.textContent = getExecReadyReason();
+
+  renderExecAgentCards();
+  renderExecScanSummary();
+}
+
+async function fetchExecScan(silent = false) {
+  if (!_execScanLoading) {
+    _execScanLoading = true;
+    renderExecScanSummary();
+    renderExecAgentCards();
+  }
+  try {
+    const data = await apiFetch('/api/exec/agents/scan');
+    _execScanCache = data || { scanned_at: null, agents: [] };
+    renderExecBridgeIndicator();
+    renderExecDrawer();
+    if (!silent) toast('Agent 扫描完成');
+    return _execScanCache;
+  } catch (e) {
+    if (!silent) toast(`扫描 Agent 失败：${e.message}`, false);
+    const summary = document.getElementById('exec-scan-summary');
+    if (summary) {
+      summary.className = 'text-xs text-red-700 leading-relaxed min-h-[1.25rem]';
+      summary.textContent = `扫描失败：${e.message}`;
+    }
+    return _execScanCache;
+  } finally {
+    _execScanLoading = false;
+    renderExecScanSummary();
+    renderExecAgentCards();
+  }
+}
+
+async function fetchExecPreferences(silent = false) {
+  try {
+    const wasReady = !!_execPreferences?.ready;
+    const data = await apiFetch('/api/exec/preferences');
+    _execPreferences = data || null;
+    if (_execPreferences?.ready) _execBannerDismissed = false;
+    renderExecBridgeIndicator();
+    renderExecDrawer();
+    renderExecBanner();
+    if (!wasReady && _execPreferences?.ready && _pendingFormalResume) {
+      renderMessages(_messagesCache);
+      await resumePendingFormalEval();
+    }
+    return _execPreferences;
+  } catch (e) {
+    if (!silent) toast(`读取执行设置失败：${e.message}`, false);
+    return _execPreferences;
+  }
+}
+
+async function putExecPreferences(patch) {
+  await apiFetch('/api/exec/preferences', {
+    method: 'PUT',
+    body: JSON.stringify(patch || {}),
+  });
+  await fetchExecPreferences(true);
+  renderExecBridgeIndicator();
+  renderExecDrawer();
+  renderExecBanner();
+}
+
+async function onExecSourceRadioChange(nextSource) {
+  if (!_execPreferences || _execPreferences.exec_source === nextSource) return;
+  _execBannerDismissed = false;
+  await putExecPreferences({ exec_source: nextSource });
+}
+
+async function onExecAgentRadioChange(nextAgent) {
+  if (!_execPreferences || _execPreferences.exec_agent === nextAgent) return;
+  await putExecPreferences({ exec_agent: nextAgent });
+}
+
+async function onExecConsentCheckbox(checked) {
+  if (!checked) return;
+  try {
+    await apiFetch('/api/exec/consent', {
+      method: 'POST',
+      body: JSON.stringify({ granted: true }),
+    });
+    await fetchExecPreferences(true);
+    renderExecBanner();
+    toast('已记录本地执行同意');
+  } catch (e) {
+    const box = document.getElementById('exec-consent-checkbox');
+    if (box) box.checked = false;
+    toast(`同意失败：${e.message}`, false);
+  }
+}
+
+async function rescanExecAgents() {
+  await fetchExecScan();
+  await fetchExecPreferences(true);
+}
+
+async function testExecAgent(agentId) {
+  _execAgentTestStatus[agentId] = '测试中…';
+  renderExecAgentCards();
+  try {
+    const data = await apiFetch(`/api/exec/agents/${encodeURIComponent(agentId)}/test`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    const base = data?.message || (data?.ok ? '通过' : '失败');
+    const timePart = Number.isFinite(data?.duration_ms) ? `（${data.duration_ms}ms）` : '';
+    _execAgentTestStatus[agentId] = `${base}${timePart}`;
+  } catch (e) {
+    _execAgentTestStatus[agentId] = `失败：${e.message}`;
+  }
+  renderExecAgentCards();
+}
+
+function startExecBridgePoll() {
+  if (_execPollTimer) clearInterval(_execPollTimer);
+  _execPollTimer = setInterval(async () => {
+    await fetchExecPreferences(true);
+    await fetchExecScan(true);
+  }, 8000);
+}
+
+async function initExecBridge() {
+  await fetchExecPreferences(true);
+  await fetchExecScan(true);
+  renderExecBridgeIndicator();
+  renderExecDrawer();
+  renderExecBanner();
+  startExecBridgePoll();
+}
+
 function toggleDebugPanel() {
   document.getElementById('debug-panel').classList.toggle('hidden');
 }
@@ -777,7 +1376,10 @@ function resetConversationView() {
   _activeRunId = null;
   _latestConversationStatus = null;
   _messagesCache = [];
+  _pendingFormalResume = false;
+  _pendingFormalAction = null;
   _openingTriggeredRunId = null;
+  clearBridgePromptCard();
   stopConversationPolling();
   const cidEl = document.getElementById('chat-conversation-id');
   if (cidEl) cidEl.textContent = '未选择会话';
@@ -932,6 +1534,7 @@ function renderMessages(messages) {
     _lastRenderedMessageKeys.length === keys.length
     && _lastRenderedMessageKeys.every((k, i) => k === keys[i])
   ) {
+    renderBridgePromptCard();
     return;
   }
   _lastRenderedMessageKeys = keys;
@@ -1007,6 +1610,7 @@ function renderMessages(messages) {
         </div>
       </div>`;
   }
+  renderBridgePromptCard();
   container.scrollTop = container.scrollHeight;
   updateComposerState();
 }
@@ -1146,6 +1750,17 @@ function renderL0QuestionHtml(q) {
 }
 
 function renderAssessmentGatePassedHtml(payload) {
+  if (shouldBlockFormalEval()) {
+    _pendingFormalAction = _pendingFormalAction || ACTION_START_FORMAL;
+    _pendingFormalResume = true;
+    return `
+      <div class="text-sm font-semibold text-slate-900">评估条件检查</div>
+      <div class="mt-2 px-3 py-2.5 border border-amber-300 rounded-lg bg-amber-50/90 text-xs text-amber-900 leading-relaxed">
+        <span class="font-semibold">正式评估已暂停</span>：本地执行未就绪。请先完成执行设置，系统将自动续跑。
+      </div>
+      <p class="mt-2 text-xs text-amber-800">正在监听本地执行状态…</p>
+    `;
+  }
   const optional = Array.isArray(payload.optional_gaps) ? payload.optional_gaps : [];
   const optionalNote = optional.length
     ? `<p class="mt-2 text-xs text-slate-500">另有 ${optional.length} 项可选改进，不影响本次正式评估。</p>`
@@ -1387,6 +2002,15 @@ function renderOptionalImprovementChips(show) {
 
 async function handlePropagationAction(action) {
   if (action === 'confirm') {
+    const latestGate = getLatestAssessmentGatePayload(_messagesCache);
+    if (latestGate?.can_enter_formal) {
+      if (shouldBlockFormalEval()) {
+        showBridgePromptCard(ACTION_START_FORMAL);
+        return;
+      }
+      await sendConversationMessage(ACTION_START_FORMAL, true);
+      return;
+    }
     await sendConversationMessage(ACTION_PROPAGATE, true);
     return;
   }
@@ -1442,6 +2066,7 @@ function verdictBadgeClass(verdict) {
 
 function renderReportHtml(apiDetail, statusObj) {
   if (!apiDetail) return '';
+  const reportPayload = apiDetail.report || {};
   const phase = apiDetail.report_phase || 'formal';
   const headline = apiDetail.headline_zh || '评估结果';
   const summary = apiDetail.summary_one_liner || '';
@@ -1457,6 +2082,25 @@ function renderReportHtml(apiDetail, statusObj) {
   const actions = apiDetail.actions || [];
   const scoreBlock = scoreLine
     ? `<div class="mt-2 text-sm text-gray-800">${scoreLine}</div>`
+    : '';
+  const executionSourceUsed = apiDetail.execution_source_used || reportPayload.execution_source_used || '';
+  const levelAchieved = apiDetail.level_achieved || reportPayload.level_achieved || '';
+  const spotCheckEligible = Boolean(
+    apiDetail.spot_check_eligible ?? reportPayload.spot_check_eligible ?? false,
+  );
+  const sourceBadge = executionSourceUsed === 'local_agent' || executionSourceUsed === 'local'
+    ? '<span class="badge border border-green-600 text-green-800 bg-white">LOCAL AGENT</span>'
+    : (executionSourceUsed === 'sample_io'
+      ? '<span class="badge border border-gray-400 text-gray-700 bg-white">SAMPLE IO</span>'
+      : '');
+  const levelBadge = levelAchieved
+    ? `<span class="badge border border-blue-200 text-blue-700 bg-blue-50">LEVEL ${escapeHtml(String(levelAchieved).toUpperCase())}</span>`
+    : '';
+  const spotBadge = spotCheckEligible
+    ? '<span class="badge border border-amber-300 text-amber-800 bg-amber-50">待专家抽检</span>'
+    : '';
+  const outcomeStrip = (sourceBadge || levelBadge || spotBadge)
+    ? `<div class="mt-2 flex flex-wrap gap-1.5">${sourceBadge}${levelBadge}${spotBadge}</div>`
     : '';
   const cta = runId && isFormal
     ? `<button type="button" onclick="openReportFromChat('${escapeHtml(runId)}')"
@@ -1474,6 +2118,7 @@ function renderReportHtml(apiDetail, statusObj) {
     ${runId ? `<div class="run-ref text-[10px] text-gray-400 mt-0.5">${escapeHtml(runRefLabel(runId))}</div>` : ''}
     ${summary ? `<p class="mt-1 text-xs text-gray-700 leading-relaxed">${escapeHtml(summary)}</p>` : ''}
     ${(isFormal && nextAction) ? `<p class="mt-1 text-xs text-indigo-800">下一步：${escapeHtml(nextAction)}</p>` : ''}
+    ${outcomeStrip}
     ${scoreBlock}
     ${cta}
     ${expertChips}
@@ -1588,8 +2233,10 @@ function updateChatStatusBanner(statusObj) {
     banner.className = 'px-4 py-2 text-xs bg-blue-50 text-blue-700 border-b border-blue-100';
     const stages = getStatusValue(statusObj, ['stage_progress'], []);
     const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : runStatus;
-    const stageZh = STAGE_ZH[last] || last;
-    banner.textContent = `评估进行中…（${stageZh}）`;
+    const stageZh = stageLabelForExec(last, getExecSource());
+    banner.innerHTML = `评估进行中…（${stageZh}）`;
+  } else {
+    banner.textContent = '';
   }
   document.getElementById('chat-run-badge').textContent = `${autoRuns}/${maxRuns}`;
   updateComposerState();
@@ -1642,6 +2289,19 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
   const input = document.getElementById('chat-input');
   const payloadText = text || input.value.trim();
   const displayText = displayLabel || payloadText;
+  const skipConflictCheck = _skipFormalConflictOnce;
+  _skipFormalConflictOnce = false;
+  if (isFormalActionMessage(payloadText)) {
+    const gatePayload = getLatestAssessmentGatePayload(_messagesCache) || {};
+    if (!skipConflictCheck && shouldShowExecConflictModal(gatePayload.execution_source)) {
+      showExecConflictModal(payloadText);
+      return;
+    }
+    if (shouldBlockFormalEval()) {
+      showBridgePromptCard(payloadText);
+      return;
+    }
+  }
   if (!text && input) {
     input.value = '';
   }
@@ -2729,6 +3389,25 @@ function conversationMessagePreview(m) {
   return text.length > 48 ? `${text.slice(0, 48)}…` : text;
 }
 
+function renderHistoryFilterChips() {
+  const keys = ['all', 'sample', 'local', 'spotcheck'];
+  keys.forEach((k) => {
+    const el = document.getElementById(`history-chip-${k}`);
+    if (!el) return;
+    if (_historyFilterKey === k) {
+      el.className = 'tab-active py-1.5 border border-transparent';
+    } else {
+      el.className = 'tab-inactive py-1.5 border border-gray-300';
+    }
+  });
+}
+
+function setHistoryFilter(nextKey) {
+  _historyFilterKey = nextKey || 'all';
+  renderHistoryFilterChips();
+  loadHistory();
+}
+
 function renderConversationSummary(convData) {
   const msgs = convData.messages || [];
   const preview = msgs.slice(-3).map(m => {
@@ -2755,9 +3434,16 @@ async function openConversationFromHistory(convId, runId) {
 async function loadHistory() {
   const humanOnly = document.getElementById('filter-human')?.checked;
   const el = document.getElementById('history-table');
+  renderHistoryFilterChips();
   el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">加载中…</p>';
   try {
-    const data = await apiFetch(`/eval/history?limit=50${humanOnly ? '&human_review_only=true' : ''}`);
+    const params = new URLSearchParams();
+    params.set('limit', '50');
+    if (humanOnly) params.set('human_review_only', 'true');
+    if (_historyFilterKey === 'sample') params.set('execution_source', 'sample_io');
+    if (_historyFilterKey === 'local') params.set('execution_source', 'local_agent');
+    if (_historyFilterKey === 'spotcheck') params.set('spot_check_only', 'true');
+    const data = await apiFetch(`/eval/history?${params.toString()}`);
     const runs = (data.runs || []).filter(run => run.evaluation_mode !== 'degraded');
     if (!runs.length) {
       el.innerHTML = '<p class="text-sm text-gray-400 text-center py-10">暂无历史记录</p>';
@@ -2901,7 +3587,9 @@ setPerspective(getPerspective());
 const _demoOnInit = localStorage.getItem(DEMO_MODE_KEY) === 'true';
 document.getElementById('demo-path-wrap')?.classList.toggle('hidden', !_demoOnInit);
 loadSessionList();
+renderHistoryFilterChips();
 (async () => {
+  await initExecBridge();
   const stored = readStoredConversationId();
   if (stored) await resumeConversation(stored);
 })();

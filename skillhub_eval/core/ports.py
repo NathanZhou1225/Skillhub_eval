@@ -107,6 +107,8 @@ class Repository(Protocol):
         self,
         limit: int = 50,
         human_review_required: bool | None = None,
+        spot_check_eligible: bool | None = None,
+        execution_source_used: str | None = None,
     ) -> list[dict]: ...
 
     def save_gaps(self, run_id: str, gaps_json: dict) -> None: ...
@@ -169,3 +171,23 @@ class Repository(Protocol):
     def get_stage_timings(self, run_id: str) -> list[dict]: ...
 
     def get_stage_timing_summaries(self, run_ids: list[str]) -> dict[str, dict]: ...
+
+
+@runtime_checkable
+class ExecutionSource(Protocol):
+    """Pluggable source for per-case actual_output during case_executing."""
+
+    def get_actual_output(
+        self,
+        bundle_path: str,
+        case_id: str,
+        *,
+        case: dict | None = None,
+        bundle: dict | None = None,
+        ctx: dict | None = None,
+    ) -> "ExecResult": ...
+
+
+from .schemas.report import ExecResult  # noqa: E402
+
+__all__ = ["Repository", "ExecutionSource", "ExecResult"]

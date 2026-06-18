@@ -21,6 +21,7 @@ from skillhub_eval.adapters.api.routes.bundle import router as bundle_router
 from skillhub_eval.adapters.api.routes.taxonomy import router as taxonomy_router
 from skillhub_eval.adapters.api.routes.conversations import router as conversations_router
 from skillhub_eval.adapters.api.routes.chat import router as chat_router
+from skillhub_eval.adapters.api.routes.exec import router as exec_router
 
 
 class _NoCacheUiHtmlMiddleware(BaseHTTPMiddleware):
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
 
     # ── routers ───────────────────────────────────────────────────────────────
     app.include_router(eval_router)
+    app.include_router(exec_router)
     app.include_router(bundle_router)
     app.include_router(taxonomy_router)
     app.include_router(conversations_router, prefix="/conversations", tags=["conversations"])

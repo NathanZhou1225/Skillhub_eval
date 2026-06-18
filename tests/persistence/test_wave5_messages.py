@@ -36,7 +36,7 @@ def test_init_db_migration_to_v3_is_idempotent(tmp_path):
 
     assert "message_type" in columns
     assert "payload_json" in columns
-    assert version == 8
+    assert version == 10
 
 
 def test_append_lui_message_stores_type_and_payload(tmp_path):

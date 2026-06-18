@@ -29,5 +29,23 @@ class Settings(BaseSettings):
     workflow_timeout_high_s: int = 900
     divergence_synthesis_timeout_s: float = 120.0
 
+    # Local agent execution bridge (W8) — default sample_io preserves pre-W8 behavior
+    exec_source: str = Field(
+        default="sample_io",
+        validation_alias=AliasChoices("EXEC_SOURCE", "SKILLHUB_EXEC_SOURCE"),
+    )
+    exec_concurrency: int = Field(
+        default=2,
+        validation_alias=AliasChoices("EXEC_CONCURRENCY", "SKILLHUB_EXEC_CONCURRENCY"),
+    )
+    exec_agent: str = Field(
+        default="claude",
+        validation_alias=AliasChoices("EXEC_AGENT", "SKILLHUB_EXEC_AGENT"),
+    )
+    exec_consent_required: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("EXEC_CONSENT_REQUIRED", "SKILLHUB_EXEC_CONSENT_REQUIRED"),
+    )
+
 
 settings = Settings()

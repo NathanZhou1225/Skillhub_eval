@@ -41,7 +41,7 @@ def test_init_db_migration_to_v4_adds_pending_patch_json(tmp_path):
 
     assert "pending_patch_json" in columns
     assert "clarifications_json" in columns
-    assert version == 8
+    assert version == 10
 
 
 def test_pending_patch_roundtrip(tmp_path):

@@ -136,9 +136,17 @@ def ingest_bundle(bundle_path: str) -> dict:
     has_sample_io = (root / "sample_io").exists()
 
     scripts_dir = root / "scripts"
-    has_scripts = scripts_dir.exists() and any(
-        f.suffix == ".py" for f in scripts_dir.iterdir()
+    _script_suffixes = {".py", ".sh", ".bat", ".ps1"}
+    has_scripts = (
+        scripts_dir.exists()
+        and any(
+            f.is_file() and f.suffix.lower() in _script_suffixes
+            for f in scripts_dir.iterdir()
+        )
     ) if scripts_dir.exists() else False
+
+    entrypoint = meta.get("entrypoint") or None
+    execution_source = meta.get("execution_source") or None
 
     skill_id = meta.get("id") or meta.get("name") or root.name
 
@@ -154,4 +162,23 @@ def ingest_bundle(bundle_path: str) -> dict:
         "n_cases": len(cases),
         "has_sample_io": has_sample_io,
         "has_scripts": has_scripts,
+        "entrypoint": entrypoint,
+        "execution_source": execution_source,
     }
+
+
+def validate_execution_meta(bundle: dict) -> list[dict]:
+    """Return evidence rows for invalid W8 execution metadata (empty if ok)."""
+    evidence: list[dict] = []
+    if bundle.get("has_scripts") and not bundle.get("entrypoint"):
+        evidence.append({
+            "field": "entrypoint",
+            "detail": "has_scripts 技能须在 SKILL.md frontmatter 声明 entrypoint",
+        })
+    src = bundle.get("execution_source")
+    if src and src not in ("local", "sample_io"):
+        evidence.append({
+            "field": "execution_source",
+            "detail": f"execution_source 无效：{src!r}，可选 local / sample_io",
+        })
+    return evidence

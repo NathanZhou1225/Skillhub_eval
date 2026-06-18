@@ -1,0 +1,128 @@
+"""Global execution preferences persisted in sqlite."""
+
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+
+from skillhub_eval.execution.consent import grant_exec_consent
+from skillhub_eval.execution.local_agent_source import _resolve_adapter
+from skillhub_eval.persistence.sqlite import SqliteRepository
+from skillhub_eval.settings import settings
+
+
+@dataclass
+class ExecPreferences:
+    exec_source: str
+    exec_agent: str
+    consent_granted: bool
+    ready: bool
+    ready_reason: str | None = None
+
+
+def get_preferences(*, db_path: str | None = None) -> dict:
+    repo = _repo(db_path)
+    repo.init_db()
+    stored = repo.get_exec_preferences()
+    defaults = _default_preferences()
+    exec_source = str((stored or {}).get("exec_source") or defaults["exec_source"])
+    exec_agent = str((stored or {}).get("exec_agent") or defaults["exec_agent"])
+    consent_granted = bool((stored or {}).get("consent_granted", False))
+    ready, ready_reason = compute_ready(exec_source, exec_agent, consent_granted)
+    return asdict(
+        ExecPreferences(
+            exec_source=exec_source,
+            exec_agent=exec_agent,
+            consent_granted=consent_granted,
+            ready=ready,
+            ready_reason=ready_reason,
+        )
+    )
+
+
+def set_preferences(
+    *,
+    db_path: str | None = None,
+    exec_source: str | None = None,
+    exec_agent: str | None = None,
+    consent_granted: bool | None = None,
+) -> dict:
+    repo = _repo(db_path)
+    repo.init_db()
+    repo.upsert_exec_preferences(
+        exec_source=exec_source,
+        exec_agent=exec_agent,
+        consent_granted=consent_granted,
+    )
+    return get_preferences(db_path=db_path)
+
+
+def get_exec_source(*, db_path: str | None = None) -> str:
+    repo = _repo(db_path)
+    repo.init_db()
+    stored = repo.get_exec_preferences()
+    if stored and stored.get("exec_source"):
+        return str(stored["exec_source"])
+    return "local"
+
+
+def get_exec_agent(*, db_path: str | None = None) -> str:
+    repo = _repo(db_path)
+    repo.init_db()
+    stored = repo.get_exec_preferences()
+    if stored and stored.get("exec_agent"):
+        return str(stored["exec_agent"])
+    return _default_exec_agent()
+
+
+def grant_persisted_consent(*, db_path: str | None = None) -> None:
+    repo = _repo(db_path)
+    repo.init_db()
+    repo.upsert_exec_preferences(consent_granted=True)
+    grant_exec_consent("*")
+
+
+def compute_ready(
+    exec_source: str,
+    exec_agent: str,
+    consent_granted: bool,
+) -> tuple[bool, str | None]:
+    source = (exec_source or "").strip()
+    if source == "sample_io":
+        return True, None
+    if source != "local":
+        return False, "invalid_exec_source"
+
+    agent = (exec_agent or "").strip()
+    if not agent:
+        return False, "agent_not_selected"
+    if not _is_agent_detected(agent):
+        return False, "agent_unavailable"
+    if settings.exec_consent_required and not consent_granted:
+        return False, "consent_required"
+    return True, None
+
+
+def _default_preferences() -> dict:
+    return {
+        "exec_source": "local",
+        "exec_agent": _default_exec_agent(),
+    }
+
+
+def _default_exec_agent() -> str:
+    configured = (settings.exec_agent or "").strip()
+    if configured:
+        return configured
+    for candidate in ("claude", "codex", "cursor-agent"):
+        if _is_agent_detected(candidate):
+            return candidate
+    return "claude"
+
+
+def _is_agent_detected(agent_id: str) -> bool:
+    adapter = _resolve_adapter(agent_id)
+    return bool(adapter and adapter.detect())
+
+
+def _repo(db_path: str | None) -> SqliteRepository:
+    return SqliteRepository(db_path or settings.eval_db_path)

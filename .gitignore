@@ -19,7 +19,7 @@ data/
 .DS_Store
 
 # AI 编程助手与本地 Agent 记忆 (CRITICAL - 绝对不能传)
-.cursor_memory/
+.project_memory/
 .codebuddy/
 .workbuddy/
 
