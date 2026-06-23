@@ -12,6 +12,9 @@ venv/
 # 环境变量与数据 (CRITICAL)
 .env
 data/
+!skillhub_eval/data/
+!skillhub_eval/data/**
+.tmp/
 
 # IDE 与本地编辑器缓存 (CRITICAL)
 .idea/

@@ -104,6 +104,20 @@ def test_create_conversation_stores_source_path(tmp_path):
     conv = repo.get_conversation(conv_id)
     assert conv is not None
     assert conv["source_path"] == source_path
+
+
+def test_update_conversation_source_fields(tmp_path):
+    repo = SqliteRepository(str(tmp_path / "wave4_update_source.db"))
+    repo.init_db()
+    conv_id = repo.create_conversation(skill_id="skill-a", source="upload")
+
+    repo.set_conversation_source(conv_id, "local_ref")
+    repo.set_conversation_source_path(conv_id, "data/originals/conv-1")
+
+    conv = repo.get_conversation(conv_id)
+    assert conv is not None
+    assert conv["source"] == "local_ref"
+    assert conv["source_path"] == "data/originals/conv-1"
     assert conv["auto_confirmed"] == 0
 
 

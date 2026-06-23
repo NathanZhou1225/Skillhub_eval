@@ -49,8 +49,7 @@ def run(
     """Trigger an evaluation run directly (no HTTP server needed)."""
     from skillhub_eval.core.engine import EvaluationEngine
     from skillhub_eval.core.schemas import BundleState, EvaluationMode
-    from skillhub_eval.providers.deepseek import DeepSeekProvider
-    from skillhub_eval.providers.gemini import GeminiProvider
+    from skillhub_eval.providers.factory import build_judge_providers
     from skillhub_eval.settings import settings
 
     try:
@@ -71,16 +70,7 @@ def run(
             skill_id = Path(bundle_path).name
 
     repo = _make_repo(db_path)
-    ds = DeepSeekProvider(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-        model=settings.deepseek_model,
-    )
-    wb = GeminiProvider(
-        api_key=settings.gemini_api_key,
-        base_url=settings.gemini_base_url,
-        model=settings.gemini_model,
-    )
+    ds, wb = build_judge_providers(settings)
 
     run_id = repo.create_run(
         skill_id=skill_id,

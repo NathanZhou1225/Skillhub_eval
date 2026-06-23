@@ -103,6 +103,8 @@ class RiskLockProvenance(BaseModel):
 
 
 class ProviderSummary(BaseModel):
+    provider_a_label: str = "DeepSeek"
+    provider_b_label: str = "Gemini"
     deepseek_score: float | None = None
     gemini_score: float | None = None
     score_gap: float | None = None

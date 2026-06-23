@@ -496,6 +496,24 @@ class SqliteRepository:
             )
         return conv_id
 
+    def set_conversation_source(self, conversation_id: str, source: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET source=? WHERE conversation_id=?",
+                (source, conversation_id),
+            )
+
+    def set_conversation_source_path(
+        self,
+        conversation_id: str,
+        source_path: str,
+    ) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE conversations SET source_path=? WHERE conversation_id=?",
+                (source_path, conversation_id),
+            )
+
     def increment_auto_run_count(self, conversation_id: str) -> int:
         with self._conn() as conn:
             conn.execute(

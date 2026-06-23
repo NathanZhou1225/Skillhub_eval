@@ -3,7 +3,7 @@
 T8 — live validation harness for testskills/ three-sample matrix.
 Writes results to docs/runbooks/testskills-phase1-validation.md
 
-Requires .env with DEEPSEEK_API_KEY and GEMINI_API_KEY.
+Requires .env with judge provider keys (JUDGE_PROVIDER_A/B_* or legacy DEEPSEEK/GEMINI).
 """
 
 from __future__ import annotations
@@ -22,8 +22,7 @@ from skillhub_eval.core.engine import EvaluationEngine
 from skillhub_eval.core.schemas import BundleState, EvaluationMode
 from skillhub_eval.core.stage_timing import summarize_stage_timings
 from skillhub_eval.persistence.sqlite import SqliteRepository
-from skillhub_eval.providers.deepseek import DeepSeekProvider
-from skillhub_eval.providers.gemini import GeminiProvider
+from skillhub_eval.providers.factory import build_judge_providers
 from skillhub_eval.settings import settings
 
 DB_PATH = ROOT / "data" / "t8_validation.db"
@@ -41,20 +40,16 @@ def _repo() -> SqliteRepository:
 
 
 def _engine(repo: SqliteRepository) -> EvaluationEngine:
-    if not settings.deepseek_api_key or not settings.gemini_api_key:
-        raise SystemExit("Missing DEEPSEEK_API_KEY or GEMINI_API_KEY in .env")
+    provider_a, provider_b = build_judge_providers(settings)
+    if not provider_a.api_key or not provider_b.api_key:
+        raise SystemExit(
+            "Missing judge provider API keys in .env "
+            "(JUDGE_PROVIDER_A/B_API_KEY or DEEPSEEK/GEMINI)"
+        )
     return EvaluationEngine(
         repo=repo,
-        ds_provider=DeepSeekProvider(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-            model=settings.deepseek_model,
-        ),
-        wb_provider=GeminiProvider(
-            api_key=settings.gemini_api_key,
-            base_url=settings.gemini_base_url,
-            model=settings.gemini_model,
-        ),
+        ds_provider=provider_a,
+        wb_provider=provider_b,
     )
 
 

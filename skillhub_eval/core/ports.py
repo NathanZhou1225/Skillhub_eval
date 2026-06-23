@@ -62,6 +62,10 @@ class Repository(Protocol):
 
     def set_conversation_skill_id(self, conversation_id: str, skill_id: str) -> None: ...
 
+    def set_conversation_source(self, conversation_id: str, source: str) -> None: ...
+
+    def set_conversation_source_path(self, conversation_id: str, source_path: str) -> None: ...
+
     def append_lui_message(
         self,
         conversation_id: str,

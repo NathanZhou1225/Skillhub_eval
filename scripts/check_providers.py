@@ -1,12 +1,11 @@
-"""One-off connectivity check for DeepSeek + Gemini (reads .env via settings)."""
+"""One-off connectivity check for judge Provider A/B (reads .env via settings)."""
 
 from __future__ import annotations
 
 import asyncio
 import sys
 
-from skillhub_eval.providers.deepseek import DeepSeekProvider
-from skillhub_eval.providers.gemini import GeminiProvider
+from skillhub_eval.providers.factory import build_judge_providers
 from skillhub_eval.settings import settings
 
 PROMPT = (
@@ -33,29 +32,19 @@ async def test_provider(label: str, provider) -> tuple[bool, str]:
 
 
 async def main() -> None:
-    print("=== Provider connectivity ===")
-    ds_ok = key_ok(settings.deepseek_api_key)
-    gm_ok = key_ok(settings.gemini_api_key)
-    print(f"DEEPSEEK_API_KEY set: {ds_ok}")
-    print(f"GEMINI_API_KEY set: {gm_ok}")
-    if not ds_ok or not gm_ok:
-        print("Fill both keys in .env and retry.")
+    provider_a, provider_b = build_judge_providers(settings)
+    print("=== Provider connectivity (judge slots A/B) ===")
+    a_ok = key_ok(provider_a.api_key)
+    b_ok = key_ok(provider_b.api_key)
+    print(f"{provider_a.label} API key set: {a_ok}")
+    print(f"{provider_b.label} API key set: {b_ok}")
+    if not a_ok or not b_ok:
+        print("Fill JUDGE_PROVIDER_A/B_API_KEY (or legacy DEEPSEEK/GEMINI keys) in .env and retry.")
         sys.exit(1)
 
-    ds = DeepSeekProvider(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-        model=settings.deepseek_model,
-    )
-    gm = GeminiProvider(
-        api_key=settings.gemini_api_key,
-        base_url=settings.gemini_base_url,
-        model=settings.gemini_model,
-    )
-
     results = await asyncio.gather(
-        test_provider("DeepSeek", ds),
-        test_provider("Gemini", gm),
+        test_provider(provider_a.label, provider_a),
+        test_provider(provider_b.label, provider_b),
     )
     for ok, msg in results:
         print(msg)

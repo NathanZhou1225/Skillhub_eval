@@ -149,9 +149,11 @@ def build_disagreement_brief(
     if redline_flag and not r5:
         hints.append("正常题质量分一致，但红线题存在模型分歧，须专家裁定")
 
+    provider_a = ps.provider_a_label or "DeepSeek"
+    provider_b = ps.provider_b_label or "Gemini"
     summary = (
-        f"DeepSeek 包级 {ps.deepseek_score}（倾向 {ds_st}），"
-        f"Gemini 包级 {ps.gemini_score}（倾向 {gm_st}）。"
+        f"{provider_a} 包级 {ps.deepseek_score}（倾向 {ds_st}），"
+        f"{provider_b} 包级 {ps.gemini_score}（倾向 {gm_st}）。"
     )
     if status_mismatch:
         summary += "整体结论一过一挂。"

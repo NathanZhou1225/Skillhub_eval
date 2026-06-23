@@ -1,6 +1,10 @@
 """
 Gemini LLM provider — Google Generative AI via OpenAI-compatible endpoint.
 
+.. deprecated::
+    Main judge path uses ``build_judge_providers`` + ``OpenAICompatibleProvider``.
+    Retained for legacy unit tests and backward-compatible imports.
+
 Google exposes an OpenAI-compatible API at:
   https://generativelanguage.googleapis.com/v1beta/openai/
 

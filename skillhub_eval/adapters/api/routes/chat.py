@@ -39,6 +39,10 @@ from skillhub_eval.core.chat_notifications import (
 from skillhub_eval.core.case_sanitizer import CaseSanitizer
 from skillhub_eval.core.clarification_parser import parse_clarification_message
 from skillhub_eval.core.confirm_lexicon import is_confirm_message
+from skillhub_eval.core.eval_stage_messages import (
+    FORMAL_EVAL_STARTED_FROM_READINESS,
+    FORMAL_EVAL_STARTED_NEUTRAL,
+)
 from skillhub_eval.core.gaps import scan_gaps
 from skillhub_eval.core.ingest import ingest_bundle
 from skillhub_eval.core.level0 import Level0Checker
@@ -411,6 +415,30 @@ def _append_propagation_summary(
     )
 
 
+def _build_gate_after_propagation(
+    *,
+    repo: Repository,
+    conv_id: str,
+    staging_path: Path,
+    bundle: dict,
+    risk_level: str,
+    layered: Any,
+) -> tuple[dict, int]:
+    sanitizer = CaseSanitizer(risk_level=risk_level, staging_path=staging_path)
+    sanitizer_result = sanitizer.run()
+    clarifications = repo.get_clarifications(conv_id)
+    gate_version = next_gate_version(repo, conv_id)
+    gate_payload = build_assessment_gate_payload(
+        staging_path=staging_path,
+        bundle=bundle,
+        sanitizer_result=sanitizer_result,
+        gate_version=gate_version,
+        clarifications=clarifications if isinstance(clarifications, dict) else None,
+        **gate_security_kwargs(layered),
+    )
+    return gate_payload, gate_version
+
+
 async def _refresh_propagation_plan_async(
     *,
     conv_id: str,
@@ -474,17 +502,13 @@ async def _execute_propagate(
     _append_propagation_summary(repo, conv_id, prop_result)
     bundle = ingest_bundle(str(staging_path))
     layered = scan_bundle_security(bundle, staging_path)
-    sanitizer = CaseSanitizer(risk_level=risk_level, staging_path=staging_path)
-    sanitizer_result = sanitizer.run()
-    clarifications = repo.get_clarifications(conv_id)
-    gate_version = next_gate_version(repo, conv_id)
-    gate_payload = build_assessment_gate_payload(
+    gate_payload, gate_version = _build_gate_after_propagation(
+        repo=repo,
+        conv_id=conv_id,
         staging_path=staging_path,
         bundle=bundle,
-        sanitizer_result=sanitizer_result,
-        gate_version=gate_version,
-        clarifications=clarifications if isinstance(clarifications, dict) else None,
-        **gate_security_kwargs(layered),
+        risk_level=risk_level,
+        layered=layered,
     )
     append_assessment_gate_message(
         conv_id,
@@ -508,7 +532,7 @@ async def _execute_propagate(
         gemini_provider=gemini,
         background_tasks=background_tasks,
     )
-    reply = "评估需求已满足，正在开始正式双模型评估，请稍候…"
+    reply = FORMAL_EVAL_STARTED_NEUTRAL
     return ChatResponse(
         reply=reply,
         intent="system_action",
@@ -822,8 +846,7 @@ async def _handle_readiness_choice_chat(
             gemini,
             background_tasks=background_tasks,
         )
-        reply = "好的，已开始正式双模型评估，请稍候…"
-        repo.append_lui_message(conv_id, role="agent", content=reply)
+        reply = FORMAL_EVAL_STARTED_FROM_READINESS
         return ChatResponse(
             reply=reply,
             intent="system_action",

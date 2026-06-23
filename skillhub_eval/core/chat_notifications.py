@@ -555,11 +555,6 @@ async def start_capability_full_eval(
         bundle_state=BundleState.confirmed,
         evaluation_mode=EvaluationMode.capability_full,
     )
-    repo.append_lui_message(
-        conv_id,
-        role="agent",
-        content="评估需求已满足，正在开始正式双模型评估，请稍候…",
-    )
     return new_run_id
 
 

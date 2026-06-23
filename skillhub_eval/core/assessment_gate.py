@@ -161,10 +161,10 @@ def gate_content_message(payload: dict[str, Any]) -> str:
         optional = payload.get("optional_gaps") or []
         if optional:
             return (
-                "评估需求已满足，正在自动开始正式双模型评估。"
+                "评估需求已满足，正式评估即将开始。"
                 f"（另有 {len(optional)} 项可选改进，不阻断本次评估。）"
             )
-        return "评估需求已满足，正在自动开始正式双模型评估，请稍候…"
+        return "评估需求已满足，正式评估即将开始，请稍候…"
     if payload.get("needs_case_propagation"):
         return (
             "当前不满足正式评估的题型要求，需补充评测案例。"

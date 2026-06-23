@@ -7,8 +7,9 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_TAXONOMY_PATH = _REPO_ROOT / "data" / "category_taxonomy.yaml"
+from .resources import data_path
+
+_DEFAULT_TAXONOMY_PATH = data_path("category_taxonomy.yaml")
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,39 @@
+version: "1.0"
+categories:
+  - slug: fin-research
+    name_zh: 金融核心投研
+    children:
+      - slug: fin-statement
+        name_zh: 财务三表/审计数据
+        definition: 围绕资产负债表、利润表、现金流量表及审计附注的提取、核对与解读场景。
+        case_template_hint: 给定财报片段或科目变动，验证能否正确抽取关键指标并给出合规解读。
+      - slug: macro-indicator
+        name_zh: 宏观/行业基本面
+        definition: 基于宏观数据、行业景气度与政策信号进行基本面跟踪与归因分析的场景。
+        case_template_hint: 输入宏观或行业指标序列，验证能否识别趋势变化并输出结构化研判要点。
+      - slug: quant-signal
+        name_zh: 量化因子/技术形态
+        definition: 依赖量化因子、价量特征或技术形态生成交易或研究信号的场景。
+        case_template_hint: 给定行情或因子输入，验证能否产出可复现的信号列表及触发条件说明。
+  - slug: asset-compliance
+    name_zh: 资产管理与合规
+    children:
+      - slug: portfolio-audit
+        name_zh: 组合持仓/绩效回顾
+        definition: 对投资组合持仓、收益归因与绩效指标进行复核与回顾报告的场景。
+        case_template_hint: 输入持仓与净值数据，验证能否生成持仓摘要、归因拆解与异常提示。
+      - slug: risk-interceptor
+        name_zh: 越权风控/反洗钱监控
+        definition: 识别越权操作、合规违规与反洗钱可疑行为的拦截与告警场景。
+        case_template_hint: 构造含越权或可疑交易特征的输入，验证能否命中规则并输出拦截依据。
+  - slug: general-utility
+    name_zh: 日常效能与通用
+    children:
+      - slug: data-sanitization
+        name_zh: 数据清洗/格式转换
+        definition: 对原始数据进行去噪、标准化、字段映射与格式转换的通用处理场景。
+        case_template_hint: 提供脏数据样本，验证能否输出符合目标 schema 的清洗结果与转换日志。
+      - slug: report-generator
+        name_zh: 周报/纪要标准化
+        definition: 将零散素材整理为结构化周报、会议纪要或汇报文档的场景。
+        case_template_hint: 输入要点草稿或对话记录，验证能否生成固定版式的标准化文档输出。

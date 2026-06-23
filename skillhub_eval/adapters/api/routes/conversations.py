@@ -12,7 +12,7 @@ from __future__ import annotations
 import io
 import shutil
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, UploadFile
@@ -241,17 +241,7 @@ def _set_conversation_source_path(
     conversation_id: str,
     source_path: Path,
 ) -> None:
-    """
-    Task-5 compatibility shim: protocol has no dedicated setter yet.
-    For sqlite repository, update source_path directly so W6 can publish originals.
-    """
-    conn_factory = getattr(repo, "_conn", None)
-    if callable(conn_factory):
-        with conn_factory() as conn:
-            conn.execute(
-                "UPDATE conversations SET source_path=? WHERE conversation_id=?",
-                (str(source_path), conversation_id),
-            )
+    repo.set_conversation_source_path(conversation_id, str(source_path))
 
 
 def _set_conversation_source(
@@ -259,13 +249,7 @@ def _set_conversation_source(
     conversation_id: str,
     source: str,
 ) -> None:
-    conn_factory = getattr(repo, "_conn", None)
-    if callable(conn_factory):
-        with conn_factory() as conn:
-            conn.execute(
-                "UPDATE conversations SET source=? WHERE conversation_id=?",
-                (source, conversation_id),
-            )
+    repo.set_conversation_source(conversation_id, source)
 
 
 def _hoist_single_wrapper_dir(extract_dir: Path) -> None:
@@ -296,6 +280,31 @@ def _hoist_single_wrapper_dir(extract_dir: Path) -> None:
     nested.rmdir()
 
 
+def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
+    file_type = (info.external_attr >> 16) & 0o170000
+    return file_type == 0o120000
+
+
+def _validate_zip_members(zf: zipfile.ZipFile) -> None:
+    for info in zf.infolist():
+        raw_name = info.filename
+        normalized = raw_name.replace("\\", "/")
+        posix = PurePosixPath(normalized)
+        windows = PureWindowsPath(raw_name)
+        if (
+            not normalized
+            or normalized.startswith("/")
+            or windows.is_absolute()
+            or windows.drive
+            or ".." in posix.parts
+            or _is_zip_symlink(info)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsafe zip entry: {raw_name}",
+            )
+
+
 async def _prepare_uploaded_bundle(
     conversation_id: str,
     bundle_zip: UploadFile,
@@ -312,10 +321,15 @@ async def _prepare_uploaded_bundle(
     zip_stem = Path(bundle_zip.filename or "bundle").stem
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            _validate_zip_members(zf)
             zf.extractall(originals_path)
     except zipfile.BadZipFile as exc:
         _cleanup_dir(originals_path)
         raise HTTPException(status_code=422, detail="Invalid zip file") from exc
+    except HTTPException:
+        _cleanup_dir(originals_path)
+        _cleanup_dir(staging_path)
+        raise
 
     _hoist_single_wrapper_dir(originals_path)
 

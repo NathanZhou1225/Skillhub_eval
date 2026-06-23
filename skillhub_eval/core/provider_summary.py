@@ -12,7 +12,13 @@ def _bundle_status(model_votes: list[dict]) -> str:
     return "pass" if statuses.count("pass") > len(statuses) / 2 else "fail"
 
 
-def build_provider_summary(votes: list[dict], agg: dict) -> ProviderSummary:
+def build_provider_summary(
+    votes: list[dict],
+    agg: dict,
+    *,
+    provider_a_label: str = "DeepSeek",
+    provider_b_label: str = "Gemini",
+) -> ProviderSummary:
     """
     Derive bundle-level and per-case scores from raw votes + aggregate output.
     """
@@ -61,6 +67,8 @@ def build_provider_summary(votes: list[dict], agg: dict) -> ProviderSummary:
         )
 
     return ProviderSummary(
+        provider_a_label=provider_a_label,
+        provider_b_label=provider_b_label,
         deepseek_score=ds_score,
         gemini_score=wb_score,
         score_gap=score_gap,

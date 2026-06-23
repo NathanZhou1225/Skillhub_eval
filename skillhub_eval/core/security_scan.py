@@ -19,8 +19,9 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_PATTERNS_PATH = _REPO_ROOT / "data" / "security_patterns.yaml"
+from .resources import data_path
+
+_DEFAULT_PATTERNS_PATH = data_path("security_patterns.yaml")
 
 _STATUS_RANK = {"passed": 0, "warning": 1, "blocked": 2}
 

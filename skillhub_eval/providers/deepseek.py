@@ -1,6 +1,10 @@
 """
 DeepSeek LLM provider — live API implementation.
 
+.. deprecated::
+    Main judge path uses ``build_judge_providers`` + ``OpenAICompatibleProvider``.
+    Retained for legacy unit tests and backward-compatible imports.
+
 T7: 45s per-call timeout; retry 429/503 with exponential back-off (base 1s, max 3).
 """
 

@@ -52,6 +52,14 @@ def _make_zip_bytes(include_skill_md: bool = True, nested_folder: str | None = N
     return buffer.getvalue()
 
 
+def _make_zip_with_entry(entry_name: str) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("SKILL.md", "# Demo Skill\n")
+        zf.writestr(entry_name, "malicious")
+    return buffer.getvalue()
+
+
 def _make_sanitizer_result() -> SanitizerResult:
     return SanitizerResult(
         broken_moved=0,
@@ -90,7 +98,6 @@ def test_upload_zip_creates_originals_and_staging(client, tmp_path, monkeypatch)
             "skillhub_eval.adapters.api.routes.conversations.CaseSanitizer",
             return_value=MagicMock(run=MagicMock(return_value=sanitizer_result)),
         ),
-        patch("skillhub_eval.adapters.api.routes.conversations._set_conversation_source_path") as mock_set_source,
     ):
         resp = test_client.post(
             "/conversations/start",
@@ -113,7 +120,7 @@ def test_upload_zip_creates_originals_and_staging(client, tmp_path, monkeypatch)
         source="upload",
         source_path="",
     )
-    mock_set_source.assert_called_once_with(repo, _MOCK_CONV_ID, originals)
+    repo.set_conversation_source_path.assert_called_once_with(_MOCK_CONV_ID, str(originals))
 
 
 def test_upload_invalid_zip_returns_422_and_cleans_originals(client, tmp_path, monkeypatch):
@@ -145,6 +152,39 @@ def test_upload_zip_without_skill_md_returns_422_and_cleans_originals(client, tm
 
     assert resp.status_code == 422
     assert "skill.md" in str(resp.json()["detail"]).lower()
+    assert not (tmp_path / "originals" / _MOCK_CONV_ID).exists()
+    assert not (tmp_path / "staging" / _MOCK_CONV_ID).exists()
+    repo.create_run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "entry_name",
+    [
+        "../outside.txt",
+        "nested/../../outside.txt",
+        "/absolute/outside.txt",
+        "C:/absolute/outside.txt",
+        "C:\\absolute\\outside.txt",
+    ],
+)
+def test_upload_zip_rejects_path_traversal_entries(
+    client,
+    tmp_path,
+    monkeypatch,
+    entry_name,
+):
+    test_client, repo = client
+    monkeypatch.setattr("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging"))
+
+    resp = test_client.post(
+        "/conversations/start",
+        data={"skill_id": "skill-upload", "source": "upload"},
+        files={"bundle_zip": ("bundle.zip", _make_zip_with_entry(entry_name), "application/zip")},
+    )
+
+    assert resp.status_code == 422
+    assert "unsafe zip entry" in str(resp.json()["detail"]).lower()
+    assert not (tmp_path / "outside.txt").exists()
     assert not (tmp_path / "originals" / _MOCK_CONV_ID).exists()
     assert not (tmp_path / "staging" / _MOCK_CONV_ID).exists()
     repo.create_run.assert_not_called()

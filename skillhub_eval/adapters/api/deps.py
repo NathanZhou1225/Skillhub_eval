@@ -12,8 +12,8 @@ from pathlib import Path
 
 from skillhub_eval.core.ports import Repository
 from skillhub_eval.persistence.sqlite import SqliteRepository
-from skillhub_eval.providers.deepseek import DeepSeekProvider
-from skillhub_eval.providers.gemini import GeminiProvider
+from skillhub_eval.providers.base import BaseLLMProvider
+from skillhub_eval.providers.factory import build_judge_providers
 from skillhub_eval.settings import settings
 
 
@@ -25,19 +25,11 @@ def get_repo() -> Repository:
     return repo
 
 
-def get_ds_provider() -> DeepSeekProvider:
-    return DeepSeekProvider(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-        model=settings.deepseek_model,
-        timeout=float(settings.provider_call_timeout_s),
-    )
+def get_ds_provider() -> BaseLLMProvider:
+    provider_a, _ = build_judge_providers(settings)
+    return provider_a
 
 
-def get_gemini_provider() -> GeminiProvider:
-    return GeminiProvider(
-        api_key=settings.gemini_api_key,
-        base_url=settings.gemini_base_url,
-        model=settings.gemini_model,
-        timeout=float(settings.provider_call_timeout_s),
-    )
+def get_gemini_provider() -> BaseLLMProvider:
+    _, provider_b = build_judge_providers(settings)
+    return provider_b

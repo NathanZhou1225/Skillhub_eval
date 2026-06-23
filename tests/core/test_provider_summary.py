@@ -38,3 +38,15 @@ def test_build_provider_summary_no_disagreement():
     summary = build_provider_summary(votes, agg)
     assert summary.r5_triggered is False
     assert summary.score_gap == 2.0
+
+
+def test_build_provider_summary_carries_env_labels():
+    summary = build_provider_summary(
+        [],
+        {},
+        provider_a_label="Provider A",
+        provider_b_label="Provider B",
+    )
+
+    assert summary.provider_a_label == "Provider A"
+    assert summary.provider_b_label == "Provider B"
