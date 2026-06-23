@@ -10,7 +10,7 @@
 
 **四阶段设计路线**（2026-06-12 重定标；**2026-06-23** 阶段边界再收紧）：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ **评估系统完善**（对话式评估、安全门禁、自动补题、专家复核、报告呈现、**本地 Demo 验收**）→ ④ **集市生态 + 服务器部署 + 立项提案与商业价值呈现**（W7 服务器部署、listing / Trending / 消费者发现、痛点映射、Demo 材料、可选 IAM/Portal）。
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**W5.5 回归 fixture 三件套 + 评估结果/拦截 UX 热修** ✅（`testskills/stock-radar-fixture-{sec-block,score-low,score-high}`；fail 红标、`security_blocked` 可读说明、共识 fail 聚合、`skill_summary` 兜底；**524 tests**）。**W8 本地 Agent 执行桥 + UI 执行桥** ✅ **收官**（后端 23/23 + UI C01–C16；**595 tests**；DB v9；网页实机验收通过 tiered-memory-sprint-manager + cursor-agent；judge/local agent 超时预算拆分）— OpenSpec 已归档 `archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/`。**W4.5 provider-env-factory** ✅（双评审槽位 env 驱动 + 报告/UI/脚本 label 全链路；UI `w4.5-provider-labels`）。**P2 工程优化** ✅（`index.html` 主业务脚本拆分、engine/chat 状态流小拆分、pytest 环境整理）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线**：**本地评估验收收官**（W5.5 剧本 B/C + `phase3-eval-validation.md` runbook）；并行：W8.4 多 agent 对照、Q-24 时延优化。**服务器部署（原 W7）**、集市生态（原 W6）/ W10 **已移至阶段四**。阶段二可选收尾已取消。
+**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**W5.5 回归 fixture 三件套 + 评估结果/拦截 UX 热修** ✅（`testskills/stock-radar-fixture-{sec-block,score-low,score-high}`；fail 红标、`security_blocked` 可读说明、共识 fail 聚合、`skill_summary` 兜底；**524 tests**）。**W8 本地 Agent 执行桥 + UI 执行桥** ✅ **收官**（后端 23/23 + UI C01–C16；**595 tests**；DB v9；网页实机验收通过 tiered-memory-sprint-manager + cursor-agent；judge/local agent 超时预算拆分）— OpenSpec 已归档 `archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/`。**W4.5 provider-env-factory** ✅（双评审槽位 env 驱动 + 报告/UI/脚本 label 全链路；UI `w4.5-provider-labels`）。**P2 工程优化** ✅（`index.html` 主业务脚本拆分、engine/chat 状态流小拆分、pytest 环境整理）。**不重写** 1.2 准入阈值（85/70/90）。**当前主线（Codex 下一窗）**：**Q-24 功能优化包**（见下节「下一步」①②④⑤⑥ + **Q-25 Token 汇总**）；**pytest / 剧本 B/C / runbook 一律后置**。其后：**W5.5 本地验收收官**（剧本 B/C + `phase3-eval-validation.md`）。**服务器部署（原 W7）**、集市生态（原 W6）/ W10 **已移至阶段四**。阶段二可选收尾已取消。
 
 ---
 
@@ -203,6 +203,38 @@
 | **W5.5 回归 fixture + 拦截 UX 热修** | **✅ 收官** — 三 fixture + UI fail 红标/说明；**524 tests** |
 | **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W4.5 provider-env-factory** | **✅ 收官** — `JUDGE_PROVIDER_A/B_*` 双评审槽位、`OpenAICompatibleProvider`、API/CLI/脚本工厂、报告/UI 全链路 label（含 per-case 表头与不可用横幅）；UI build `w4.5-provider-labels` |
+| **Q-24 / Q-25 功能优化包** | **🔵 下一窗首选（Codex）** — 见下节「下一步」；**不测 pytest**；**不做** `skill_summary` 跳过 |
+
+---
+
+## 下一步（功能优化 · Codex 执行）
+
+> **窗口约定（2026-06-23 锁定）**：本包**只做功能与 UI**；**全部 pytest / 剧本 B/C / `phase3-eval-validation.md` 后置到本包完成之后**。`skill_summary` 可选跳过**明确不做**。
+
+| 序 | ID | 内容 | 交付要点 | 主要触点 |
+|----|-----|------|----------|----------|
+| **①** | Q-24-1 | **引擎多题并行 `case_executing`** | `EvaluationEngine._run_case_exec_phase` 由串行 `for` 改为有界并发（默认 `EXEC_CONCURRENCY=2`）；每题仍走独立 workspace；对齐 W8 spec「并行多题各自隔离」 | `core/engine.py`、`execution/local_agent_source.py` |
+| **②** | Q-24-2 | **UI：本地 Agent 阶段预算可见** | `case_executing` 进行中展示 **已用 / 剩余 / 总预算**（秒，来自 `LOCAL_AGENT_WORKFLOW_TIMEOUT_*` + 当前 `risk_level_locked`）；轮询或 SSE 消费 `stage_progress` / 新增轻量字段；超时终态沿用 `EVAL_LOCAL_AGENT_TIMEOUT` | `adapters/ui/static/assets/index.js`、report API（如需补字段） |
+| **④** | Q-24-4 | **限流退并发 + 按 risk 单题 agent 超时** | 并行 hit 429/rate-limit 时 **退并发到 1** + 指数退避（对齐 W8 spec G11）；单题 `timeout_s` 按 locked risk 分档（可复用 `provider_call_timeout_*` 或新增 `LOCAL_AGENT_CASE_TIMEOUT_*`） | `execution/local_agent_source.py`、`core/latency.py`、`settings.py`、`.env.example` |
+| **⑤** | Q-24-5 | **Provider B 不可用横幅按因分类** | 单侧无分时**禁止**一律写「API 限流」；按 `provider_error` 摘要区分：地域不可用 / 限流 / 密钥或模型错误 / 超时等（中文一句） | `adapters/ui/static/assets/index.js` |
+| **⑥** | W8.4 | **多 Agent 对照统计（最小版）** | 同一 skill 可选多 `exec_agent` 跑对照（或同 run 记录 agent 维度）；报告/历史可筛 **agent × case** 执行结果摘要（不必先做运营看板） | `execution/`、`core/schemas/report.py`、UI 历史或报告区 |
+| **⑦** | Q-25 | **报告 Token 消耗汇总** | 见下「Q-25 范围」 | providers、engine、report schema、UI |
+
+### Q-25 范围（Token 汇总 · 已锁定）
+
+| 项 | 约定 |
+|----|------|
+| **采集** | OpenAI 兼容 `/chat/completions` 响应里的 `usage`（`prompt_tokens` / `completion_tokens` / `total_tokens`）；**双模型 judge**、**enrich / 补题 generate**、**divergence 合成**、**skill_summary**、**risk_review** 凡走 provider 的调用均记账 |
+| **本地 Agent** | `ExecResult.usage`（stream-json 已解析部分）并入汇总，阶段标 `local_agent` |
+| **报告字段** | `EvaluationReport` 增 `usage_summary`：`by_stage[]`（stage、provider_label、prompt、completion、total）+ `totals`（全轮合计）；可选 per-call 明细进 `eval_events` 或 `model_votes[].usage` |
+| **UI** | 完整报告 / 历史详情展示「本轮 Token 合计」+ 按环节小计（与 `timing_summary` 同区或独立折叠卡）；**不做** 计费/单价 |
+| **不做** | 对话 LUI 每条消息的 token；阶段四运营看板；改 1.2 阈值 |
+
+### 本包明确排除
+
+- `skill_summary` env 跳过（用户决定不做）
+- 本包内不新增/不跑 pytest（收官前统一补测）
+- W5.5 剧本 B/C、`phase3-eval-validation.md`（本包之后）
 
 ---
 
@@ -254,7 +286,8 @@
 | **Q-20** | **中央 subprocess 沙盒跑不了内网 skill**（无 VPN/DB） | P1 | **W8 路线已定**：穿透本地 CLI agent；中央 judge 复用 |
 | **Q-21** | **被穿透的本地 agent 以 `bypassPermissions`/`--trust` 全自动跑任意 skill 代码**（含内网权限机器），本身是攻击面 | P1 | **W8.5 已落地**：执行前 consent gate + Security Gate + output sanitizer + `HardenedProfile`（codex 红线） |
 | **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
-| **Q-24** | **W8 本地 Agent 评估时延优化（后续）** | P2 | **部分已解（2026-06-18）**：judge / local agent 超时预算拆分 + `.env` 可配；**待做**：引擎多题并行 case_exec（复用 `EXEC_CONCURRENCY`）、UI 展示 Agent 已用/剩余预算、`skill_summary` 可选跳过以省 judge 时间 |
+| **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **部分已解（2026-06-18）**：judge / local agent 超时预算拆分 + `.env` 可配；**下一窗 Codex**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类 ⑥ W8.4 多 agent 对照（见「下一步」）；**不做** skill_summary 跳过 |
+| **Q-25** | **报告 Token 消耗汇总** | P1 | **未开始**；与 Q-24 同包交付（见「下一步」⑦ + Q-25 范围）；对齐全景说明 §9.7.3 |
 
 ## 已做决策
 
@@ -392,6 +425,8 @@
 | **执行前 consent 进程内 gate（无 UI）**（W8.5） | v1 用 `EXEC_CONSENT_REQUIRED` + `grant_exec_consent(skill_id)`；Demo 走 CLI/文档 | 首版就做 UI 同意弹窗（阻塞 W8 纵切） |
 | **W8 超时预算拆分（judge vs local agent）**（2026-06-18） | 本地 `case_executing` 与双模型 `model_judging` 分开计时；避免 Agent 真跑占满 `WORKFLOW_TIMEOUT_*`；本地模式 `asyncio.to_thread` 不阻塞 serve | 继续整轮单一 `wait_for`（tiered-memory 3 题 Cursor 实测 `EVAL_WORKFLOW_TIMEOUT`） |
 | **W8 收官归档（2026-06-18）** | 网页实机验收通过后归档 `local-agent-exec-bridge` + `ui-local-exec-bridge`；阶段三主线切 **本地验收收官**（W5.5 B/C + runbook） | 继续挂活跃 change 等更多优化；把 Q-24 优化并入 W8 再归档（纵切已满足） |
+| **Q-24 下一窗范围（2026-06-23）** | ①②④⑤⑥ + Q-25 Token 汇总；**pytest / 剧本 B/C / runbook 后置**；**不做** skill_summary 跳过 | 本包夹带 W5.5 验收（分散 Codex 窗口）；skill_summary 跳过（用户明确不要） |
+| **Q-25 Token 汇总落盘** | `usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；**不做** 单价计费与 LUI 逐条记账 | 仅 stdout 临时统计（无法历史对比）；独立运营看板（归阶段四） |
 | **阶段三/四边界再收紧（2026-06-23）** | **阶段三** = 本地 Skill 评估跑通（`skillhub-eval serve` + 浏览器 + 可选本地 agent）；**原 W7 服务器部署** 整体移 **阶段四** | 阶段三继续追服务器彩排（与用户「先本地验通」冲突） |
 | **W5.5 安全 gate 分层扫描** | `scan_bundle_security`：**intake**（SKILL.md + scripts）决定 `can_enter_formal` / bootstrap 422；**eval_cases** 单独扫描；`origin=staging_propagator` 的 blocked 命中降级为 info；gate payload 透传 `security_findings` + `security_block_reason_zh`；UI `renderSecurityFindingsHtml` 红色拦截条 | 继续合并扫描 SKILL+cases（补题后对抗题误拦）；仅改 Propagator prompt（不稳定）；引擎与 gate 扫描范围强行统一为仅 SKILL（弱化作者上传恶意 case 检测） |
 
@@ -427,7 +462,7 @@
 
 ### 新窗口开场句（可复制 · 阶段三评估系统）
 
-> 阶段三定位：**本地 Skill 评估跑通**（不做服务器、不做集市）。**W0–W8 已收官**（595+ tests；W8 OpenSpec 已归档 2026-06-18）；**W4.5 provider-env 已完成**。本窗口主线：**W5.5 本地验收收官**（剧本 B/C + `phase3-eval-validation.md`）；并行：Q-24 时延优化、W8.4。必读 `RECORD.md`、回归包 `testskills/README-fixtures.md`、runbook `docs/runbooks/local-agent-exec-validation.md`。**不重写** 1.2 阈值。服务器部署（原 W7）、集市 listing / Trending / NL 搜索见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
+> 阶段三定位：**本地 Skill 评估跑通**（不做服务器、不做集市）。**W0–W8 已收官**（595+ tests；W8 OpenSpec 已归档 2026-06-18）；**W4.5 provider-env 已完成**。**本窗口首选**：`RECORD.md` → **「下一步（功能优化 · Codex 执行）」** — Q-24 ①②④⑤⑥ + Q-25 Token 汇总；**本窗不测 pytest**；**不做** skill_summary 跳过。完成后：**W5.5 剧本 B/C + `phase3-eval-validation.md`**。必读 `testskills/README-fixtures.md`、runbook `docs/runbooks/local-agent-exec-validation.md`。**不重写** 1.2 阈值。服务器部署（原 W7）、集市见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
 
 ### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
 
@@ -587,6 +622,7 @@
 | 2026-06-23 | **P2/W4.5 工程优化落地**：双评审 provider 改为 env 槽位驱动（`JUDGE_PROVIDER_A/B_*`），新增 OpenAI-compatible provider factory；API/CLI 统一装配；报告与 UI 展示跟随 env label；`.env.example` 示例模型名与代码默认值对齐；补充 P2 阶段通知文案抽取记录 |
 | 2026-06-23 | **P2 工程优化收口**：`index.html` 主业务脚本拆至 `/ui/assets/index.js`；`engine.py` prompt 构造抽到 `core/judge_prompt.py`，report 文件写入抽到 `core/report_files.py`；`chat.py` 补题后 gate payload 构建集中；pytest basetemp/cache 固化，新增 `docs/runbooks/p2-test-environment.md` |
 | 2026-06-23 | **W4.5-3 尾项收官**：UI per-case 表头 / Provider B 不可用横幅跟随 `provider_*_label`；`check_providers.py` / `t8_live_validation.py` 改走 `build_judge_providers`；`DeepSeekProvider`/`GeminiProvider` 标 deprecated（主路径保留兼容）；UI build `w4.5-provider-labels` |
+| 2026-06-23 | **下一窗 Codex 范围锁定**：`RECORD.md` 增「下一步」— Q-24 ①并行 case_exec ②Agent 预算 UI ④限流退并发+risk 单题超时 ⑤Provider 横幅按因 ⑥W8.4 多 agent 对照 + **Q-25 Token 汇总**；明确不做 skill_summary 跳过；pytest / W5.5 B/C / runbook **后置** |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 
