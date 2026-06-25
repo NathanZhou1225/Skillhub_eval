@@ -15,7 +15,9 @@ grill-me corrections applied:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
+import threading
 import time
 from datetime import UTC, datetime
 
@@ -29,6 +31,7 @@ from .ingest import ingest_bundle
 from .judge_prompt import build_case_judge_prompt
 from .latency import (
     CASE_JUDGE_CONCURRENCY,
+    local_agent_case_timeout_seconds,
     local_agent_workflow_timeout_seconds,
     workflow_timeout_seconds,
 )
@@ -57,6 +60,7 @@ from .chat_notifications import on_run_terminal_chat_notifications
 from .eval_stage_messages import maybe_append_formal_eval_stage_notice
 from .schemas.enums import VALID_CASE_TYPES
 from .schemas.report import RiskLockProvenance, ExecResult
+from skillhub_eval.settings import settings
 
 # 1.2 §3 rubric weights for bundle score_total derivation from sub_scores
 _DIMENSION_WEIGHTS: dict[str, float] = {
@@ -98,6 +102,10 @@ class EvaluationEngine:
         self._local_agent_workflow_timeout: float = float(
             local_agent_workflow_timeout_seconds(RiskLevel.low)
         )
+        self._local_agent_case_timeout: float = float(
+            local_agent_case_timeout_seconds(RiskLevel.low)
+        )
+        self._case_exec_lock = threading.Lock()
         self._case_judge_sem = asyncio.Semaphore(CASE_JUDGE_CONCURRENCY)
 
     def _resolve_exec_for_case(
@@ -107,15 +115,17 @@ class EvaluationEngine:
         case: dict | None = None,
         bundle: dict | None = None,
     ) -> ExecResult:
-        if case_id in self._case_exec_results:
-            return self._case_exec_results[case_id]
+        with self._case_exec_lock:
+            if case_id in self._case_exec_results:
+                return self._case_exec_results[case_id]
         result = self._execution_source.get_actual_output(
             bundle_path,
             case_id,
             case=case,
             bundle=bundle or self._current_bundle,
         )
-        self._case_exec_results[case_id] = result
+        with self._case_exec_lock:
+            self._case_exec_results[case_id] = result
         return result
 
     def _get_case_actual_output(
@@ -151,6 +161,39 @@ class EvaluationEngine:
         if sources == {"sample_io"}:
             return "sample_io"
         return "mixed"
+
+    def _exec_agent_report_fields(self, bundle: dict) -> dict[str, str | None]:
+        """Local exec agent/model for report header; prefers completed case results."""
+        for result in self._case_exec_results.values():
+            if result.source == "local_agent" and result.agent_id:
+                return {
+                    "exec_agent_id": result.agent_id,
+                    "exec_agent_label": result.agent_label,
+                    "exec_model_id": result.model_id,
+                    "exec_model_label": result.model_label,
+                }
+        from skillhub_eval.core.execution_source import resolve_execution_source_name
+        from skillhub_eval.execution.agent_registry import DEFAULT_MODEL_ID, get_agent_def
+        from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
+
+        if resolve_execution_source_name(bundle) != "local":
+            return {
+                "exec_agent_id": None,
+                "exec_agent_label": None,
+                "exec_model_id": None,
+                "exec_model_label": None,
+            }
+        agent_id = get_exec_agent()
+        agent = get_agent_def(agent_id)
+        model_id = get_exec_model()
+        return {
+            "exec_agent_id": agent_id,
+            "exec_agent_label": agent.label if agent else agent_id,
+            "exec_model_id": model_id,
+            "exec_model_label": (
+                "默认模型" if model_id == DEFAULT_MODEL_ID else model_id
+            ),
+        }
 
     def _compute_spot_check_eligible(
         self,
@@ -271,6 +314,13 @@ class EvaluationEngine:
             self._local_agent_workflow_timeout = float(
                 local_agent_workflow_timeout_seconds(level)
             )
+            self._local_agent_case_timeout = float(
+                local_agent_case_timeout_seconds(level)
+            )
+            if hasattr(self._execution_source, "set_local_timeout"):
+                self._execution_source.set_local_timeout(self._local_agent_case_timeout)
+            elif hasattr(self._execution_source, "set_timeout_s"):
+                self._execution_source.set_timeout_s(self._local_agent_case_timeout)
             from skillhub_eval.core.latency import (
                 provider_call_timeout_high_risk_s,
                 provider_call_timeout_s,
@@ -341,6 +391,12 @@ class EvaluationEngine:
         ai_level, ai_evidence = await review_risk_level(
             bundle.get("skill_md_text", ""), self.ds,
         )
+        self._log_provider_usage(
+            run_id,
+            stage="risk_review",
+            provider=self.ds,
+            provider_name="deepseek",
+        )
         risk_locked = merge_risk_levels(declared, rule_scanned, ai_level)
         risk_provenance = RiskLockProvenance(
             declared=declared.value,
@@ -372,6 +428,13 @@ class EvaluationEngine:
             "case_executing",
             uses_local_execution=self._uses_local_execution(bundle),
         )
+        if self._uses_local_execution(bundle):
+            repo.log_event(run_id, "stage_budget", {
+                "stage": "case_executing",
+                "budget_s": self._local_agent_workflow_timeout,
+                "agent_phase": "local_agent",
+                "started_at": datetime.now(UTC).isoformat(),
+            })
 
         cases = bundle["eval_cases"]
         try:
@@ -396,6 +459,7 @@ class EvaluationEngine:
                 timeout_phase="local_agent",
             )
             return
+        self._log_local_agent_usage(run_id)
         level_achieved = self._compute_level_achieved()
         self._log_stage_timing(run_id, "case_executing", t_case_exec)
 
@@ -625,6 +689,7 @@ class EvaluationEngine:
 
         # ── Phase 5.5: Skill Summary (non-blocking LLM synthesis) ─────────────
         skill_summary = await self._generate_skill_summary(
+            run_id=run_id,
             bundle=bundle,
             all_votes=all_votes,
             completeness_score=completeness_score,
@@ -666,6 +731,8 @@ class EvaluationEngine:
             case_type_coverage=type_coverage,
             spot_check_eligible=spot_check_eligible,
             execution_source_used=execution_source_used,
+            **self._exec_agent_report_fields(bundle),
+            usage_summary=self._build_usage_summary(run_id),
             human_review=HumanReview(
                 required=human_required,
                 trigger_codes=all_reason_codes if human_required else [],
@@ -704,13 +771,22 @@ class EvaluationEngine:
         cases: list[dict],
         bundle: dict,
     ) -> None:
-        for case in cases:
-            self._resolve_exec_for_case(
-                skill_bundle_path,
-                case.get("id", ""),
-                case=case,
-                bundle=bundle,
-            )
+        if not cases:
+            return
+        max_workers = max(1, int(getattr(settings, "exec_concurrency", 2) or 2))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [
+                pool.submit(
+                    self._resolve_exec_for_case,
+                    skill_bundle_path,
+                    case.get("id", ""),
+                    case=case,
+                    bundle=bundle,
+                )
+                for case in cases
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -743,6 +819,20 @@ class EvaluationEngine:
                 self.ds.judge(prompt),
                 self.wb.judge(prompt),
                 return_exceptions=True,
+            )
+            self._log_provider_usage(
+                run_id,
+                stage="model_judging",
+                provider=self.ds,
+                provider_name="deepseek",
+                case_id=case_id,
+            )
+            self._log_provider_usage(
+                run_id,
+                stage="model_judging",
+                provider=self.wb,
+                provider_name="gemini",
+                case_id=case_id,
             )
             case_ms = int((time.monotonic() - t_case) * 1000)
             self.repo.log_event(
@@ -797,6 +887,64 @@ class EvaluationEngine:
             self.repo,
             self.ds,
         )
+        self._log_provider_usage(
+            run_id,
+            stage="divergence_synthesis",
+            provider=self.ds,
+            provider_name="deepseek",
+        )
+
+    def _log_provider_usage(
+        self,
+        run_id: str,
+        *,
+        stage: str,
+        provider,
+        provider_name: str,
+        case_id: str | None = None,
+    ) -> None:
+        usage = getattr(provider, "last_usage", None)
+        if not usage:
+            return
+        self.repo.log_event(run_id, "token_usage", {
+            "stage": stage,
+            "provider": provider_name,
+            "provider_label": getattr(provider, "label", provider_name),
+            "model": getattr(provider, "model", None),
+            "case_id": case_id,
+            "usage": usage,
+        })
+
+    def _log_local_agent_usage(self, run_id: str) -> None:
+        for case_id, exec_result in self._case_exec_results.items():
+            if not exec_result.usage:
+                continue
+            self.repo.log_event(run_id, "token_usage", {
+                "stage": "local_agent",
+                "provider_label": exec_result.agent_label,
+                "model": exec_result.model_id,
+                "case_id": case_id,
+                "usage": exec_result.usage,
+            })
+
+    def _build_usage_summary(self, run_id: str):
+        from skillhub_eval.core.usage import UsageRecord, build_usage_summary
+
+        records = []
+        if not hasattr(self.repo, "list_events"):
+            return build_usage_summary(records)
+        for event in self.repo.list_events(run_id, event_name="token_usage"):
+            payload = event.get("payload") or {}
+            records.append(
+                UsageRecord(
+                    stage=str(payload.get("stage") or "unknown"),
+                    provider_label=payload.get("provider_label"),
+                    model=payload.get("model"),
+                    case_id=payload.get("case_id"),
+                    usage=payload.get("usage"),
+                )
+            )
+        return build_usage_summary(records)
 
     def _save_fail(
         self,
@@ -833,6 +981,8 @@ class EvaluationEngine:
             reason_codes=reason_codes,
             evidence=evidence,
             stage_progress=self.repo.get_stage_progress(run_id),
+            usage_summary=self._build_usage_summary(run_id),
+            **self._exec_agent_report_fields(bundle),
             rubric_version="v1.2",
             prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
@@ -880,6 +1030,8 @@ class EvaluationEngine:
             evidence=[{"kind": "provider_error", **e} for e in provider_errors[:20]],
             stage_progress=self.repo.get_stage_progress(run_id),
             provider_summary=None,
+            usage_summary=self._build_usage_summary(run_id),
+            **self._exec_agent_report_fields(bundle),
             human_review=HumanReview(required=False),
             error_detail=(
                 "双模型评审全部失败（超时或 API 错误）。请检查网络/密钥后重试；"
@@ -938,6 +1090,8 @@ class EvaluationEngine:
             stage_progress=self.repo.get_stage_progress(run_id),
             security_status=security_status,
             security_findings=security_findings or [],
+            usage_summary=self._build_usage_summary(run_id),
+            **self._exec_agent_report_fields(bundle),
             rubric_version="v1.2",
             prompt_version="review-agent-v0.3",
             started_at=datetime.now(UTC),
@@ -988,6 +1142,8 @@ class EvaluationEngine:
             security_status=security_status,
             security_findings=security_findings,
             case_type_coverage=type_coverage,
+            usage_summary=self._build_usage_summary(run_id),
+            **self._exec_agent_report_fields(bundle),
             rubric_version="v1.2",
             prompt_version="review-agent-v0.4",
             started_at=datetime.now(UTC),
@@ -1069,6 +1225,8 @@ class EvaluationEngine:
             completeness_score=self._calc_completeness(bundle),
             reason_codes=reason_codes,
             stage_progress=self.repo.get_stage_progress(run_id),
+            usage_summary=self._build_usage_summary(run_id),
+            **self._exec_agent_report_fields(bundle),
             error_detail=error_detail,
             rubric_version="v1.2",
             prompt_version="review-agent-v0.3",
@@ -1086,6 +1244,7 @@ class EvaluationEngine:
 
     async def _generate_skill_summary(
         self,
+        run_id: str,
         bundle: dict,
         all_votes: list[dict],
         completeness_score: float,
@@ -1151,6 +1310,12 @@ class EvaluationEngine:
 
         try:
             raw = await self.ds.judge(prompt)
+            self._log_provider_usage(
+                run_id,
+                stage="skill_summary",
+                provider=self.ds,
+                provider_name="deepseek",
+            )
             parsed = parse_skill_summary_response(raw)
             if parsed:
                 return parsed

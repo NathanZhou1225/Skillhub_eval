@@ -346,6 +346,18 @@
           <span id="exec-rescan-label">重新扫描</span>
         </button>
       </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <label class="block text-xs text-gray-600">
+          本地 Agent
+          <select id="exec-agent-select" class="mt-1 w-full border border-gray-300 bg-white px-2 py-1 text-sm"
+            onchange="onExecAgentSelectChange(this.value)"></select>
+        </label>
+        <label class="block text-xs text-gray-600">
+          运行模型
+          <select id="exec-model-select" class="mt-1 w-full border border-gray-300 bg-white px-2 py-1 text-sm"
+            onchange="onExecModelSelectChange(this.value)"></select>
+        </label>
+      </div>
       <p id="exec-scan-summary" class="text-xs text-gray-500 leading-relaxed min-h-[1.25rem]">等待扫描…</p>
       <div id="exec-agent-cards" class="space-y-2">
         <p class="text-xs text-gray-400">扫描中…</p>

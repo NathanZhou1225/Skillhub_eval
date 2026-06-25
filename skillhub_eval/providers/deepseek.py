@@ -30,6 +30,7 @@ class DeepSeekProvider(BaseLLMProvider):
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
+        self.last_usage: dict | None = None
 
     async def judge(self, prompt: str) -> dict:
         headers = {
@@ -50,7 +51,10 @@ class DeepSeekProvider(BaseLLMProvider):
                 max_retries=self.max_retries,
                 provider_label="DeepSeek",
             )
-            raw_content = resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            usage = data.get("usage")
+            self.last_usage = usage if isinstance(usage, dict) else None
+            raw_content = data["choices"][0]["message"]["content"]
             content = raw_content.strip()
             if content.startswith("```"):
                 content = content.split("```")[1]
@@ -81,6 +85,9 @@ class DeepSeekProvider(BaseLLMProvider):
                 max_retries=self.max_retries,
                 provider_label="DeepSeek",
             )
-            return resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            usage = data.get("usage")
+            self.last_usage = usage if isinstance(usage, dict) else None
+            return data["choices"][0]["message"]["content"]
         except KeyError as exc:
             raise RuntimeError(f"DeepSeek generate invalid response: {exc}") from exc

@@ -21,14 +21,17 @@ class AgentAdapter(Protocol):
 
     def detect(self) -> bool: ...
 
+    def parse_stream(self, lines: list[str]): ...
+
 
 @dataclass
 class _FakeProcess:
     returncode: int
     stdout_lines: list[str] = field(default_factory=list)
+    stderr_text: str = ""
 
     def communicate(self, input: str | None = None, timeout: float | None = None):
-        return ("".join(self.stdout_lines), "")
+        return ("".join(self.stdout_lines), self.stderr_text)
 
     def wait(self, timeout: float | None = None) -> int:
         return self.returncode
@@ -63,17 +66,25 @@ class LocalAgentRunner:
             encoding="utf-8",
             errors="replace",
         )
+        stderr_text = ""
         if getattr(proc, "stdout", None) is None:
-            stdout, _stderr = proc.communicate(input=prompt, timeout=timeout_s)
+            stdout, stderr = proc.communicate(input=prompt, timeout=timeout_s)
+            stderr_text = stderr or ""
             lines = stdout.splitlines() if stdout else []
             exit_code = proc.returncode if proc.returncode is not None else proc.wait()
         else:
             lines, exit_code = self._stream_until_complete(proc, prompt, timeout_s)
-        parsed = parse_stream_events(lines)
+            if proc.stderr is not None:
+                try:
+                    stderr_text = proc.stderr.read() or ""
+                except OSError:
+                    stderr_text = ""
+        parsed = adapter.parse_stream(lines)
         return RunOutcome(
             exit_code=exit_code or 0,
             parsed_stream=parsed,
             duration_ms=parsed.duration_ms,
+            stderr_text=stderr_text or None,
         )
 
     def _stream_until_complete(

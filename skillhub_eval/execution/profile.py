@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from skillhub_eval.execution.agent_registry import get_agent_def
 from skillhub_eval.execution.runner import AgentAdapter
 
 _REDLINE_TYPES = frozenset({
@@ -14,11 +15,12 @@ def is_redline_case(case: dict) -> bool:
 
 
 class HardenedProfile:
-    """Codex-only hardened red-line runs; other agents degrade."""
+    """Hardened red-line runs selected from agent capability metadata."""
 
     @staticmethod
     def supports_redline(adapter: AgentAdapter) -> bool:
-        return getattr(adapter, "agent_id", "") == "codex"
+        agent = get_agent_def(getattr(adapter, "agent_id", ""))
+        return bool(agent and agent.supports_hardened_redline)
 
     @staticmethod
     def redline_degrade_reason(adapter: AgentAdapter) -> str | None:

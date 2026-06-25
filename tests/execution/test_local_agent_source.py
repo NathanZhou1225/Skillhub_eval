@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from skillhub_eval.core.schemas.report import ExecResult
+from skillhub_eval.core.schemas.report import ExecResult, ParsedStream, RunOutcome
 from skillhub_eval.execution.consent import clear_exec_consent, grant_exec_consent
 from skillhub_eval.execution.local_agent_source import LocalAgentSource
 from skillhub_eval.execution.runner import LocalAgentRunner, _FakeProcess
@@ -11,12 +11,18 @@ from skillhub_eval.execution.workspace import PerRunWorkspace
 
 class _StubAdapter:
     agent_id = "claude"
+    model = "claude-sonnet-4-6"
 
     def build_args(self, *, cwd: str | None = None, hardened: bool = False) -> list[str]:
         return ["stub"]
 
     def detect(self) -> bool:
         return True
+
+    def parse_stream(self, lines: list[str]):
+        from skillhub_eval.execution.stream_parser import parse_stream_events
+
+        return parse_stream_events(lines)
 
 
 @pytest.fixture(autouse=True)
@@ -69,6 +75,10 @@ def test_local_agent_source_returns_level2_with_evidence(tmp_path):
     assert result.status == "ok"
     assert result.level == "level_2"
     assert result.actual_output == {"ok": True}
+    assert result.agent_id == "claude"
+    assert result.agent_label == "Claude"
+    assert result.model_id == "claude-sonnet-4-6"
+    assert result.model_label == "claude-sonnet-4-6"
 
 
 def test_local_agent_source_incomplete_without_entrypoint_evidence(tmp_path):
@@ -106,3 +116,127 @@ def test_local_agent_source_skips_redline_for_non_codex(tmp_path):
     )
     assert result.status == "incomplete"
     assert result.degrade_reason == "redline_no_hardened_profile"
+
+
+def test_rate_limit_retries_and_downgrades_concurrency(tmp_path):
+    class _CodexAdapter:
+        agent_id = "codex"
+        model = None
+
+        def build_args(self, *, cwd: str | None = None, hardened: bool = False) -> list[str]:
+            return ["codex"]
+
+        def detect(self) -> bool:
+            return True
+
+        def parse_stream(self, lines: list[str]):
+            from skillhub_eval.execution.stream_parser import parse_stream_events
+
+            return parse_stream_events(lines)
+
+    class _Runner:
+        def __init__(self):
+            self.calls = 0
+            self.timeouts: list[float] = []
+
+        def run(self, adapter, prompt, *, cwd, timeout_s=300.0, hardened=False):
+            self.calls += 1
+            self.timeouts.append(timeout_s)
+            if self.calls == 1:
+                return RunOutcome(
+                    parsed_stream=ParsedStream(final_text="429 rate limit", is_complete=True),
+                )
+            return RunOutcome(
+                parsed_stream=ParsedStream(final_text='{"ok": true}', is_complete=True),
+            )
+
+        def is_run_complete(self, outcome):
+            return True
+
+    class _Workspace:
+        def acquire(self, bundle_path, case_id):
+            return tmp_path
+
+        def release(self, run_dir):
+            pass
+
+    runner = _Runner()
+    src = LocalAgentSource(
+        runner=runner,
+        workspace=_Workspace(),
+        adapter=_CodexAdapter(),
+        concurrency=2,
+        timeout_s=30,
+    )
+
+    result = src.get_actual_output(
+        str(tmp_path),
+        "happy_001",
+        case={"id": "happy_001", "type": "happy_path"},
+        bundle={"skill_id": "s"},
+    )
+
+    assert result.status == "ok"
+    assert runner.calls == 2
+    assert src.current_concurrency == 1
+    assert runner.timeouts == [30, 30]
+
+
+def test_rate_limit_detects_stderr_only(tmp_path):
+    class _CodexAdapter:
+        agent_id = "codex"
+        model = None
+
+        def build_args(self, *, cwd: str | None = None, hardened: bool = False) -> list[str]:
+            return ["codex"]
+
+        def detect(self) -> bool:
+            return True
+
+        def parse_stream(self, lines: list[str]):
+            from skillhub_eval.execution.stream_parser import parse_stream_events
+
+            return parse_stream_events(lines)
+
+    class _Runner:
+        def __init__(self):
+            self.calls = 0
+
+        def run(self, adapter, prompt, *, cwd, timeout_s=300.0, hardened=False):
+            self.calls += 1
+            if self.calls == 1:
+                return RunOutcome(
+                    parsed_stream=ParsedStream(final_text="", is_complete=True),
+                    stderr_text="HTTP 429 Too Many Requests",
+                )
+            return RunOutcome(
+                parsed_stream=ParsedStream(final_text='{"ok": true}', is_complete=True),
+            )
+
+        def is_run_complete(self, outcome):
+            return True
+
+    class _Workspace:
+        def acquire(self, bundle_path, case_id):
+            return tmp_path
+
+        def release(self, run_dir):
+            pass
+
+    src = LocalAgentSource(
+        runner=_Runner(),
+        workspace=_Workspace(),
+        adapter=_CodexAdapter(),
+        concurrency=2,
+        timeout_s=30,
+    )
+
+    result = src.get_actual_output(
+        str(tmp_path),
+        "happy_001",
+        case={"id": "happy_001", "type": "happy_path"},
+        bundle={"skill_id": "s"},
+    )
+
+    assert result.status == "ok"
+    assert src.current_concurrency == 1

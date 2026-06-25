@@ -54,9 +54,40 @@ class Settings(BaseSettings):
         default="claude",
         validation_alias=AliasChoices("EXEC_AGENT", "SKILLHUB_EXEC_AGENT"),
     )
+    exec_model: str = Field(
+        default="default",
+        validation_alias=AliasChoices("EXEC_MODEL", "SKILLHUB_EXEC_MODEL"),
+    )
     exec_consent_required: bool = Field(
         default=True,
         validation_alias=AliasChoices("EXEC_CONSENT_REQUIRED", "SKILLHUB_EXEC_CONSENT_REQUIRED"),
+    )
+    local_agent_case_timeout_low_s: int = Field(
+        default=600,
+        validation_alias=AliasChoices(
+            "LOCAL_AGENT_CASE_TIMEOUT_LOW",
+            "LOCAL_AGENT_CASE_TIMEOUT_LOW_S",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_LOW",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_LOW_S",
+        ),
+    )
+    local_agent_case_timeout_medium_s: int = Field(
+        default=900,
+        validation_alias=AliasChoices(
+            "LOCAL_AGENT_CASE_TIMEOUT_MEDIUM",
+            "LOCAL_AGENT_CASE_TIMEOUT_MEDIUM_S",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_MEDIUM",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_MEDIUM_S",
+        ),
+    )
+    local_agent_case_timeout_high_s: int = Field(
+        default=1800,
+        validation_alias=AliasChoices(
+            "LOCAL_AGENT_CASE_TIMEOUT_HIGH",
+            "LOCAL_AGENT_CASE_TIMEOUT_HIGH_S",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_HIGH",
+            "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_HIGH_S",
+        ),
     )
 
 

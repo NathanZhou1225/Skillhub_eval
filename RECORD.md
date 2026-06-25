@@ -203,7 +203,7 @@
 | **W5.5 回归 fixture + 拦截 UX 热修** | **✅ 收官** — 三 fixture + UI fail 红标/说明；**524 tests** |
 | **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W4.5 provider-env-factory** | **✅ 收官** — `JUDGE_PROVIDER_A/B_*` 双评审槽位、`OpenAICompatibleProvider`、API/CLI/脚本工厂、报告/UI 全链路 label（含 per-case 表头与不可用横幅）；UI build `w4.5-provider-labels` |
-| **Q-24 / Q-25 功能优化包** | **🔵 下一窗首选（Codex）** — 见下节「下一步」；**不测 pytest**；**不做** `skill_summary` 跳过 |
+| **Q-24 / Q-25 功能优化包** | **🟡 已在 worktree 实现待合入（Codex，2026-06-24）** — worktree `C:\tmp\skillhub-q24-q25-local-agent-usage`；完成 Q-24 ①②④⑤ + 五 Agent/模型选择 + Q-25 Token 汇总；**W8.4 多 agent 对照统计未做**，留后续验收/阶段三优化 |
 
 ---
 
@@ -286,8 +286,8 @@
 | **Q-20** | **中央 subprocess 沙盒跑不了内网 skill**（无 VPN/DB） | P1 | **W8 路线已定**：穿透本地 CLI agent；中央 judge 复用 |
 | **Q-21** | **被穿透的本地 agent 以 `bypassPermissions`/`--trust` 全自动跑任意 skill 代码**（含内网权限机器），本身是攻击面 | P1 | **W8.5 已落地**：执行前 consent gate + Security Gate + output sanitizer + `HardenedProfile`（codex 红线） |
 | **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
-| **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **部分已解（2026-06-18）**：judge / local agent 超时预算拆分 + `.env` 可配；**下一窗 Codex**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类 ⑥ W8.4 多 agent 对照（见「下一步」）；**不做** skill_summary 跳过 |
-| **Q-25** | **报告 Token 消耗汇总** | P1 | **未开始**；与 Q-24 同包交付（见「下一步」⑦ + Q-25 范围）；对齐全景说明 §9.7.3 |
+| **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **已在 worktree 实现待合入（2026-06-24）**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类；新增 agent registry + `claude/codex/cursor-agent/trae/antigravity` + agent/model 双选择；**W8.4 多 agent 对照统计未做**，留后续验收 |
+| **Q-25** | **报告 Token 消耗汇总** | P1 | **已在 worktree 实现待合入（2026-06-24）**：`usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；不做单价计费与 LUI 逐条记账 |
 
 ## 已做决策
 
@@ -623,6 +623,7 @@
 | 2026-06-23 | **P2 工程优化收口**：`index.html` 主业务脚本拆至 `/ui/assets/index.js`；`engine.py` prompt 构造抽到 `core/judge_prompt.py`，report 文件写入抽到 `core/report_files.py`；`chat.py` 补题后 gate payload 构建集中；pytest basetemp/cache 固化，新增 `docs/runbooks/p2-test-environment.md` |
 | 2026-06-23 | **W4.5-3 尾项收官**：UI per-case 表头 / Provider B 不可用横幅跟随 `provider_*_label`；`check_providers.py` / `t8_live_validation.py` 改走 `build_judge_providers`；`DeepSeekProvider`/`GeminiProvider` 标 deprecated（主路径保留兼容）；UI build `w4.5-provider-labels` |
 | 2026-06-23 | **下一窗 Codex 范围锁定**：`RECORD.md` 增「下一步」— Q-24 ①并行 case_exec ②Agent 预算 UI ④限流退并发+risk 单题超时 ⑤Provider 横幅按因 ⑥W8.4 多 agent 对照 + **Q-25 Token 汇总**；明确不做 skill_summary 跳过；pytest / W5.5 B/C / runbook **后置** |
+| 2026-06-24 | **Q-24/Q-25 worktree 实现完成，待合入主工作区**：worktree `C:\tmp\skillhub-q24-q25-local-agent-usage`，branch `codex/q24-q25-local-agent-usage`；完成五 Agent registry、agent/model 选择、Trae/Antigravity adapter、有界并发 case_exec、rate-limit 降并发、risk 单题 timeout、本地 Agent 预算 UI、Provider 错误按因分类、Token usage 事件与报告汇总；验证：focused backend 45 passed、engine/readiness 29 passed、JS `node --check` 通过、doc encoding OK；**未实现完整 OpenDesign adapter 层迁移**，列为阶段三后续优化；**W8.4 多 agent 对照统计未做**，留后续验收 |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 

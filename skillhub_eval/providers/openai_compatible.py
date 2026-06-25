@@ -27,6 +27,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
+        self.last_usage: dict | None = None
 
     async def judge(self, prompt: str) -> dict:
         try:
@@ -59,7 +60,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             max_retries=self.max_retries,
             provider_label=self.label,
         )
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        usage = data.get("usage")
+        self.last_usage = usage if isinstance(usage, dict) else None
+        return data["choices"][0]["message"]["content"]
 
 
 def _strip_json_fence(content: str) -> str:

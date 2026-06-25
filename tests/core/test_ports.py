@@ -32,6 +32,20 @@ def test_exec_result_accepts_local_agent_fields():
     assert r.actual_output == {"score": 1}
 
 
+def test_exec_result_accepts_agent_model_metadata():
+    r = ExecResult(
+        source="local_agent",
+        agent_id="cursor-agent",
+        agent_label="Cursor Agent",
+        model_id="gpt-5",
+        model_label="GPT-5",
+    )
+    assert r.agent_id == "cursor-agent"
+    assert r.agent_label == "Cursor Agent"
+    assert r.model_id == "gpt-5"
+    assert r.model_label == "GPT-5"
+
+
 def test_run_outcome_defaults():
     o = RunOutcome()
     assert o.exit_code == 0

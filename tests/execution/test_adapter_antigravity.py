@@ -1,0 +1,71 @@
+import json
+from unittest.mock import patch
+
+from skillhub_eval.execution.adapters.antigravity import AntigravityAdapter
+
+
+def test_antigravity_build_args_default_model():
+    args = AntigravityAdapter().build_args(cwd="/ws")
+
+    assert args[0] == "agy"
+    assert "--model" not in args
+
+
+def test_antigravity_build_args_with_model_writes_setting(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    adapter = AntigravityAdapter(model="gemini-3.1-pro")
+
+    args = adapter.build_args(cwd="/ws")
+
+    assert args[0] == "agy"
+    assert adapter.model == "gemini-3.1-pro"
+    data = json.loads(adapter.settings_path().read_text(encoding="utf-8"))
+    assert data["model"] == "gemini-3.1-pro"
+
+
+def test_antigravity_settings_path_uses_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    adapter = AntigravityAdapter(model="gemini-3.1-pro")
+
+    assert adapter.settings_path() == tmp_path / ".gemini" / "antigravity-cli" / "settings.json"
+
+
+def test_antigravity_write_model_setting_preserves_existing_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    adapter = AntigravityAdapter()
+    path = adapter.settings_path()
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"theme": "dark"}, ensure_ascii=False), encoding="utf-8")
+
+    adapter.write_model_setting("gpt-5")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data == {"theme": "dark", "model": "gpt-5"}
+
+
+def test_antigravity_write_model_setting_replaces_invalid_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    adapter = AntigravityAdapter()
+    path = adapter.settings_path()
+    path.parent.mkdir(parents=True)
+    path.write_text("{bad json", encoding="utf-8")
+
+    adapter.write_model_setting("gpt-5")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data == {"model": "gpt-5"}
+
+
+@patch("skillhub_eval.execution.adapters.antigravity.find_cli_binary", return_value="/bin/agy")
+def test_antigravity_detect(mock_find):
+    adapter = AntigravityAdapter()
+
+    assert adapter.detect() is True
+    assert adapter.resolved_bin() == "/bin/agy"
+
+
+def test_antigravity_parse_stream_accepts_plain_output():
+    parsed = AntigravityAdapter().parse_stream(["plain output"])
+
+    assert parsed.final_text == "plain output"
+    assert parsed.is_complete is True

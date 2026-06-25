@@ -20,6 +20,7 @@ class RunOutcome(BaseModel):
     parsed_stream: ParsedStream | None = None
     transcript_ref: str | None = None
     duration_ms: int | None = None
+    stderr_text: str | None = None
 
 
 class ExecResult(BaseModel):
@@ -28,6 +29,10 @@ class ExecResult(BaseModel):
     confidence: str = "high"  # high | low
     transcript_ref: str | None = None
     usage: dict | None = None
+    agent_id: str | None = None
+    agent_label: str | None = None
+    model_id: str | None = None
+    model_label: str | None = None
     status: str = "ok"  # ok | incomplete
     level: str = "level_1"  # level_1 | level_2
     degrade_reason: str | None = None
@@ -114,6 +119,28 @@ class ProviderSummary(BaseModel):
     per_case: list[CaseScoreRow] = Field(default_factory=list)
 
 
+class TokenUsageTotals(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class UsageSummaryRow(BaseModel):
+    stage: str
+    provider_label: str | None = None
+    model: str | None = None
+    case_id: str | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+
+class UsageSummary(BaseModel):
+    totals: TokenUsageTotals = Field(default_factory=TokenUsageTotals)
+    by_stage: list[UsageSummaryRow] = Field(default_factory=list)
+    partial: bool = False
+
+
 class EvaluationReport(BaseModel):
     run_id: str
     skill_id: str
@@ -132,7 +159,7 @@ class EvaluationReport(BaseModel):
     evidence: list[dict] = Field(default_factory=list)
     required_actions: list[str] = Field(default_factory=list)
     gaps: list[dict] = Field(default_factory=list)
-    stage_progress: list[str] = Field(default_factory=list)
+    stage_progress: list[str | dict] = Field(default_factory=list)
     provider_summary: ProviderSummary | None = None
     model_votes: list[ModelVote] = Field(default_factory=list)
     assertion_results: list[AssertionResult] = Field(default_factory=list)
@@ -148,6 +175,11 @@ class EvaluationReport(BaseModel):
     case_type_coverage: dict[str, int] = Field(default_factory=dict)
     spot_check_eligible: bool = False
     execution_source_used: str | None = None
+    exec_agent_id: str | None = None
+    exec_agent_label: str | None = None
+    exec_model_id: str | None = None
+    exec_model_label: str | None = None
+    usage_summary: UsageSummary | None = None
     # e.g. {"happy_path": 3, "edge": 2, "refusal": 0, "adversarial": 0}
     rubric_version: str = "v1.2"
     prompt_version: str = "review-agent-v0.2"

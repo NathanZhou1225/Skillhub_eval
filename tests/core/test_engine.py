@@ -665,17 +665,20 @@ async def test_workflow_timeout_high_risk_uses_600s(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_timeout_marks_run_failed(tmp_path):
+async def test_workflow_timeout_marks_run_failed(tmp_path, monkeypatch):
     """Workflow timeout fires → run status=failed, reason_code=EVAL_WORKFLOW_TIMEOUT."""
 
-    class SlowProvider(BaseLLMProvider):
-        async def judge(self, prompt: str) -> dict:
-            await asyncio.sleep(9999)
-            return {}
-
     bundle = make_confirmed_low_bundle(tmp_path / "bundle")
-    engine, repo = make_engine(tmp_path, ds_provider=SlowProvider(), wb_provider=SlowProvider())
-    engine._workflow_timeout = 0.1  # override to 100ms for test
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr(
+        "skillhub_eval.core.engine.workflow_timeout_seconds",
+        lambda _level: 0.1,
+    )
+
+    async def slow_judge_phase(**_kwargs):
+        await asyncio.sleep(9999)
+
+    monkeypatch.setattr(engine, "_judge_and_finalize", slow_judge_phase)
 
     run_id = repo.create_run(
         skill_id="skill.test",
@@ -708,16 +711,18 @@ async def test_local_agent_phase_has_separate_timeout(tmp_path, monkeypatch):
 
     bundle = make_confirmed_low_bundle(tmp_path / "bundle")
     engine, repo = make_engine(tmp_path)
-    engine._local_agent_workflow_timeout = 0.15
-    engine._workflow_timeout = 600.0
+    monkeypatch.setattr(
+        "skillhub_eval.core.engine.local_agent_workflow_timeout_seconds",
+        lambda _level: 0.15,
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.core.engine.workflow_timeout_seconds",
+        lambda _level: 600.0,
+    )
 
     def slow_case_exec(_skill_bundle_path, _cases, _bundle):
         time.sleep(0.5)
 
-    async def _immediate_to_thread(fn, *args, **kwargs):
-        return fn(*args, **kwargs)
-
-    monkeypatch.setattr(asyncio, "to_thread", _immediate_to_thread)
     monkeypatch.setattr(engine, "_uses_local_execution", lambda _bundle: True)
     monkeypatch.setattr(engine, "_run_case_exec_phase", slow_case_exec)
 

@@ -15,6 +15,14 @@ class _CodexAdapter:
     agent_id = "codex"
 
 
+class _TraeAdapter:
+    agent_id = "trae"
+
+
+class _AntigravityAdapter:
+    agent_id = "antigravity"
+
+
 def test_hardened_profile_codex_supports_redline():
     assert HardenedProfile.supports_redline(_CodexAdapter()) is True
     assert HardenedProfile.redline_degrade_reason(_CodexAdapter()) is None
@@ -45,3 +53,8 @@ def test_hardened_profile_claude_degrades_redline(tmp_path):
     )
     assert result.status == "incomplete"
     assert result.degrade_reason == "redline_no_hardened_profile"
+
+
+def test_new_agents_do_not_support_redline_hardened_profile():
+    assert HardenedProfile.supports_redline(_TraeAdapter()) is False
+    assert HardenedProfile.supports_redline(_AntigravityAdapter()) is False

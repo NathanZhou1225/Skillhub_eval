@@ -3,7 +3,6 @@
 from skillhub_eval.core.latency import (
     CASE_JUDGE_CONCURRENCY,
     PROVIDER_CALL_TIMEOUT_S,
-    WORKFLOW_TIMEOUT_BY_RISK,
     workflow_timeout_seconds,
 )
 from skillhub_eval.core.schemas import RiskLevel
@@ -12,18 +11,35 @@ from skillhub_eval.providers.gemini import GeminiProvider
 from skillhub_eval.settings import Settings
 
 
-def test_workflow_timeout_by_risk():
+def _default_settings():
+    return Settings(_env_file=None)
+
+
+def test_workflow_timeout_by_risk(monkeypatch):
+    monkeypatch.setattr("skillhub_eval.core.latency._settings", _default_settings)
+
     assert workflow_timeout_seconds(RiskLevel.low) == 600
     assert workflow_timeout_seconds(RiskLevel.medium) == 600
     assert workflow_timeout_seconds(RiskLevel.high) == 900
-    assert WORKFLOW_TIMEOUT_BY_RISK[RiskLevel.high] == 900
 
 
-def test_local_agent_workflow_timeout_by_risk():
+def test_local_agent_workflow_timeout_by_risk(monkeypatch):
     from skillhub_eval.core.latency import local_agent_workflow_timeout_seconds
+
+    monkeypatch.setattr("skillhub_eval.core.latency._settings", _default_settings)
 
     assert local_agent_workflow_timeout_seconds(RiskLevel.low) == 1800
     assert local_agent_workflow_timeout_seconds(RiskLevel.high) == 5400
+
+
+def test_local_agent_case_timeout_by_risk(monkeypatch):
+    from skillhub_eval.core.latency import local_agent_case_timeout_seconds
+
+    monkeypatch.setattr("skillhub_eval.core.latency._settings", _default_settings)
+
+    assert local_agent_case_timeout_seconds(RiskLevel.low) == 600
+    assert local_agent_case_timeout_seconds(RiskLevel.medium) == 900
+    assert local_agent_case_timeout_seconds(RiskLevel.high) == 1800
 
 
 def test_case_concurrency_and_provider_timeout_constants():

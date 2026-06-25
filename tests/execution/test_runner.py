@@ -19,6 +19,16 @@ class _StubAdapter:
     def detect(self) -> bool:
         return True
 
+    def parse_stream(self, lines: list[str]):
+        return parse_stream_events(lines)
+
+
+class _CustomParserAdapter(_StubAdapter):
+    def parse_stream(self, lines: list[str]):
+        from skillhub_eval.core.schemas.report import ParsedStream
+
+        return ParsedStream(final_text="custom", is_complete=True, duration_ms=7)
+
 
 def test_runner_completes_on_exit_and_result_event():
     lines = [
@@ -36,6 +46,34 @@ def test_runner_completes_on_exit_and_result_event():
     assert outcome.parsed_stream.final_text == "hello"
     assert outcome.parsed_stream.usage == {"input_tokens": 1}
     assert outcome.duration_ms == 42
+
+
+def test_runner_uses_adapter_specific_parser():
+    def fake_spawn(args, **kwargs):
+        return _FakeProcess(returncode=0, stdout_lines=["not json\n"])
+
+    runner = LocalAgentRunner(spawn_fn=fake_spawn)
+    outcome = runner.run(_CustomParserAdapter(), "run skill", cwd="/tmp/work")
+
+    assert runner.is_run_complete(outcome)
+    assert outcome.parsed_stream is not None
+    assert outcome.parsed_stream.final_text == "custom"
+    assert outcome.duration_ms == 7
+
+
+def test_runner_preserves_stderr_on_communicate_path():
+    def fake_spawn(args, **kwargs):
+        return _FakeProcess(
+            returncode=0,
+            stdout_lines=[json.dumps({"type": "result", "duration_ms": 1}) + "\n"],
+            stderr_text="429 rate limit",
+        )
+
+    runner = LocalAgentRunner(spawn_fn=fake_spawn)
+    outcome = runner.run(_StubAdapter(), "run skill", cwd="/tmp/work")
+
+    assert outcome.stderr_text == "429 rate limit"
+    assert runner.is_run_complete(outcome)
 
 
 def test_runner_incomplete_without_result_event():

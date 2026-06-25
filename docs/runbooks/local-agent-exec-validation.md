@@ -5,11 +5,11 @@ Validate Wave 8 local execution against `testskills/exec-fixture-minimal/`.
 ## Prerequisites
 
 - Python env with `skillhub_eval` installed (`pip install -e .`)
-- At least one CLI agent on `PATH`: `claude`, `codex`, or `cursor-agent`
+- At least one supported CLI agent on `PATH`: `claude`, `codex`, `cursor-agent`, `traecli`/`trae`, or `agy`.
 - `.env` with DeepSeek + Gemini keys (full formal eval still needs LLM judges)
 - **`serve` 与 CLI agent 须同机**（服务端 spawn 子进程，非浏览器直连 CLI）
 
-For the **CLI / pytest path** only (optional): set `EXEC_SOURCE=local` and `EXEC_AGENT=claude|codex|cursor-agent`, or grant consent via Python (see [Consent gate](#consent-gate-cli--fallback)).
+For the **CLI / pytest path** only (optional): set `EXEC_SOURCE=local`, `EXEC_AGENT=claude|codex|cursor-agent|trae|antigravity`, and optionally `EXEC_MODEL=<model-id>`, or grant consent via Python (see [Consent gate](#consent-gate-cli--fallback)).
 
 ## UI path (zero `.env` EXEC_*)
 

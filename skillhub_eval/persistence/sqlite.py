@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS exec_preferences (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     exec_source TEXT NOT NULL DEFAULT 'local',
     exec_agent TEXT NOT NULL DEFAULT 'claude',
+    exec_model TEXT NOT NULL DEFAULT 'default',
     consent_granted INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
@@ -113,7 +114,7 @@ CREATE TABLE IF NOT EXISTS exec_preferences (
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -262,6 +263,7 @@ class SqliteRepository:
                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     exec_source TEXT NOT NULL DEFAULT 'local',
                     exec_agent TEXT NOT NULL DEFAULT 'claude',
+                    exec_model TEXT NOT NULL DEFAULT 'default',
                     consent_granted INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
                 )
@@ -415,12 +417,26 @@ class SqliteRepository:
                         id INTEGER PRIMARY KEY CHECK (id = 1),
                         exec_source TEXT NOT NULL DEFAULT 'local',
                         exec_agent TEXT NOT NULL DEFAULT 'claude',
+                        exec_model TEXT NOT NULL DEFAULT 'default',
                         consent_granted INTEGER NOT NULL DEFAULT 0,
                         updated_at TEXT NOT NULL
                     )
                     """
                 )
                 cursor.execute("PRAGMA user_version = 10")
+            if version < 11:
+                pref_cols = {
+                    row[1]
+                    for row in cursor.execute(
+                        "PRAGMA table_info('exec_preferences')"
+                    ).fetchall()
+                }
+                if "exec_model" not in pref_cols:
+                    cursor.execute(
+                        "ALTER TABLE exec_preferences "
+                        "ADD COLUMN exec_model TEXT NOT NULL DEFAULT 'default'"
+                    )
+                cursor.execute("PRAGMA user_version = 11")
         return datetime.now(UTC).isoformat()
 
     def get_exec_preferences(self) -> dict | None:
@@ -435,6 +451,7 @@ class SqliteRepository:
         *,
         exec_source: str | None = None,
         exec_agent: str | None = None,
+        exec_model: str | None = None,
         consent_granted: bool | None = None,
     ) -> dict:
         with self._conn() as conn:
@@ -451,6 +468,11 @@ class SqliteRepository:
                 if exec_agent is not None
                 else (row["exec_agent"] if row else "claude")
             )
+            model = (
+                exec_model
+                if exec_model is not None
+                else (row["exec_model"] if row else "default")
+            )
             consent = (
                 bool(consent_granted)
                 if consent_granted is not None
@@ -459,15 +481,16 @@ class SqliteRepository:
             conn.execute(
                 """
                 INSERT INTO exec_preferences (
-                    id, exec_source, exec_agent, consent_granted, updated_at
-                ) VALUES (1, ?, ?, ?, ?)
+                    id, exec_source, exec_agent, exec_model, consent_granted, updated_at
+                ) VALUES (1, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     exec_source=excluded.exec_source,
                     exec_agent=excluded.exec_agent,
+                    exec_model=excluded.exec_model,
                     consent_granted=excluded.consent_granted,
                     updated_at=excluded.updated_at
                 """,
-                (source, agent, 1 if consent else 0, self._now()),
+                (source, agent, model, 1 if consent else 0, self._now()),
             )
             saved = conn.execute(
                 "SELECT * FROM exec_preferences WHERE id = 1"
@@ -895,7 +918,7 @@ class SqliteRepository:
                 (run_id, stage, self._now(), json.dumps(metadata or {})),
             )
 
-    def get_stage_progress(self, run_id: str) -> list[str]:
+    def get_stage_progress(self, run_id: str) -> list:
         with self._conn() as conn:
             rows = conn.execute(
                 """
@@ -904,7 +927,22 @@ class SqliteRepository:
                 """,
                 (run_id,),
             ).fetchall()
-        return [row["stage"] for row in rows]
+            budget_rows = conn.execute(
+                """
+                SELECT payload_json FROM analytics_events
+                WHERE run_id=? AND event_name='stage_budget'
+                ORDER BY id ASC
+                """,
+                (run_id,),
+            ).fetchall()
+        progress: list = [row["stage"] for row in rows]
+        for row in budget_rows:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                continue
+            progress.append({"event": "stage_budget", **payload})
+        return progress
 
     def save_report(self, run_id: str, report: EvaluationReport) -> None:
         report_json = report.model_dump_json()
@@ -1275,6 +1313,34 @@ class SqliteRepository:
                 """,
                 (run_id, event_name, json.dumps(payload), self._now()),
             )
+
+    def list_events(self, run_id: str, event_name: str | None = None) -> list[dict]:
+        query = """
+            SELECT event_name, payload_json, created_at
+            FROM analytics_events
+            WHERE run_id=?
+        """
+        params: list[object] = [run_id]
+        if event_name is not None:
+            query += " AND event_name=?"
+            params.append(event_name)
+        query += " ORDER BY id ASC"
+        with self._conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        events: list[dict] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["payload_json"] or "{}")
+            except json.JSONDecodeError:
+                payload = {}
+            events.append(
+                {
+                    "event_name": row["event_name"],
+                    "payload": payload,
+                    "created_at": row["created_at"],
+                }
+            )
+        return events
 
     def get_provider_errors(self, run_id: str) -> list[dict]:
         with self._conn() as conn:

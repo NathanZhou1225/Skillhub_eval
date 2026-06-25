@@ -12,7 +12,7 @@ class _FakeAdapter:
         self.agent_id = agent_id
         self._detected = detected
         self.model = model
-        self.bin = agent_id
+        self.bin = "traecli" if agent_id == "trae" else ("agy" if agent_id == "antigravity" else agent_id)
 
     def detect(self) -> bool:
         return self._detected
@@ -23,6 +23,11 @@ class _FakeAdapter:
     def build_args(self, *, cwd: str | None = None, hardened: bool = False) -> list[str]:
         _ = cwd, hardened
         return [self.bin, "exec"]
+
+    def parse_stream(self, lines: list[str]):
+        from skillhub_eval.execution.stream_parser import parse_stream_events
+
+        return parse_stream_events(lines)
 
 
 @pytest.fixture()
@@ -37,21 +42,25 @@ def client(tmp_path, monkeypatch):
         "codex": False,
         "cursor-agent": True,
         "cursor_agent": True,
+        "trae": True,
+        "antigravity": False,
     }
 
-    def fake_resolve(agent_id: str):
+    def fake_resolve(agent_id: str, model: str | None = None):
         ok = detected.get(agent_id, False)
-        return _FakeAdapter(agent_id=agent_id, detected=ok, model=f"{agent_id}-model")
+        return _FakeAdapter(agent_id=agent_id, detected=ok, model=model or f"{agent_id}-model")
 
     def fake_find_cli(name: str):
         if name == "claude":
             return "/bin/claude"
         if name == "cursor-agent":
             return "/bin/cursor-agent"
+        if name == "traecli":
+            return "/bin/traecli"
         return None
 
     monkeypatch.setattr(
-        "skillhub_eval.adapters.api.routes.exec._resolve_adapter", fake_resolve
+        "skillhub_eval.adapters.api.routes.exec.resolve_adapter", fake_resolve
     )
     monkeypatch.setattr(
         "skillhub_eval.adapters.api.routes.exec.find_cli_binary", fake_find_cli
@@ -74,18 +83,28 @@ def test_scan_and_preferences(client: TestClient):
     scan = scan_resp.json()
     assert "scanned_at" in scan
     agents = scan["agents"]
-    assert [a["id"] for a in agents] == ["claude", "codex", "cursor-agent"]
-    assert [a["label"] for a in agents] == ["Claude", "Codex", "Cursor Agent"]
-    assert [a["detected"] for a in agents] == [True, False, True]
+    assert [a["id"] for a in agents] == ["claude", "codex", "cursor-agent", "trae", "antigravity"]
+    assert [a["label"] for a in agents] == [
+        "Claude",
+        "Codex",
+        "Cursor Agent",
+        "Trae",
+        "Antigravity",
+    ]
+    assert [a["detected"] for a in agents] == [True, False, True, True, False]
     assert agents[0]["bin_path"] == "/bin/claude"
     assert agents[1]["detect_hint"]
     assert agents[2]["auth_status"] == "unknown"  # scan defers auth probe (Test button)
+    assert all("models" in a for a in agents)
+    assert all(a["models_source"] in {"fallback", "none"} for a in agents)
+    assert agents[0]["selected_model"] == "default"
 
     pref_resp = client.get("/api/exec/preferences")
     assert pref_resp.status_code == 200
     prefs = pref_resp.json()
     assert prefs["exec_source"] == "local"
     assert prefs["exec_agent"] == "claude"
+    assert prefs["exec_model"] == "default"
     assert prefs["consent_granted"] is False
 
     put_resp = client.put("/api/exec/preferences", json={"exec_source": "sample_io"})
@@ -109,6 +128,22 @@ def test_scan_and_preferences(client: TestClient):
     final_pref = client.get("/api/exec/preferences")
     assert final_pref.status_code == 200
     assert final_pref.json()["consent_granted"] is True
+
+
+def test_preferences_accept_exec_model(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "skillhub_eval.execution.preferences._is_agent_detected",
+        lambda _agent: True,
+    )
+
+    resp = client.put(
+        "/api/exec/preferences",
+        json={"exec_source": "local", "exec_agent": "cursor-agent", "exec_model": "gpt-5"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["exec_model"] == "gpt-5"
 
 
 def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -143,8 +178,8 @@ def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     assert ok_body["duration_ms"] == 7
 
     monkeypatch.setattr(
-        "skillhub_eval.adapters.api.routes.exec._resolve_adapter",
-        lambda agent_id: _FakeAdapter(agent_id=agent_id, detected=False, model=f"{agent_id}-model"),
+        "skillhub_eval.adapters.api.routes.exec.resolve_adapter",
+        lambda agent_id, model=None: _FakeAdapter(agent_id=agent_id, detected=False, model=f"{agent_id}-model"),
     )
     fail_resp = client.post("/api/exec/agents/claude/test")
     assert fail_resp.status_code == 200

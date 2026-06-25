@@ -53,6 +53,18 @@ def local_agent_workflow_timeout_seconds(risk: RiskLevel) -> int:
     return mapping.get(risk, int(s.local_agent_workflow_timeout_low_s))
 
 
+def local_agent_case_timeout_seconds(risk: RiskLevel | str) -> int:
+    """Per-case local CLI agent timeout budget."""
+    level = RiskLevel(risk) if isinstance(risk, str) else risk
+    s = _settings()
+    mapping = {
+        RiskLevel.low: int(s.local_agent_case_timeout_low_s),
+        RiskLevel.medium: int(s.local_agent_case_timeout_medium_s),
+        RiskLevel.high: int(s.local_agent_case_timeout_high_s),
+    }
+    return mapping.get(level, int(s.local_agent_case_timeout_low_s))
+
+
 WORKFLOW_TIMEOUT_BY_RISK: dict[RiskLevel, int] = {
     RiskLevel.low: int(_settings().workflow_timeout_low_s),
     RiskLevel.medium: int(_settings().workflow_timeout_medium_s),

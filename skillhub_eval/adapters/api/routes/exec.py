@@ -10,8 +10,13 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from skillhub_eval.execution.cli_detect import detect_hint_zh, find_cli_binary
+from skillhub_eval.execution.agent_registry import (
+    DEFAULT_MODEL_ID,
+    ModelOption,
+    get_agent_catalog,
+    resolve_adapter,
+)
 from skillhub_eval.execution.runner import LocalAgentRunner
-from skillhub_eval.execution.local_agent_source import _resolve_adapter
 from skillhub_eval.execution.preferences import (
     get_preferences,
     grant_persisted_consent,
@@ -19,6 +24,12 @@ from skillhub_eval.execution.preferences import (
 )
 
 router = APIRouter(prefix="/api/exec", tags=["exec"])
+
+
+class AgentModelItem(BaseModel):
+    id: str
+    label: str
+    source: str = "fallback"
 
 
 class AgentScanItem(BaseModel):
@@ -29,6 +40,9 @@ class AgentScanItem(BaseModel):
     model_hint: str | None = None
     bin_path: str | None = None
     detect_hint: str | None = None
+    models: list[AgentModelItem] = []
+    models_source: str = "none"
+    selected_model: str | None = None
 
 
 class AgentScanResponse(BaseModel):
@@ -39,6 +53,7 @@ class AgentScanResponse(BaseModel):
 class ExecPreferencesResponse(BaseModel):
     exec_source: str
     exec_agent: str
+    exec_model: str
     consent_granted: bool
     ready: bool
     ready_reason: str | None = None
@@ -47,6 +62,7 @@ class ExecPreferencesResponse(BaseModel):
 class ExecPreferencesUpdateRequest(BaseModel):
     exec_source: str | None = None
     exec_agent: str | None = None
+    exec_model: str | None = None
 
 
 class ExecConsentResponse(BaseModel):
@@ -60,37 +76,51 @@ class AgentTestResponse(BaseModel):
     duration_ms: int | None = None
 
 
-_AGENT_CATALOG: list[tuple[str, str]] = [
-    ("claude", "Claude"),
-    ("codex", "Codex"),
-    ("cursor-agent", "Cursor Agent"),
-]
-_SUPPORTED_AGENT_IDS = {agent_id for agent_id, _label in _AGENT_CATALOG}
 _spawn_process = subprocess.Popen
+
+
+def _supported_agent_ids() -> set[str]:
+    return {agent.id for agent in get_agent_catalog()}
+
+
+def _model_items(models: list[ModelOption]) -> list[AgentModelItem]:
+    return [
+        AgentModelItem(id=model.id, label=model.label, source="fallback")
+        for model in models
+    ]
 
 
 @router.get("/agents/scan", response_model=AgentScanResponse)
 def scan_agents() -> AgentScanResponse:
     agents: list[AgentScanItem] = []
-    for agent_id, label in _AGENT_CATALOG:
-        adapter = _resolve_adapter(agent_id)
-        bin_name = getattr(adapter, "bin", agent_id) if adapter else agent_id
-        bin_path = find_cli_binary(bin_name) if adapter else None
+    prefs = get_preferences()
+    selected_model = str(prefs.get("exec_model") or DEFAULT_MODEL_ID)
+    for agent in get_agent_catalog():
+        adapter = resolve_adapter(agent.id, model=selected_model)
+        bin_path = None
+        for bin_name in agent.binary_names:
+            bin_path = find_cli_binary(bin_name)
+            if bin_path:
+                break
         detected = bin_path is not None
         model_hint = getattr(adapter, "model", None) if adapter else None
         auth_status = None
-        if agent_id == "cursor-agent" and detected:
+        if agent.id == "cursor-agent" and detected:
             # Defer auth probe to Test — `cursor-agent auth status` can hang on Windows.
             auth_status = "unknown"
+        models = _model_items(list(agent.fallback_models))
         agents.append(
             AgentScanItem(
-                id=agent_id,
-                label=label,
+                id=agent.id,
+                label=agent.label,
                 detected=detected,
                 auth_status=auth_status,
                 model_hint=model_hint,
                 bin_path=bin_path,
-                detect_hint=None if detected else detect_hint_zh(bin_name),
+                detect_hint=None if detected else detect_hint_zh(agent.bin),
+                models=models,
+                models_source="fallback" if models else "none",
+                selected_model=selected_model,
             )
         )
     return AgentScanResponse(
@@ -111,6 +141,7 @@ def update_exec_preferences(
     updated = set_preferences(
         exec_source=body.exec_source,
         exec_agent=body.exec_agent,
+        exec_model=body.exec_model,
     )
     return ExecPreferencesResponse.model_validate(updated)
 
@@ -124,10 +155,14 @@ def grant_exec_consent() -> ExecConsentResponse:
 
 @router.post("/agents/{agent_id}/test", response_model=AgentTestResponse)
 def test_agent(agent_id: str) -> AgentTestResponse:
-    if agent_id not in _SUPPORTED_AGENT_IDS:
+    if agent_id not in _supported_agent_ids():
         return AgentTestResponse(ok=False, message=f"Unsupported agent id: {agent_id}.")
 
-    adapter = _resolve_adapter(agent_id)
+    prefs = get_preferences()
+    adapter = resolve_adapter(
+        agent_id,
+        model=str(prefs.get("exec_model") or DEFAULT_MODEL_ID),
+    )
     if not adapter or not adapter.detect():
         return AgentTestResponse(ok=False, message=f"Agent '{agent_id}' not detected.")
 
@@ -159,7 +194,7 @@ def test_agent(agent_id: str) -> AgentTestResponse:
 
 def _probe_cursor_auth_status() -> str:
     """Best-effort auth probe for explicit checks; scan skips this (can hang on Windows)."""
-    adapter = _resolve_adapter("cursor-agent")
+    adapter = resolve_adapter("cursor-agent")
     if not adapter or not adapter.detect():
         return "unknown"
     bin_path = adapter.resolved_bin()

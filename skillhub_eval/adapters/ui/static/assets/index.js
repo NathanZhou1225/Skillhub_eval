@@ -669,9 +669,11 @@ async function apiFetch(path, opts={}) {
 }
 
 const EXEC_AGENT_LABELS = {
-  claude: 'Claude CLI',
+  claude: 'Claude Code',
   codex: 'Codex CLI',
   'cursor-agent': 'Cursor Agent',
+  trae: 'Trae',
+  antigravity: 'Antigravity',
 };
 
 function getExecAgentLabel(agentId) {
@@ -679,6 +681,30 @@ function getExecAgentLabel(agentId) {
   const list = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
   const match = list.find((a) => a.id === agentId);
   return match?.label || EXEC_AGENT_LABELS[agentId] || agentId;
+}
+
+function getSelectedExecAgent() {
+  return _execPreferences?.exec_agent || '';
+}
+
+function getSelectedExecModel() {
+  return _execPreferences?.exec_model || 'default';
+}
+
+function getExecModelLabel(modelId) {
+  const value = modelId || 'default';
+  if (value === 'default') return '默认模型';
+  const models = getExecModelsForSelectedAgent();
+  const match = models.find((model) => model.id === value);
+  return match?.label || value;
+}
+
+function getExecModelsForSelectedAgent() {
+  const agentId = getSelectedExecAgent();
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const agent = agents.find((a) => a.id === agentId);
+  const models = Array.isArray(agent?.models) ? agent.models : [];
+  return models.length ? models : [{ id: 'default', label: '默认模型', source: 'fallback' }];
 }
 
 const EXEC_READY_REASON_ZH = {
@@ -721,7 +747,7 @@ function renderExecScanSummary() {
 
   if (_execScanLoading) {
     el.className = 'text-xs text-blue-700 leading-relaxed min-h-[1.25rem]';
-    el.textContent = '正在扫描本机 CLI Agent（claude / codex / cursor-agent）…';
+    el.textContent = '正在扫描本机 CLI Agent（claude / codex / cursor-agent / trae / antigravity）…';
     return;
   }
 
@@ -759,9 +785,10 @@ function renderExecBridgeIndicator() {
   const source = _execPreferences?.exec_source || 'sample_io';
   const ready = !!_execPreferences?.ready;
   const agentLabel = getExecAgentLabel(_execPreferences?.exec_agent);
+  const modelLabel = getExecModelLabel(getSelectedExecModel());
 
   if (source === 'local' && ready) {
-    pill.textContent = `本地执行：${agentLabel}`;
+    pill.textContent = `本地执行：${agentLabel} / ${modelLabel}`;
     pill.className = 'text-xs px-2 py-1 border border-green-300 text-green-800 bg-green-50 hover:bg-green-100 transition';
   } else if (source === 'local') {
     pill.textContent = '本地执行：未就绪';
@@ -807,6 +834,43 @@ function closeExecSettingsDrawer() {
   document.getElementById('exec-drawer-overlay')?.classList.add('hidden');
 }
 
+function renderExecAgentModelSelectors() {
+  const agentSelect = document.getElementById('exec-agent-select');
+  const modelSelect = document.getElementById('exec-model-select');
+  if (!agentSelect || !modelSelect) return;
+
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const selectedAgent = getSelectedExecAgent();
+  if (!agents.length) {
+    agentSelect.innerHTML = '<option value="">未扫描</option>';
+    modelSelect.innerHTML = '<option value="default">默认模型</option>';
+    agentSelect.disabled = true;
+    modelSelect.disabled = true;
+    return;
+  }
+
+  agentSelect.disabled = false;
+  modelSelect.disabled = false;
+  agentSelect.innerHTML = agents.map((agent) => {
+    const disabled = agent.detected ? '' : 'disabled';
+    const selected = agent.id === selectedAgent ? 'selected' : '';
+    const suffix = agent.detected ? '' : '（未检测到）';
+    return `<option value="${escapeHtml(agent.id)}" ${selected} ${disabled}>${escapeHtml(agent.label || agent.id)}${suffix}</option>`;
+  }).join('');
+
+  const selectedModel = getSelectedExecModel();
+  const models = getExecModelsForSelectedAgent();
+  const hasSelected = models.some((model) => model.id === selectedModel);
+  const rows = hasSelected
+    ? models
+    : [{ id: selectedModel, label: `${selectedModel}（自定义）`, source: 'custom' }, ...models];
+  modelSelect.innerHTML = rows.map((model) => {
+    const selected = model.id === selectedModel ? 'selected' : '';
+    const source = model.source && model.source !== 'fallback' ? ` · ${model.source}` : '';
+    return `<option value="${escapeHtml(model.id)}" ${selected}>${escapeHtml(model.label || model.id)}${escapeHtml(source)}</option>`;
+  }).join('');
+}
+
 function renderExecAgentCards() {
   const wrap = document.getElementById('exec-agent-cards');
   if (!wrap) return;
@@ -832,7 +896,7 @@ function renderExecAgentCards() {
       : 'border border-gray-200 border-l-[3px] border-l-transparent bg-white';
     const disabledClass = detected ? '' : ' opacity-60';
     const auth = agent.auth_status ? `<span class="text-[11px] text-gray-500">认证：${escapeHtml(agent.auth_status)}</span>` : '';
-    const model = agent.model_hint ? `<span class="text-[11px] text-gray-500">模型：${escapeHtml(agent.model_hint)}</span>` : '';
+    const model = agent.models_source ? `<span class="text-[11px] text-gray-500">模型列表：${escapeHtml(agent.models_source)}</span>` : '';
     const statusLine = detected
       ? `<div class="text-xs text-green-700 mt-0.5">已检测到${agent.bin_path ? `：${escapeHtml(agent.bin_path)}` : ''}</div>`
       : `<div class="text-xs text-amber-800 mt-0.5">未检测到（不可选）</div>
@@ -880,6 +944,7 @@ function renderExecDrawer() {
   const reason = document.getElementById('exec-ready-reason');
   if (reason) reason.textContent = getExecReadyReason();
 
+  renderExecAgentModelSelectors();
   renderExecAgentCards();
   renderExecScanSummary();
 }
@@ -909,6 +974,7 @@ async function fetchExecScan(silent = false) {
     if (seq === _execScanSeq) {
       _execScanLoading = false;
       renderExecScanSummary();
+      renderExecAgentModelSelectors();
       renderExecAgentCards();
       const reason = document.getElementById('exec-ready-reason');
       if (reason) reason.textContent = getExecReadyReason();
@@ -955,7 +1021,17 @@ async function onExecSourceRadioChange(nextSource) {
 
 async function onExecAgentRadioChange(nextAgent) {
   if (!_execPreferences || _execPreferences.exec_agent === nextAgent) return;
-  await putExecPreferences({ exec_agent: nextAgent });
+  await putExecPreferences({ exec_agent: nextAgent, exec_model: 'default' });
+}
+
+async function onExecAgentSelectChange(nextAgent) {
+  if (!_execPreferences || _execPreferences.exec_agent === nextAgent) return;
+  await putExecPreferences({ exec_agent: nextAgent, exec_model: 'default' });
+}
+
+async function onExecModelSelectChange(nextModel) {
+  if (!_execPreferences || getSelectedExecModel() === nextModel) return;
+  await putExecPreferences({ exec_model: nextModel || 'default' });
 }
 
 async function onExecConsentCheckbox(checked) {
@@ -2092,6 +2168,74 @@ function getStageProgress(d) {
   return d.stage_progress || (d.report && d.report.stage_progress) || [];
 }
 
+function findLocalAgentBudget(reportLike) {
+  const report = getReportPayload(reportLike || {});
+  const progress = Array.isArray(report?.stage_progress)
+    ? report.stage_progress
+    : getStageProgress(reportLike || {});
+  return progress.find((item) =>
+    item && typeof item === 'object' && item.event === 'stage_budget' && item.stage === 'case_executing'
+  ) || null;
+}
+
+function renderLocalAgentBudget(reportLike) {
+  const budget = findLocalAgentBudget(reportLike);
+  if (!budget || !budget.budget_s) return '';
+  const started = budget.started_at ? Date.parse(budget.started_at) : NaN;
+  const elapsed = Number.isFinite(started) ? Math.max(0, Math.floor((Date.now() - started) / 1000)) : 0;
+  const total = Number(budget.budget_s) || 0;
+  const remaining = Math.max(0, total - elapsed);
+  return `<div class="text-xs text-blue-800 bg-blue-50 border border-blue-200 px-2 py-1 mt-2 rounded">
+    本地 Agent 真跑中：已用 ${elapsed}s / 总预算 ${total}s / 剩余 ${remaining}s
+  </div>`;
+}
+
+function renderUsageSummary(reportLike) {
+  const report = getReportPayload(reportLike || {});
+  const summary = report?.usage_summary || reportLike?.usage_summary;
+  if (!summary || !summary.totals) return '';
+  const rows = Array.isArray(summary.by_stage) ? summary.by_stage : [];
+  const total = Number(summary.totals.total_tokens || 0);
+  const prompt = Number(summary.totals.prompt_tokens || 0);
+  const completion = Number(summary.totals.completion_tokens || 0);
+  const partial = summary.partial ? '<span class="text-amber-700 ml-2">部分调用未返回 usage</span>' : '';
+  const body = rows.length
+    ? rows.map((row) => `
+      <tr class="border-t border-gray-100">
+        <td class="py-1 pr-2">${escapeHtml(row.stage || '-')}</td>
+        <td class="py-1 pr-2">${escapeHtml(row.provider_label || '-')}</td>
+        <td class="py-1 pr-2">${escapeHtml(row.model || '-')}</td>
+        <td class="py-1 pr-2">${escapeHtml(row.case_id || '-')}</td>
+        <td class="py-1 text-right">${Number(row.prompt_tokens || 0)}</td>
+        <td class="py-1 text-right">${Number(row.completion_tokens || 0)}</td>
+        <td class="py-1 text-right">${Number(row.total_tokens || 0)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="7" class="py-2 text-gray-400">暂无分阶段 usage 明细</td></tr>';
+  return `
+    <section class="mt-4 border border-gray-200 bg-white rounded">
+      <div class="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-3">
+        <h4 class="text-sm font-semibold text-gray-900">Token 消耗</h4>
+        <div class="text-xs text-gray-600">总计 ${total}（输入 ${prompt} / 输出 ${completion}）${partial}</div>
+      </div>
+      <div class="px-3 py-2 overflow-x-auto">
+        <table class="w-full text-xs text-left">
+          <thead class="text-gray-500">
+            <tr>
+              <th class="py-1 pr-2">阶段</th>
+              <th class="py-1 pr-2">Provider</th>
+              <th class="py-1 pr-2">模型</th>
+              <th class="py-1 pr-2">Case</th>
+              <th class="py-1 text-right">输入</th>
+              <th class="py-1 text-right">输出</th>
+              <th class="py-1 text-right">总计</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
 function getTimingSummary(d) {
   if (d.timing_summary && Object.keys(d.timing_summary).length) {
     return d.timing_summary;
@@ -2149,10 +2293,12 @@ const STAGE_LABELS = {
 
 function renderStageProgressList(stages) {
   if (!stages || !stages.length) return '';
-  const chips = stages.map(s => {
+  const stageNames = stages.filter(s => typeof s === 'string');
+  const chips = stageNames.map(s => {
     const label = STAGE_LABELS[s] || s;
     return `<span class="inline-block mr-1 mb-1 px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">${escapeHtml(label)}</span>`;
   }).join('<span class="text-gray-300 mx-0.5">→</span>');
+  if (!chips) return '';
   return `<div class="mt-2 text-xs">
     <span class="font-medium text-gray-600">阶段轨迹：</span>
     <div class="mt-1 flex flex-wrap items-center">${chips}</div>
@@ -2191,19 +2337,40 @@ function renderStageTimingPanel(summary, opts = {}) {
   return `<div class="space-y-1">${bars}${slow}${total}</div>`;
 }
 
+function classifyProviderError(errorText) {
+  const text = String(errorText || '').toLowerCase();
+  if (/429|rate limit|too many requests|quota/.test(text)) return 'rate_limit';
+  if (/region|country|unsupported location|not available/.test(text)) return 'region_unavailable';
+  if (/api key|apikey|unauthorized|401|403|model.*not found|invalid.*model|permission/.test(text)) return 'auth_or_model';
+  if (/timeout|timed out|deadline/.test(text)) return 'timeout';
+  return 'unknown';
+}
+
+function providerErrorZh(errorText) {
+  const kind = classifyProviderError(errorText);
+  if (kind === 'rate_limit') return '模型服务限流或配额不足，请稍后重试。';
+  if (kind === 'region_unavailable') return '模型服务在当前地区或网络环境不可用，请更换可用服务或网络。';
+  if (kind === 'auth_or_model') return '模型密钥、权限或模型名称配置有误，请检查 Provider 设置。';
+  if (kind === 'timeout') return '模型响应超时，请稍后重试或调大超时配置。';
+  return '模型服务暂不可用，请查看错误详情。';
+}
+
 function renderProviderErrorPanel(d) {
   const errs = d.provider_errors
     || (d.report && d.report.evidence && d.report.evidence.filter(e => e.kind === 'provider_error'))
     || [];
   const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
   if (!errs.length && !codes.includes('EVAL_PROVIDER_UNAVAILABLE')) return '';
+  const firstError = errs.find(e => e && (e.error || e.message)) || {};
+  const errorText = firstError.error || firstError.message || '';
+  const helpText = providerErrorZh(errorText);
   const rows = errs.slice(0, 12).map(e =>
     `<li class="text-xs text-red-800 py-0.5">${escapeHtml(e.provider || '?')} · ${escapeHtml(e.case_id || '?')} — ${escapeHtml(e.error || 'unknown')}</li>`
   ).join('');
   return `
     <div class="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
       <div class="font-medium text-red-800">双模型评审未产出分数</div>
-      <p class="text-xs text-red-700 mt-1">API 超时或调用失败（非 R5 分歧）。请检查网络/密钥后重试；stock-radar 等 high-risk 包已自动使用 90s 单 call 超时。</p>
+      <p class="text-xs text-red-700 mt-1">${escapeHtml(helpText)}</p>
       ${rows ? `<ul class="mt-2 list-disc list-inside">${rows}</ul>` : ''}
     </div>`;
 }
@@ -2638,6 +2805,8 @@ async function pollStatus(runId) {
       ${terminal && getReportPayload(d).model_votes && getReportPayload(d).model_votes.length
         ? renderModelVotesFeedback(d, true) : ''}
       ${terminal ? renderSkillSummaryCard(d, { collapsed: true }) : ''}
+      ${renderLocalAgentBudget(d)}
+      ${terminal ? renderUsageSummary(d) : ''}
       ${terminal ? '<div class="text-xs text-gray-400 mt-1">任务已终结，停止轮询</div>' : '<div class="text-xs text-blue-400 animate-pulse">评估进行中，每 4s 自动刷新…</div>'}
     `;
 
@@ -3193,8 +3362,10 @@ async function openRunDetail(runId, opts = {}) {
       ${convBlock}
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
+      ${renderLocalAgentBudget(d)}
       ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, true, runId, showTrace)}</div>` : ''}
       ${renderModelVotesFeedback(d, true)}
+      ${renderUsageSummary(d)}
       ${renderNarrativeCard(d)}
       ${renderDisagreementCard(d)}
       ${renderRiskLockCard(d)}

@@ -27,6 +27,9 @@ class RoutingExecutionSource:
         self._sample = SampleIoSource()
         self._local = LocalAgentSource()
 
+    def set_local_timeout(self, timeout_s: float | None) -> None:
+        self._local.set_timeout_s(timeout_s)
+
     def get_actual_output(
         self,
         bundle_path: str,
