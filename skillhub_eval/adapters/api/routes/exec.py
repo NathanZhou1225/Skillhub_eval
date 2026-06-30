@@ -9,13 +9,14 @@ import time
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from skillhub_eval.execution.cli_detect import detect_hint_zh, find_cli_binary
 from skillhub_eval.execution.agent_registry import (
     DEFAULT_MODEL_ID,
-    ModelOption,
     get_agent_catalog,
     resolve_adapter,
 )
+from skillhub_eval.execution.detection import detect_agent
+from skillhub_eval.execution.models import discover_models
+from skillhub_eval.execution.install_hints import get_install_hint
 from skillhub_eval.execution.runner import LocalAgentRunner
 from skillhub_eval.execution.preferences import (
     get_preferences,
@@ -43,6 +44,9 @@ class AgentScanItem(BaseModel):
     models: list[AgentModelItem] = []
     models_source: str = "none"
     selected_model: str | None = None
+    install_command: str | None = None
+    install_docs_url: str | None = None
+    install_note: str | None = None
 
 
 class AgentScanResponse(BaseModel):
@@ -83,50 +87,46 @@ def _supported_agent_ids() -> set[str]:
     return {agent.id for agent in get_agent_catalog()}
 
 
-def _model_items(models: list[ModelOption]) -> list[AgentModelItem]:
-    return [
-        AgentModelItem(id=model.id, label=model.label, source="fallback")
-        for model in models
-    ]
-
-
 @router.get("/agents/scan", response_model=AgentScanResponse)
 def scan_agents() -> AgentScanResponse:
     agents: list[AgentScanItem] = []
     prefs = get_preferences()
     selected_model = str(prefs.get("exec_model") or DEFAULT_MODEL_ID)
     for agent in get_agent_catalog():
-        adapter = resolve_adapter(agent.id, model=selected_model)
-        bin_path = None
-        for bin_name in agent.binary_names:
-            bin_path = find_cli_binary(bin_name)
-            if bin_path:
-                break
-        detected = bin_path is not None
-        model_hint = getattr(adapter, "model", None) if adapter else None
-        auth_status = None
-        if agent.id == "cursor-agent" and detected:
-            # Defer auth probe to Test — `cursor-agent auth status` can hang on Windows.
-            auth_status = "unknown"
-        models = _model_items(list(agent.fallback_models))
+        det = detect_agent(agent)
+        models: list[AgentModelItem] = []
+        models_source = "none"
+        install_command = install_docs_url = install_note = None
+        if det.detected:
+            disc = discover_models(agent, stored_model=selected_model)
+            models = [
+                AgentModelItem(id=m["id"], label=m["label"], source=m.get("source", "fallback"))
+                for m in disc.models
+            ]
+            models_source = disc.models_source
+        else:
+            hint = get_install_hint(agent.id)
+            if hint:
+                install_command = hint.get("install_command")
+                install_docs_url = hint.get("docs_url")
+                install_note = hint.get("platform_note")
         agents.append(
             AgentScanItem(
                 id=agent.id,
                 label=agent.label,
-                detected=detected,
-                auth_status=auth_status,
-                model_hint=model_hint,
-                bin_path=bin_path,
-                detect_hint=None if detected else detect_hint_zh(agent.bin),
+                detected=det.detected,
+                auth_status=det.auth_state,
+                bin_path=det.bin_path,
+                detect_hint=det.detect_hint,
                 models=models,
-                models_source="fallback" if models else "none",
+                models_source=models_source,
                 selected_model=selected_model,
+                install_command=install_command,
+                install_docs_url=install_docs_url,
+                install_note=install_note,
             )
         )
-    return AgentScanResponse(
-        scanned_at=datetime.now(UTC).isoformat(),
-        agents=agents,
-    )
+    return AgentScanResponse(scanned_at=datetime.now(UTC).isoformat(), agents=agents)
 
 
 @router.get("/preferences", response_model=ExecPreferencesResponse)

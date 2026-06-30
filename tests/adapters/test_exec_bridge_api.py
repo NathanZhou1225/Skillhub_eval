@@ -59,11 +59,29 @@ def client(tmp_path, monkeypatch):
             return "/bin/traecli"
         return None
 
+    def fake_detect(agent, force=False):
+        from skillhub_eval.execution.detection import DetectionResult
+        ok = detected.get(agent.agent_id, False)
+        if not ok:
+            return DetectionResult(agent.agent_id, False, None, "missing", "未检测到")
+        auth = "unknown" if agent.agent_id == "cursor-agent" else "ok"
+        return DetectionResult(agent.agent_id, True, f"/bin/{agent.agent_id}", auth)
+
+    def fake_discover(agent, stored_model=None):
+        from skillhub_eval.execution.models import ModelDiscovery
+        return ModelDiscovery(
+            models=[{"id": "default", "label": "默认模型", "source": "fallback"}],
+            models_source="fallback",
+        )
+
     monkeypatch.setattr(
         "skillhub_eval.adapters.api.routes.exec.resolve_adapter", fake_resolve
     )
     monkeypatch.setattr(
-        "skillhub_eval.adapters.api.routes.exec.find_cli_binary", fake_find_cli
+        "skillhub_eval.adapters.api.routes.exec.detect_agent", fake_detect
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec.discover_models", fake_discover
     )
     monkeypatch.setattr(
         "skillhub_eval.execution.preferences._resolve_adapter", fake_resolve
@@ -148,6 +166,31 @@ def test_preferences_accept_exec_model(client: TestClient, monkeypatch: pytest.M
     assert resp.status_code == 200
     body = resp.json()
     assert body["exec_model"] == "gpt-5"
+
+
+def test_scan_returns_authstate_models_install_hint():
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from skillhub_eval.adapters.api.app import create_app
+    from skillhub_eval.execution import detection
+    from skillhub_eval.execution.detection import DetectionResult
+
+    detection.clear_detection_cache()
+
+    def fake_detect(agent, force=False):
+        if agent.agent_id == "codex":
+            return DetectionResult("codex", True, "/bin/codex", "ok")
+        return DetectionResult(agent.agent_id, False, None, "missing", "not found")
+
+    with patch("skillhub_eval.adapters.api.routes.exec.detect_agent", side_effect=fake_detect):
+        resp = TestClient(create_app()).get("/api/exec/agents/scan")
+    assert resp.status_code == 200
+    agents = {a["id"]: a for a in resp.json()["agents"]}
+    assert agents["codex"]["detected"] is True
+    assert agents["codex"]["auth_status"] == "ok"
+    assert agents["codex"]["models"]
+    assert agents["claude"]["detected"] is False
+    assert agents["claude"]["install_command"]
 
 
 def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
