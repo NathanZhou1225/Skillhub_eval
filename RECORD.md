@@ -288,7 +288,7 @@
 | **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
 | **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **✅ 已合入 main（2026-06-30 核实）**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类；新增 agent registry + `claude/codex/cursor-agent/trae/antigravity` + agent/model 双选择；**W8.4 多 agent 对照统计未做** |
 | **Q-25** | **报告 Token 消耗汇总** | P1 | **✅ 已合入 main（2026-06-30 核实）**：`usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；不做单价计费与 LUI 逐条记账 |
-| **Q-26** | **执行层未照搬 open-design 的可扩展 adapter 框架** | P1 | **🟡 待规划（2026-06-30）**：现状为"逐个写死 build_args"，缺 `capabilities()/cancel()/resume()` 契约、结构化 `authState`（ok/missing/expired）检测、config-dir 探测、**ACP JSON-RPC 传输层**（致 Trae/Antigravity 未打通）、多策略 skill 注入、归一化 AgentEvent、agent→agent/API fallback。目标：可扩展框架（注册即新增 CLI）+ 检测本地可运行 CLI + 检测/选择 CLI 支持的模型。计划与实施待与用户商讨 |
+| **Q-26** | **执行层照搬 open-design 的可扩展 adapter 框架** | P1 | **🟢 框架落地（离线全绿）· 待真机补验（2026-06-30）**：grill 定稿丢弃自制 ACP（trae 改 stream-json 真打通）；数据驱动三态检测（PATH/版本目录/npm/where + ok/missing/unknown + TTL）+ 通用 `model_probe` 模型发现 + `transport` 按 `stream_format` 分派接缝（acp 为扩展点）+ `scan`/UI 三态徽章与安装指引；实施于 `feat/local-agent-adapter-framework`（逐 task TDD，未合并 main）。**待**：`RUN_LOCAL_AGENT=1` codex+trae 真机 + trae stream-json 样本校准、cursor-agent 重装后补验；W8.4 多 agent 对照仍未做。计划 `docs/superpowers/plans/2026-06-30-local-agent-adapter-framework.md` |
 
 ## 已做决策
 
@@ -626,6 +626,7 @@
 | 2026-06-23 | **下一窗 Codex 范围锁定**：`RECORD.md` 增「下一步」— Q-24 ①并行 case_exec ②Agent 预算 UI ④限流退并发+risk 单题超时 ⑤Provider 横幅按因 ⑥W8.4 多 agent 对照 + **Q-25 Token 汇总**；明确不做 skill_summary 跳过；pytest / W5.5 B/C / runbook **后置** |
 | 2026-06-24 | **Q-24/Q-25 worktree 实现完成，待合入主工作区**：worktree `C:\tmp\skillhub-q24-q25-local-agent-usage`，branch `codex/q24-q25-local-agent-usage`；完成五 Agent registry、agent/model 选择、Trae/Antigravity adapter、有界并发 case_exec、rate-limit 降并发、risk 单题 timeout、本地 Agent 预算 UI、Provider 错误按因分类、Token usage 事件与报告汇总；验证：focused backend 45 passed、engine/readiness 29 passed、JS `node --check` 通过、doc encoding OK；**未实现完整 OpenDesign adapter 层迁移**，列为阶段三后续优化；**W8.4 多 agent 对照统计未做**，留后续验收 |
 | 2026-06-30 | **状态核实 + 记账纠偏**：核实 Q-24/Q-25 已在 `main`（worktree 已落后，将移除）；执行层与 `nexu-io/open-design` 框架对照盘点，记 **Q-26**（缺可扩展 adapter 契约 / 结构化 authState 检测 / ACP 传输层 / 多策略 skill 注入 / 归一化 AgentEvent / agent fallback；Trae/Antigravity 实际未打通）；确定下一方向 = 照搬 open-design 可扩展 adapter 架构（注册即新增 CLI + 检测可运行 CLI + 检测/选择 CLI 模型），计划待商讨 |
+| 2026-06-30 | **W8.7/Q-26 adapter 框架实施（feat 分支）**：grill 定稿后 subagent-driven 逐 task TDD 落地——settings 超时 + `AgentDef` 数据字段 + 修 trae 登记；新增 `install_hints`/`detection`(三态+TTL)/`models`(通用 probe)/`transport` 接缝；trae 改 stream-json；`scan` 返三态+模型+安装指引；UI 三态徽章+安装卡 `[ui-only]`；opt-in 真机 E2E（默认 skip）。离线回归绿——5 项 pre-existing 失败已于 base commit `3095c78` 同样存在（codex/cursor adapter 全路径、stub 缺 `parse_stream`、readiness UI token 漂移），与本框架无关。**待真机补验** codex+trae + cursor 重装；未合并 main |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 
