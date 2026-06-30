@@ -1,29 +1,42 @@
-"""Trae CLI adapter for local execution."""
+"""Trae CLI adapter — stream-json print mode (G1/G6)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from skillhub_eval.execution.cli_detect import find_cli_binary
+
+def _resolved_bin() -> str:
+    from skillhub_eval.execution.agent_registry import get_agent_def
+    from skillhub_eval.execution.detection import resolve_agent_binary
+
+    agent = get_agent_def("trae")
+    return (resolve_agent_binary(agent) if agent else None) or "trae-cli"
 
 
 @dataclass
 class TraeAdapter:
     agent_id: str = "trae"
-    bin: str = "traecli"
     model: str | None = None
 
     def detect(self) -> bool:
-        return find_cli_binary(self.bin) is not None or find_cli_binary("trae") is not None
+        from skillhub_eval.execution.agent_registry import get_agent_def
+        from skillhub_eval.execution.detection import resolve_agent_binary
 
-    def resolved_bin(self) -> str:
-        return find_cli_binary(self.bin) or find_cli_binary("trae") or self.bin
+        agent = get_agent_def("trae")
+        return bool(agent and resolve_agent_binary(agent))
 
     def build_args(self, *, cwd: str | None = None, hardened: bool = False) -> list[str]:
-        args = ["acp", "serve", "--yolo"]
+        args = [
+            _resolved_bin(),
+            "-p",
+            "--output-format", "stream-json",
+            "--include-partial-messages",
+            "--permission-mode", "bypass_permissions",
+            "--yolo",
+        ]
         if self.model:
             args.extend(["--model", self.model])
-        return [self.resolved_bin(), *args]
+        return args
 
     def parse_stream(self, lines: list[str]):
         from skillhub_eval.execution.stream_parser import parse_stream_events
