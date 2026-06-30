@@ -34,6 +34,12 @@ class AgentDef:
     binary_aliases: tuple[str, ...] = ()
     supports_hardened_redline: bool = False
     aliases: tuple[str, ...] = ()
+    stream_format: str = "stream-json"                  # "stream-json" | "acp-json-rpc"
+    config_dirs: tuple[str, ...] = ()                   # relative to USERPROFILE/HOME
+    install_dir_globs: tuple[str, ...] = ()             # relative to LOCALAPPDATA/APPDATA/HOME, glob ok
+    version_args: tuple[str, ...] = ("--version",)
+    model_probe: tuple[str, ...] | None = None          # argv to list models, e.g. ("models",)
+    prompt_via_stdin: bool = True
 
     @property
     def id(self) -> str:
@@ -86,6 +92,7 @@ _CATALOG: tuple[AgentDef, ...] = (
         label="Claude",
         adapter_factory=_claude_adapter,
         fallback_models=(_DEFAULT_MODEL,),
+        config_dirs=(".claude",),
     ),
     AgentDef(
         agent_id="codex",
@@ -93,6 +100,8 @@ _CATALOG: tuple[AgentDef, ...] = (
         adapter_factory=_codex_adapter,
         fallback_models=(_DEFAULT_MODEL, ModelOption("gpt-5-codex", "GPT-5 Codex")),
         supports_hardened_redline=True,
+        config_dirs=(".codex",),
+        install_dir_globs=("OpenAI/Codex/bin/*",),
     ),
     AgentDef(
         agent_id="cursor-agent",
@@ -100,14 +109,20 @@ _CATALOG: tuple[AgentDef, ...] = (
         adapter_factory=_cursor_agent_adapter,
         fallback_models=(_DEFAULT_MODEL, ModelOption("gpt-5", "GPT-5")),
         aliases=("cursor_agent",),
+        config_dirs=(".cursor",),
+        install_dir_globs=("cursor-agent/versions/*",),
     ),
     AgentDef(
         agent_id="trae",
         label="Trae",
         adapter_factory=_trae_adapter,
         fallback_models=(_DEFAULT_MODEL,),
-        primary_bin="traecli",
-        binary_aliases=("trae",),
+        primary_bin="trae-cli",
+        binary_aliases=("traecli", "trae-agent", "ta"),
+        stream_format="stream-json",
+        config_dirs=(".trae",),
+        install_dir_globs=("trae-cli/bin",),
+        model_probe=("models",),
     ),
     AgentDef(
         agent_id="antigravity",
@@ -115,6 +130,7 @@ _CATALOG: tuple[AgentDef, ...] = (
         adapter_factory=_antigravity_adapter,
         fallback_models=(_DEFAULT_MODEL,),
         primary_bin="agy",
+        config_dirs=(".gemini/antigravity-cli",),
     ),
 )
 

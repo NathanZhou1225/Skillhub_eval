@@ -53,9 +53,9 @@ def test_registry_exposes_agent_binary_names():
     cursor = get_agent_def("cursor_agent")
 
     assert trae is not None
-    assert trae.bin == "traecli"
-    assert trae.binary_names[0] == "traecli"
-    assert "trae" in trae.binary_names
+    assert trae.bin == "trae-cli"
+    assert trae.binary_names[0] == "trae-cli"
+    assert "traecli" in trae.binary_names
     assert antigravity is not None
     assert antigravity.bin == "agy"
     assert cursor is not None
@@ -97,3 +97,17 @@ def test_resolve_adapter_accepts_cursor_agent_alias():
 
 def test_resolve_adapter_unknown_returns_none():
     assert resolve_adapter("unknown") is None
+
+
+def test_defs_declare_framework_fields():
+    codex = get_agent_def("codex")
+    assert codex.stream_format == "stream-json"
+    assert any(".codex" in d for d in codex.config_dirs)
+    assert any("Codex" in g for g in codex.install_dir_globs)
+
+    trae = get_agent_def("trae")
+    assert trae.stream_format == "stream-json"
+    assert trae.primary_bin == "trae-cli"
+    assert "traecli" in trae.binary_aliases and "ta" in trae.binary_aliases
+    assert trae.model_probe == ("models",)
+    assert any("trae-cli" in g for g in trae.install_dir_globs)
