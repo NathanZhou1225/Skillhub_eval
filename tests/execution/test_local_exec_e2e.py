@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize("agent_id", ["codex", "trae"])
+@pytest.mark.parametrize("agent_id", ["codex", "trae", "cursor-agent"])
 def test_real_agent_runs(agent_id, tmp_path):
     adapter = resolve_adapter(agent_id)
     assert adapter and adapter.detect()
@@ -29,3 +29,4 @@ def test_real_agent_runs(agent_id, tmp_path):
         timeout_s=120,
     )
     assert outcome.parsed_stream is not None
+    assert outcome.parsed_stream.is_complete is True

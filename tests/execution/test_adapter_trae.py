@@ -19,6 +19,22 @@ def test_build_args_includes_model():
     assert "--model" in args and "GLM-5.2" in args
 
 
+def test_trae_prompt_via_stdin_false():
+    assert TraeAdapter().prompt_via_stdin is False
+
+
+def test_parse_stream_trae_result_event():
+    a = TraeAdapter()
+    lines = [
+        '{"type":"stream_event","delta":{"role":"assistant","content":"OK"}}',
+        '{"type":"result","subtype":"success","result":"OK","duration_ms":12004,'
+        '"usage":{"input_tokens":10,"output_tokens":1}}',
+    ]
+    parsed = a.parse_stream(lines)
+    assert parsed.is_complete is True
+    assert "OK" in parsed.final_text
+
+
 def test_parse_stream_reuses_generic_parser():
     a = TraeAdapter()
     parsed = a.parse_stream(['{"type":"result","result":"ok"}'])

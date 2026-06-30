@@ -123,6 +123,7 @@ _CATALOG: tuple[AgentDef, ...] = (
         config_dirs=(".trae",),
         install_dir_globs=("trae-cli/bin",),
         model_probe=("models",),
+        prompt_via_stdin=False,
     ),
     AgentDef(
         agent_id="antigravity",

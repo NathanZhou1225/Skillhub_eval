@@ -55,7 +55,11 @@ class LocalAgentRunner:
         timeout_s: float = 300.0,
         hardened: bool = False,
     ) -> RunOutcome:
-        args = adapter.build_args(cwd=cwd, hardened=hardened)
+        args = list(adapter.build_args(cwd=cwd, hardened=hardened))
+        stdin_prompt = prompt
+        if getattr(adapter, "prompt_via_stdin", True) is False and stdin_prompt:
+            args.append(stdin_prompt)
+            stdin_prompt = ""
         proc = self._spawn(
             args,
             cwd=cwd,
@@ -68,12 +72,12 @@ class LocalAgentRunner:
         )
         stderr_text = ""
         if getattr(proc, "stdout", None) is None:
-            stdout, stderr = proc.communicate(input=prompt, timeout=timeout_s)
+            stdout, stderr = proc.communicate(input=stdin_prompt or None, timeout=timeout_s)
             stderr_text = stderr or ""
             lines = stdout.splitlines() if stdout else []
             exit_code = proc.returncode if proc.returncode is not None else proc.wait()
         else:
-            lines, exit_code = self._stream_until_complete(proc, prompt, timeout_s)
+            lines, exit_code = self._stream_until_complete(proc, stdin_prompt, timeout_s)
             if proc.stderr is not None:
                 try:
                     stderr_text = proc.stderr.read() or ""

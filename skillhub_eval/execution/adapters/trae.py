@@ -17,6 +17,7 @@ def _resolved_bin() -> str:
 class TraeAdapter:
     agent_id: str = "trae"
     model: str | None = None
+    prompt_via_stdin: bool = False
 
     def detect(self) -> bool:
         from skillhub_eval.execution.agent_registry import get_agent_def
