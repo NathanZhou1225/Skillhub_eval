@@ -69,6 +69,10 @@ def client(tmp_path, monkeypatch):
         "skillhub_eval.execution.preferences._resolve_adapter", fake_resolve
     )
     monkeypatch.setattr(
+        "skillhub_eval.execution.preferences._is_agent_detected",
+        lambda agent_id: detected.get(agent_id, False),
+    )
+    monkeypatch.setattr(
         "skillhub_eval.execution.cli_detect.find_cli_binary", fake_find_cli
     )
 

@@ -145,8 +145,11 @@ def _default_exec_agent() -> str:
 
 
 def _is_agent_detected(agent_id: str) -> bool:
-    adapter = _resolve_adapter(agent_id)
-    return bool(adapter and adapter.detect())
+    from skillhub_eval.execution.agent_registry import get_agent_def
+    from skillhub_eval.execution.detection import detect_agent
+
+    agent = get_agent_def(agent_id)
+    return bool(agent and detect_agent(agent).detected)
 
 
 def _resolve_adapter(agent_id: str):
