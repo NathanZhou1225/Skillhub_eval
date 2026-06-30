@@ -1,11 +1,14 @@
 import json
+import os
 
 from skillhub_eval.execution.adapters.cursor_agent import CursorAgentAdapter, _emit_cursor_text_delta
 
 
 def test_cursor_build_args_open_design_shape():
     args = CursorAgentAdapter(model="gpt-5").build_args(cwd="/ws")
-    assert args[0] == "cursor-agent"
+    # args[0] is the resolved binary; on machines with cursor-agent installed it
+    # is a full path, so compare the basename without extension.
+    assert os.path.basename(args[0]).split(".")[0] == "cursor-agent"
     assert "--print" in args
     assert "--output-format" in args
     assert "stream-json" in args

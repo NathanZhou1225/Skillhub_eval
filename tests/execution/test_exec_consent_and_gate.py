@@ -20,6 +20,11 @@ class _CountingAdapter:
     def detect(self) -> bool:
         return True
 
+    def parse_stream(self, lines: list[str]):
+        from skillhub_eval.execution.stream_parser import parse_stream_events
+
+        return parse_stream_events(lines)
+
 
 @pytest.fixture(autouse=True)
 def _reset_consent():

@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch
 
 from skillhub_eval.execution.adapters.codex import CodexAdapter
@@ -6,7 +7,9 @@ from skillhub_eval.execution.adapters.codex import CodexAdapter
 def test_codex_build_args_hardened_disables_network():
     adapter = CodexAdapter()
     args = adapter.build_args(cwd="/tmp/work", hardened=True)
-    assert args[0] == "codex"
+    # args[0] is the resolved binary; on machines with codex installed it is a
+    # full path, so compare the basename without extension.
+    assert os.path.basename(args[0]).split(".")[0] == "codex"
     assert "workspace-write" in args
     assert "sandbox_workspace_write.network_access=false" in args
     assert "-C" in args
