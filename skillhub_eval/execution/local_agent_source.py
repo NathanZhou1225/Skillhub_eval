@@ -18,6 +18,7 @@ from skillhub_eval.execution.harness_prompt import build_harness_prompt
 from skillhub_eval.execution.profile import HardenedProfile, is_redline_case
 from skillhub_eval.execution.runner import AgentAdapter, LocalAgentRunner
 from skillhub_eval.execution.stream_parser import collect_actual_output
+from skillhub_eval.execution.transport.base import run_via_transport
 from skillhub_eval.execution.workspace import PerRunWorkspace
 from skillhub_eval.settings import settings
 
@@ -118,12 +119,15 @@ class LocalAgentSource:
         try:
             prompt = build_harness_prompt(case, bundle)
             hardened = HardenedProfile.use_hardened(adapter, case)
-            return self._runner.run(
+            agent = get_agent_def(getattr(adapter, "agent_id", ""))
+            return run_via_transport(
                 adapter,
+                agent,
                 prompt,
                 cwd=str(run_dir),
                 timeout_s=self._case_timeout_s(case, bundle),
                 hardened=hardened,
+                runner=self._runner,
             )
         finally:
             self._workspace.release(run_dir)
