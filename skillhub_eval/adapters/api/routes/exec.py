@@ -93,7 +93,9 @@ def scan_agents() -> AgentScanResponse:
     prefs = get_preferences()
     selected_model = str(prefs.get("exec_model") or DEFAULT_MODEL_ID)
     for agent in get_agent_catalog():
-        det = detect_agent(agent)
+        # Explicit user-initiated scan: bypass the TTL cache so a freshly
+        # installed / authenticated CLI is picked up immediately.
+        det = detect_agent(agent, force=True)
         models: list[AgentModelItem] = []
         models_source = "none"
         install_command = install_docs_url = install_note = None

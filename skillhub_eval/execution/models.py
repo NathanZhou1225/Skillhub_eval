@@ -32,6 +32,7 @@ def _run_probe(agent: AgentDef) -> str | None:
             [bin_path, *agent.model_probe],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=float(settings.model_discovery_timeout_s), check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         return None
