@@ -1,5 +1,6 @@
 # Change: local-agent-adapter-framework
 
+> **状态（2026-06-30）**：✅ 已合入 `main`（`d8c83b8`）；网页 codex/cursor-agent/trae Test 通过；**待 `/opsx:archive`**。
 > 记录性 change（W8.7 / Q-26）。执行真相以实施计划为准：`docs/superpowers/plans/2026-06-30-local-agent-adapter-framework.md`。设计稿：`docs/superpowers/specs/2026-06-30-local-agent-adapter-framework-design.md`。承接 `2026-06-18-local-agent-exec-bridge`（W8）与 Q-24/Q-25 的 follow-up。
 > **grill-me 定稿（2026-06-30）**：原"自制 ACP JSON-RPC 传输"已废弃——实测 `trae-cli` 原生支持与 claude/codex 同形的 `--print --output-format stream-json` 模式，trae 改走现有 stream-json 路径；检测改为数据驱动；模型发现用通用 `model_probe`。锁定决策 G1–G8 见 `design.md`。
 

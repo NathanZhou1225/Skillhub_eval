@@ -5,7 +5,7 @@ Validate Wave 8 local execution against `testskills/exec-fixture-minimal/`.
 ## Prerequisites
 
 - Python env with `skillhub_eval` installed (`pip install -e .`)
-- At least one supported CLI agent on `PATH`: `claude`, `codex`, `cursor-agent`, `traecli`/`trae`, or `agy`.
+- At least one supported CLI agent: `claude`, `codex`, `cursor-agent`, `trae-cli`/`trae`, or `antigravity` (`agy`). Trae installs under `%LOCALAPPDATA%\trae-cli\bin` (detection resolves PATH-external installs).
 - `.env` with DeepSeek + Gemini keys (full formal eval still needs LLM judges)
 - **`serve` 与 CLI agent 须同机**（服务端 spawn 子进程，非浏览器直连 CLI）
 
@@ -40,11 +40,11 @@ Open via header pill or **「执行设置」**.
 
 | Step | UI action | API |
 |------|-----------|-----|
-| Scan | **重新扫描** | `GET /api/exec/agents/scan` — lists `claude`, `codex`, `cursor-agent` with PATH/auth hints |
+| Scan | **重新扫描** | `GET /api/exec/agents/scan` — lists registered agents (`claude`, `codex`, `cursor-agent`, `trae`, `antigravity`) with detect/auth/models/install hints |
 | Mode | Confirm **本地真跑** selected (default) | `PUT /api/exec/preferences` `{ "exec_source": "local" }` (instant save, no Save button) |
 | Agent | Select a **detected** radio card | `PUT /api/exec/preferences` `{ "exec_agent": "<id>" }` |
 | Consent | Check **我同意本机执行** | `POST /api/exec/consent` |
-| Smoke | Click **[Test]** on agent card (optional; works without consent) | `POST /api/exec/agents/{id}/test` — inline pass/fail |
+| Smoke | Click **[Test]** on agent card (optional; works without consent) | `POST /api/exec/agents/{id}/test` — uses each agent's **default model** (ignores globally selected `exec_model`); ~8–60s depending on CLI |
 
 Verify readiness: `GET /api/exec/preferences` → `ready=true`, `consent_granted=true`, chosen `exec_agent`. Preferences persist across `serve` restarts (sqlite global row, DB v10).
 
@@ -70,7 +70,7 @@ See [Spot-check queue filter](#spot-check-queue-filter) for history API verifica
 | GET | `/api/exec/preferences` | `{ exec_source, exec_agent, consent_granted, ready, ready_reason }` |
 | PUT | `/api/exec/preferences` | Update `exec_source` / `exec_agent` |
 | POST | `/api/exec/consent` | Grant execution consent (global) |
-| POST | `/api/exec/agents/{id}/test` | ~60s smoke via `LocalAgentRunner` |
+| POST | `/api/exec/agents/{id}/test` | Smoke via `LocalAgentRunner` (default model per agent; not global `exec_model`) |
 
 OpenAPI: <http://127.0.0.1:8000/docs> (tag `exec`).
 

@@ -203,7 +203,8 @@
 | **W5.5 回归 fixture + 拦截 UX 热修** | **✅ 收官** — 三 fixture + UI fail 红标/说明；**524 tests** |
 | **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W4.5 provider-env-factory** | **✅ 收官** — `JUDGE_PROVIDER_A/B_*` 双评审槽位、`OpenAICompatibleProvider`、API/CLI/脚本工厂、报告/UI 全链路 label（含 per-case 表头与不可用横幅）；UI build `w4.5-provider-labels` |
-| **Q-24 / Q-25 功能优化包** | **✅ 已合入 main（2026-06-30 核实）** — Q-24 ①②④⑤ + 五 Agent registry/模型选择 + Q-25 Token 汇总均在 `main`（提交 `agent running optimization` 等）；原 worktree `C:\tmp\skillhub-q24-q25-local-agent-usage` 已落后 main，可移除。**W8.4 多 agent 对照统计仍未做**；**Trae/Antigravity 仅声明 + detect + build_args，未接 ACP 传输层（实际未打通）**，见 Q-26 |
+| **Q-24 / Q-25 功能优化包** | **✅ 已合入 main（2026-06-30）** — Q-24 ①②④⑤ + 五 Agent registry/模型选择 + Q-25 Token 汇总均在 `main`；**W8.4 多 agent 对照统计仍未做** |
+| **W8.7 / Q-26 可扩展 adapter 框架** | **✅ 已合入 main + 归档（2026-06-30）** — 数据驱动检测/三态 auth + 通用 `model_probe` + trae stream-json 真跑 + `transport` 接缝 + scan/UI 三态徽章与安装指引；网页实机 codex/cursor-agent/trae **Test 通过**；smoke test 不再误用全局 `exec_model`。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
 
 ---
 
@@ -288,7 +289,7 @@
 | **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
 | **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **✅ 已合入 main（2026-06-30 核实）**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类；新增 agent registry + `claude/codex/cursor-agent/trae/antigravity` + agent/model 双选择；**W8.4 多 agent 对照统计未做** |
 | **Q-25** | **报告 Token 消耗汇总** | P1 | **✅ 已合入 main（2026-06-30 核实）**：`usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；不做单价计费与 LUI 逐条记账 |
-| **Q-26** | **执行层照搬 open-design 的可扩展 adapter 框架** | P1 | **🟢 框架落地（离线全绿）· 待真机补验（2026-06-30）**：grill 定稿丢弃自制 ACP（trae 改 stream-json 真打通）；数据驱动三态检测（PATH/版本目录/npm/where + ok/missing/unknown + TTL）+ 通用 `model_probe` 模型发现 + `transport` 按 `stream_format` 分派接缝（acp 为扩展点）+ `scan`/UI 三态徽章与安装指引；实施于 `feat/local-agent-adapter-framework`（逐 task TDD，未合并 main）。**待**：`RUN_LOCAL_AGENT=1` codex+trae 真机 + trae stream-json 样本校准、cursor-agent 重装后补验；W8.4 多 agent 对照仍未做。计划 `docs/superpowers/plans/2026-06-30-local-agent-adapter-framework.md` |
+| **Q-26** | **执行层照搬 open-design 的可扩展 adapter 框架** | P1 | **✅ 已合入 main + 归档（2026-06-30）**：grill 定稿 trae 改 stream-json（弃自制 ACP）；`detection`/`models`/`install_hints`/`transport` + scan/UI 三态；`RUN_LOCAL_AGENT=1` codex+trae+cursor E2E 通过；网页 Test 三 CLI 通过；`test` 固定默认模型。**未做**：W8.4 多 agent 对照、Antigravity 真跑、`exec-fixture-minimal` 网页纵切（选模型跑正式评）。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
 
 ## 已做决策
 
@@ -428,6 +429,7 @@
 | **W8 收官归档（2026-06-18）** | 网页实机验收通过后归档 `local-agent-exec-bridge` + `ui-local-exec-bridge`；阶段三主线切 **本地验收收官**（W5.5 B/C + runbook） | 继续挂活跃 change 等更多优化；把 Q-24 优化并入 W8 再归档（纵切已满足） |
 | **Q-24 下一窗范围（2026-06-23）** | ①②④⑤⑥ + Q-25 Token 汇总；**pytest / 剧本 B/C / runbook 后置**；**不做** skill_summary 跳过 | 本包夹带 W5.5 验收（分散 Codex 窗口）；skill_summary 跳过（用户明确不要） |
 | **Q-25 Token 汇总落盘** | `usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；**不做** 单价计费与 LUI 逐条记账 | 仅 stdout 临时统计（无法历史对比）；独立运营看板（归阶段四） |
+| **W8.7 smoke test 与全局模型解耦** | `POST /api/exec/agents/{id}/test` 固定 `resolve_adapter(..., model=None)`；下拉选的 `exec_model` 仅影响正式评估，避免 trae 模型误传给 codex/cursor 导致 stream 不完整 | Test 继续读 `prefs.exec_model`（三 CLI 同报 did not complete） |
 | **阶段三/四边界再收紧（2026-06-23）** | **阶段三** = 本地 Skill 评估跑通（`skillhub-eval serve` + 浏览器 + 可选本地 agent）；**原 W7 服务器部署** 整体移 **阶段四** | 阶段三继续追服务器彩排（与用户「先本地验通」冲突） |
 | **W5.5 安全 gate 分层扫描** | `scan_bundle_security`：**intake**（SKILL.md + scripts）决定 `can_enter_formal` / bootstrap 422；**eval_cases** 单独扫描；`origin=staging_propagator` 的 blocked 命中降级为 info；gate payload 透传 `security_findings` + `security_block_reason_zh`；UI `renderSecurityFindingsHtml` 红色拦截条 | 继续合并扫描 SKILL+cases（补题后对抗题误拦）；仅改 Propagator prompt（不稳定）；引擎与 gate 扫描范围强行统一为仅 SKILL（弱化作者上传恶意 case 检测） |
 
@@ -534,6 +536,9 @@
 | **W8 OpenSpec change（已归档）** | `openspec/changes/archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W8 设计稿** | `docs/superpowers/specs/2026-06-17-local-agent-exec-bridge-design.md` |
 | **W8 exec fixture** | `testskills/exec-fixture-minimal/` |
+| **W8.7 adapter 框架计划** | `docs/superpowers/plans/2026-06-30-local-agent-adapter-framework.md` |
+| **W8.7 OpenSpec change（已归档）** | `openspec/changes/archive/2026-06-30-local-agent-adapter-framework/` |
+| **skill-execution 主 spec** | `openspec/specs/skill-execution/spec.md` |
 | **Skill 评估系统全景说明 §10** | `docs/guides/Skill评估系统全景说明.md` |
 | W5.5 会话归档 change | `openspec/changes/archive/2026-06-12-conversation-archive/` |
 | Backlog | `.project_memory/backlog/BACKLOG.md` |
@@ -627,6 +632,8 @@
 | 2026-06-24 | **Q-24/Q-25 worktree 实现完成，待合入主工作区**：worktree `C:\tmp\skillhub-q24-q25-local-agent-usage`，branch `codex/q24-q25-local-agent-usage`；完成五 Agent registry、agent/model 选择、Trae/Antigravity adapter、有界并发 case_exec、rate-limit 降并发、risk 单题 timeout、本地 Agent 预算 UI、Provider 错误按因分类、Token usage 事件与报告汇总；验证：focused backend 45 passed、engine/readiness 29 passed、JS `node --check` 通过、doc encoding OK；**未实现完整 OpenDesign adapter 层迁移**，列为阶段三后续优化；**W8.4 多 agent 对照统计未做**，留后续验收 |
 | 2026-06-30 | **状态核实 + 记账纠偏**：核实 Q-24/Q-25 已在 `main`（worktree 已落后，将移除）；执行层与 `nexu-io/open-design` 框架对照盘点，记 **Q-26**（缺可扩展 adapter 契约 / 结构化 authState 检测 / ACP 传输层 / 多策略 skill 注入 / 归一化 AgentEvent / agent fallback；Trae/Antigravity 实际未打通）；确定下一方向 = 照搬 open-design 可扩展 adapter 架构（注册即新增 CLI + 检测可运行 CLI + 检测/选择 CLI 模型），计划待商讨 |
 | 2026-06-30 | **W8.7/Q-26 adapter 框架实施（feat 分支）**：grill 定稿后 subagent-driven 逐 task TDD 落地——settings 超时 + `AgentDef` 数据字段 + 修 trae 登记；新增 `install_hints`/`detection`(三态+TTL)/`models`(通用 probe)/`transport` 接缝；trae 改 stream-json；`scan` 返三态+模型+安装指引；UI 三态徽章+安装卡 `[ui-only]`；opt-in 真机 E2E（默认 skip）。离线回归绿——5 项 pre-existing 失败已于 base commit `3095c78` 同样存在（codex/cursor adapter 全路径、stub 缺 `parse_stream`、readiness UI token 漂移），与本框架无关。**待真机补验** codex+trae + cursor 重装；未合并 main |
+| 2026-06-30 | **W8.7/Q-26 合入 main + 实机收口**：`feat/local-agent-adapter-framework` fast-forward 至 `main`（`d8c83b8`）；cursor `--list-models` live 列表；trae positional prompt + stream-json；smoke test 忽略全局 `exec_model`；网页 codex/cursor-agent/trae Test 通过；`RUN_LOCAL_AGENT=1` E2E 三 agent 通过 |
+| 2026-06-30 | **OpenSpec 归档**：`local-agent-adapter-framework` → `archive/2026-06-30-local-agent-adapter-framework/`；delta spec 同步至 `openspec/specs/skill-execution/spec.md` |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 
