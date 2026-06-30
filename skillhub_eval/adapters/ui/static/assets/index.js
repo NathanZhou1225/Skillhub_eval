@@ -871,6 +871,16 @@ function renderExecAgentModelSelectors() {
   }).join('');
 }
 
+function copyExecInstallCmd(agentId) {
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const agent = agents.find((a) => a.id === agentId);
+  const cmd = agent && agent.install_command ? agent.install_command : '';
+  if (!cmd) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(cmd);
+  }
+}
+
 function renderExecAgentCards() {
   const wrap = document.getElementById('exec-agent-cards');
   if (!wrap) return;
@@ -895,12 +905,31 @@ function renderExecAgentCards() {
       ? 'border border-blue-300 border-l-[3px] border-l-blue-600 bg-blue-50'
       : 'border border-gray-200 border-l-[3px] border-l-transparent bg-white';
     const disabledClass = detected ? '' : ' opacity-60';
-    const auth = agent.auth_status ? `<span class="text-[11px] text-gray-500">认证：${escapeHtml(agent.auth_status)}</span>` : '';
-    const model = agent.models_source ? `<span class="text-[11px] text-gray-500">模型列表：${escapeHtml(agent.models_source)}</span>` : '';
+    const AUTH_LABELS = { ok: '可用', missing: '未登录', unknown: '待测试' };
+    const authState = agent.auth_status || (detected ? 'unknown' : 'missing');
+    const authBadgeCls = authState === 'ok' ? 'bg-emerald-100 text-emerald-800'
+      : authState === 'missing' ? 'bg-amber-100 text-amber-800'
+      : 'bg-gray-200 text-gray-600';
+    const auth = detected
+      ? `<span class="text-[11px] px-1.5 py-0.5 rounded ${authBadgeCls}">${AUTH_LABELS[authState] || authState}</span>`
+      : `<span class="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">未安装</span>`;
+    const MODEL_SRC_LABELS = { live: '在线获取', fallback: '内置列表', none: '—' };
+    const model = (detected && agent.models_source)
+      ? `<span class="text-[11px] text-gray-500">模型：${escapeHtml(MODEL_SRC_LABELS[agent.models_source] || agent.models_source)}</span>`
+      : '';
     const statusLine = detected
       ? `<div class="text-xs text-green-700 mt-0.5">已检测到${agent.bin_path ? `：${escapeHtml(agent.bin_path)}` : ''}</div>`
       : `<div class="text-xs text-amber-800 mt-0.5">未检测到（不可选）</div>
          ${agent.detect_hint ? `<div class="text-[11px] text-gray-500 mt-1 leading-relaxed">${escapeHtml(agent.detect_hint)}</div>` : ''}`;
+    const installBlock = (!detected && agent.install_command)
+      ? `<div class="mt-1 text-[11px] text-gray-500 leading-relaxed">
+           <code class="bg-gray-100 px-1 rounded text-gray-700">${escapeHtml(agent.install_command)}</code>
+           <button type="button" onclick="event.stopPropagation(); copyExecInstallCmd('${escapeHtml(agent.id)}')" class="ml-2 underline text-blue-600">复制</button>
+           ${agent.install_docs_url ? `<a href="${escapeHtml(agent.install_docs_url)}" target="_blank" rel="noopener" class="ml-2 underline text-blue-600">官方文档</a>` : ''}
+           ${agent.install_note ? `<div class="text-gray-400 mt-0.5">${escapeHtml(agent.install_note)}</div>` : ''}
+           <div class="text-gray-400">装好后点「重新扫描」。</div>
+         </div>`
+      : '';
     const testMsg = _execAgentTestStatus[agent.id] || '';
     const testClass = /通过|ok|成功/i.test(testMsg)
       ? 'text-green-700'
@@ -916,6 +945,7 @@ function renderExecAgentCards() {
               <div class="text-sm font-medium text-gray-900">${escapeHtml(agent.label || EXEC_AGENT_LABELS[agent.id] || agent.id)}</div>
               ${statusLine}
               <div class="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">${auth}${model}</div>
+              ${installBlock}
             </div>
           </div>
           <button type="button" ${detected ? '' : 'disabled'}
