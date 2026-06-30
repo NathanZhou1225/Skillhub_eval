@@ -193,6 +193,45 @@ def test_scan_returns_authstate_models_install_hint():
     assert agents["claude"]["install_command"]
 
 
+def test_agent_smoke_uses_default_model_not_global_prefs(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Test must not pass exec_model from prefs (e.g. trae GLM-5.2) to other agents."""
+    seen: list[str | None] = []
+
+    def fake_resolve(agent_id: str, model: str | None = None):
+        seen.append(model)
+        return _FakeAdapter(agent_id=agent_id, detected=True, model=model)
+
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec.get_preferences",
+        lambda: {"exec_model": "GLM-5.2", "exec_agent": "trae"},
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec.resolve_adapter",
+        fake_resolve,
+    )
+
+    class _DoneProcess:
+        returncode = 0
+
+        def communicate(self, input=None, timeout=None):
+            return ('{"type":"result","duration_ms":1}\n', "")
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec._spawn_process",
+        lambda *a, **k: _DoneProcess(),
+    )
+
+    resp = client.post("/api/exec/agents/codex/test")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert seen == [None]
+
+
 def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     class _FakeProcess:
         def __init__(self, lines: list[str], returncode: int = 0):

@@ -161,11 +161,9 @@ def test_agent(agent_id: str) -> AgentTestResponse:
     if agent_id not in _supported_agent_ids():
         return AgentTestResponse(ok=False, message=f"Unsupported agent id: {agent_id}.")
 
-    prefs = get_preferences()
-    adapter = resolve_adapter(
-        agent_id,
-        model=str(prefs.get("exec_model") or DEFAULT_MODEL_ID),
-    )
+    # Smoke test checks the CLI itself, not the globally selected exec_model (which
+    # may belong to another agent, e.g. trae's GLM-5.2 passed to codex).
+    adapter = resolve_adapter(agent_id, model=None)
     if not adapter or not adapter.detect():
         return AgentTestResponse(ok=False, message=f"Agent '{agent_id}' not detected.")
 
