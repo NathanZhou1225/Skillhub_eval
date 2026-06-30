@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import subprocess
+import tempfile
 import time
 
 from fastapi import APIRouter
@@ -170,12 +171,14 @@ def test_agent(agent_id: str) -> AgentTestResponse:
 
     started = time.perf_counter()
     runner = LocalAgentRunner(spawn_fn=_spawn_process)
+    smoke_cwd = tempfile.mkdtemp(prefix="skillhub_agent_test_")
+    timeout_s = 90.0 if agent_id == "trae" else 60.0
     try:
         outcome = runner.run(
             adapter,
             "Reply OK",
-            cwd=".",
-            timeout_s=60.0,
+            cwd=smoke_cwd,
+            timeout_s=timeout_s,
         )
     except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
         return AgentTestResponse(

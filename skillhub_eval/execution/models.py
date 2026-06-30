@@ -41,20 +41,39 @@ def _run_probe(agent: AgentDef) -> str | None:
     return proc.stdout
 
 
-def _parse_model_lines(stdout: str) -> list[str]:
-    ids: list[str] = []
+def _parse_model_lines(stdout: str) -> list[tuple[str, str]]:
+    """Parse probe stdout into (model_id, label) pairs.
+
+    Supports plain one-id-per-line (trae) and ``id - Label`` rows (cursor-agent).
+    """
+    entries: list[tuple[str, str]] = []
     for raw in stdout.splitlines():
         line = raw.strip()
-        if line and not line.startswith(("=", "-", "#")):
-            ids.append(line)
-    return ids
+        if not line:
+            continue
+        lower = line.lower()
+        if lower == "available models" or lower.startswith("tip:"):
+            continue
+        if line.startswith(("=", "#")):
+            continue
+        if " - " in line:
+            model_id, _, label = line.partition(" - ")
+            model_id = model_id.strip()
+            label = label.strip()
+            if model_id and not model_id.startswith("-"):
+                entries.append((model_id, label or model_id))
+            continue
+        if line.startswith("-"):
+            continue
+        entries.append((line, line))
+    return entries
 
 
 def discover_models(agent: AgentDef, *, stored_model: str | None = None) -> ModelDiscovery:
-    live_ids = _parse_model_lines(_run_probe(agent) or "") if agent.model_probe else []
-    if live_ids:
+    parsed = _parse_model_lines(_run_probe(agent) or "") if agent.model_probe else []
+    if parsed:
         models = [{"id": DEFAULT_MODEL_ID, "label": "默认模型", "source": "live"}]
-        models += [{"id": mid, "label": mid, "source": "live"} for mid in live_ids]
+        models += [{"id": mid, "label": lbl, "source": "live"} for mid, lbl in parsed]
         source = "live"
     else:
         models = _fallback_models(agent)

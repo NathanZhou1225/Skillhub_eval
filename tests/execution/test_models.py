@@ -29,3 +29,21 @@ def test_stored_custom_model_preserved():
     disc = models.discover_models(get_agent_def("codex"), stored_model="my/gpt-x")
     custom = next(m for m in disc.models if m["id"] == "my/gpt-x")
     assert custom["source"] in ("custom", "stale")
+
+
+def test_cursor_list_models_format_parsed():
+    out = """Available models
+
+auto - Auto (current)
+gpt-5.2 - GPT-5.2
+composer-2.5-fast - Composer 2.5 Fast (default)
+
+Tip: use --model <id>
+"""
+    with patch.object(models, "_run_probe", return_value=out):
+        disc = models.discover_models(get_agent_def("cursor-agent"))
+    by_id = {m["id"]: m for m in disc.models}
+    assert disc.models_source == "live"
+    assert by_id["gpt-5.2"]["label"] == "GPT-5.2"
+    assert by_id["composer-2.5-fast"]["label"].startswith("Composer")
+    assert "Tip:" not in by_id

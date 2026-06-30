@@ -111,3 +111,6 @@ def test_defs_declare_framework_fields():
     assert "traecli" in trae.binary_aliases and "ta" in trae.binary_aliases
     assert trae.model_probe == ("models",)
     assert any("trae-cli" in g for g in trae.install_dir_globs)
+
+    cursor = get_agent_def("cursor-agent")
+    assert cursor.model_probe == ("--list-models",)

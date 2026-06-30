@@ -111,6 +111,7 @@ _CATALOG: tuple[AgentDef, ...] = (
         aliases=("cursor_agent",),
         config_dirs=(".cursor",),
         install_dir_globs=("cursor-agent/versions/*",),
+        model_probe=("--list-models",),
     ),
     AgentDef(
         agent_id="trae",
