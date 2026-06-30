@@ -41,6 +41,16 @@ class Settings(BaseSettings):
     local_agent_workflow_timeout_high_s: int = 5400
     divergence_synthesis_timeout_s: float = 120.0
 
+    # Adapter framework (W8.7)
+    model_discovery_timeout_s: float = Field(
+        default=6.0,
+        validation_alias=AliasChoices("MODEL_DISCOVERY_TIMEOUT_S", "SKILLHUB_MODEL_DISCOVERY_TIMEOUT_S"),
+    )
+    agent_detect_cache_ttl_s: int = Field(
+        default=86400,
+        validation_alias=AliasChoices("AGENT_DETECT_CACHE_TTL_S", "SKILLHUB_AGENT_DETECT_CACHE_TTL_S"),
+    )
+
     # Local agent execution bridge (W8) — default sample_io preserves pre-W8 behavior
     exec_source: str = Field(
         default="sample_io",
