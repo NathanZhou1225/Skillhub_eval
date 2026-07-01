@@ -204,7 +204,7 @@
 | **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
 | **W4.5 provider-env-factory** | **✅ 收官** — `JUDGE_PROVIDER_A/B_*` 双评审槽位、`OpenAICompatibleProvider`、API/CLI/脚本工厂、报告/UI 全链路 label（含 per-case 表头与不可用横幅）；UI build `w4.5-provider-labels` |
 | **Q-24 / Q-25 功能优化包** | **✅ 已合入 main（2026-06-30）** — Q-24 ①②④⑤ + 五 Agent registry/模型选择 + Q-25 Token 汇总均在 `main`；**W8.4 多 agent 对照统计仍未做** |
-| **W8.7 / Q-26 可扩展 adapter 框架** | **✅ 已合入 main + 归档（2026-06-30）** — 数据驱动检测/三态 auth + 通用 `model_probe` + trae stream-json 真跑 + `transport` 接缝 + scan/UI 三态徽章与安装指引；网页实机 codex/cursor-agent/trae **Test 通过**；smoke test 不再误用全局 `exec_model`。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
+| **W8.7 / Q-26 可扩展 adapter 框架** | **✅ 已合入 main + 归档（2026-06-30）+ hardening（2026-07-01）** — 数据驱动检测/三态 auth + 通用 `model_probe` + trae stream-json 真跑 + `transport` 接缝 + scan/UI 三态徽章与安装指引；网页实机 codex/cursor-agent/trae **Test 通过**；smoke test 不再误用全局 `exec_model`；补齐本地 agent 工作区 artifacts 收集、Cursor `models → --list-models` 模型探测 fallback 与非模型提示过滤。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
 
 ---
 
@@ -286,10 +286,10 @@
 | **Q-19** | **Level 2 隔离试跑未接入主引擎**：标准规定中/高风险 Pass 须试跑级，当前实际读 sample_io 样例文件 | P1 | **✅ W8 收官（2026-06-18）**：`execution_source: local` + 网页 consent 实机通过；默认仍为 sample_io |
 | **Q-20** | **中央 subprocess 沙盒跑不了内网 skill**（无 VPN/DB） | P1 | **W8 路线已定**：穿透本地 CLI agent；中央 judge 复用 |
 | **Q-21** | **被穿透的本地 agent 以 `bypassPermissions`/`--trust` 全自动跑任意 skill 代码**（含内网权限机器），本身是攻击面 | P1 | **W8.5 已落地**：执行前 consent gate + Security Gate + output sanitizer + `HardenedProfile`（codex 红线） |
-| **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration | P1 | **W8 已落地**：stream-json 流解析统一契约（grill G1）；见 design D3 |
+| **Q-22** | **回传契约怎么定**：actual_output 应含 agent 最终文本 **+** `tool_result`（skill 被调用时真实产出 + exit_code）/ usage/duration / cwd 产物 | P1 | **W8 已落地 + 2026-07-01 hardening**：stream-json 流解析统一契约（grill G1）；本地 agent 执行前后对工作区做快照，收集新增/修改的小文本 artifacts 并入 `actual_output.artifacts`；见 design D3 |
 | **Q-24** | **W8 本地 Agent 评估时延 + 执行 UX 优化** | P1 | **✅ 已合入 main（2026-06-30 核实）**：① 并行 case_exec ② UI Agent 预算 ④ 限流退并发 + risk 单题超时 ⑤ Provider 横幅按因分类；新增 agent registry + `claude/codex/cursor-agent/trae/antigravity` + agent/model 双选择；**W8.4 多 agent 对照统计未做** |
 | **Q-25** | **报告 Token 消耗汇总** | P1 | **✅ 已合入 main（2026-06-30 核实）**：`usage_summary` 进 `EvaluationReport` + UI 展示；provider `usage` 透传；local agent `ExecResult.usage` 并入；不做单价计费与 LUI 逐条记账 |
-| **Q-26** | **执行层照搬 open-design 的可扩展 adapter 框架** | P1 | **✅ 已合入 main + 归档（2026-06-30）**：grill 定稿 trae 改 stream-json（弃自制 ACP）；`detection`/`models`/`install_hints`/`transport` + scan/UI 三态；`RUN_LOCAL_AGENT=1` codex+trae+cursor E2E 通过；网页 Test 三 CLI 通过；`test` 固定默认模型。**未做**：W8.4 多 agent 对照、Antigravity 真跑、`exec-fixture-minimal` 网页纵切（选模型跑正式评）。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
+| **Q-26** | **执行层照搬 open-design 的可扩展 adapter 框架** | P1 | **✅ 已合入 main + 归档（2026-06-30）+ hardening（2026-07-01）**：grill 定稿 trae 改 stream-json（弃自制 ACP）；`detection`/`models`/`install_hints`/`transport` + scan/UI 三态；`RUN_LOCAL_AGENT=1` codex+trae+cursor E2E 通过；网页 Test 三 CLI 通过；`test` 固定默认模型；Cursor 模型探测改为 `models` 优先、`--list-models` 兜底并过滤登录/无模型提示；actual_output 补 workspace artifacts。**未做**：W8.4 多 agent 对照、Antigravity 真跑、`exec-fixture-minimal` 网页纵切（选模型跑正式评）。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
 
 ## 已做决策
 
@@ -418,6 +418,7 @@
 | **W5.5 归档删除 UX** | 客户端 `archiveBlockReason` 先于 confirm；侧栏琥珀 × +「需专家删除」；403/404 中文 toast；`list_conversations` 附带 `active_run_status` | 仅依赖 API 403 事后报错；404 裸显 `Not Found` |
 | **执行层路线重定向（2026-06-17）** | 调研 `nexu-io/open-design`（local-first，穿透本地 CLI agent）；确定 **W8 重定义 = 本地 Agent 执行桥**；废弃中央 Level 2 沙盒 + W9 自建 Harness；W10 移阶段四 | 继续中央 subprocess 沙盒（内网 skill 结构性不可行）；自建中央 Harness（与开发者已有 CLI agent 重复） |
 | **W8 回传契约：流解析非 MCP**（grill G1） | cursor/codex 无 MCP 注入；统一解析 stream-json 取最终文本 + tool_result + cwd 产物 | MCP `submit_case_output`（仅 claude 可用，不通用） |
+| **W8 artifacts 采集边界（2026-07-01）** | 本地 agent 跑题前后对 per-case workspace 做文件指纹快照，仅收集新增/修改的小文本文件并入 `actual_output.artifacts`；structured JSON 与 artifacts 可共存 | 只看最终文本（会丢文件型产物）；整包全量入评审（噪声大且可能泄漏无关文件） |
 | **W8 judge 双 prompt**（grill G2） | 真跑 → 执行结果 rubric；sample_io 回退 → 现有 doc-centric prompt | prompt 不动直接填 actual_output（红线口径自相矛盾） |
 | **W8 level_2 = 本地真跑 + entrypoint 证据** | 废弃 `has_scripts AND self.sandbox`；PASS 本地真跑标 `spot_check_eligible` | 仅信文本输出（agent 可绕 pipeline 手写） |
 | **W8 v1 三 agent 顺序 claude→codex→cursor-agent** | DX 最低门槛；顺序按流解析器复杂度/红线能力 | v1 只打通 1 个；全量 agent（YAGNI） |
@@ -634,6 +635,7 @@
 | 2026-06-30 | **W8.7/Q-26 adapter 框架实施（feat 分支）**：grill 定稿后 subagent-driven 逐 task TDD 落地——settings 超时 + `AgentDef` 数据字段 + 修 trae 登记；新增 `install_hints`/`detection`(三态+TTL)/`models`(通用 probe)/`transport` 接缝；trae 改 stream-json；`scan` 返三态+模型+安装指引；UI 三态徽章+安装卡 `[ui-only]`；opt-in 真机 E2E（默认 skip）。离线回归绿——5 项 pre-existing 失败已于 base commit `3095c78` 同样存在（codex/cursor adapter 全路径、stub 缺 `parse_stream`、readiness UI token 漂移），与本框架无关。**待真机补验** codex+trae + cursor 重装；未合并 main |
 | 2026-06-30 | **W8.7/Q-26 合入 main + 实机收口**：`feat/local-agent-adapter-framework` fast-forward 至 `main`（`d8c83b8`）；cursor `--list-models` live 列表；trae positional prompt + stream-json；smoke test 忽略全局 `exec_model`；网页 codex/cursor-agent/trae Test 通过；`RUN_LOCAL_AGENT=1` E2E 三 agent 通过 |
 | 2026-06-30 | **OpenSpec 归档**：`local-agent-adapter-framework` → `archive/2026-06-30-local-agent-adapter-framework/`；delta spec 同步至 `openspec/specs/skill-execution/spec.md` |
+| 2026-07-01 | **W8.7 adapter hardening**：对照 `nexu-io/open-design` 后补齐两处高收益优化——本地 agent per-case workspace 执行前后快照，新增/修改小文本产物写入 `actual_output.artifacts`；Cursor 模型发现改为 `models` 优先、`--list-models` fallback，并过滤登录/无模型提示。验证：adapter/执行桥 focused 回归 **52 passed**；完整测试集当前 **693 passed / 6 skipped / 9 failed**，失败为既有 UI contract token 与 DB `user_version` 10→11 断言，不属于本次 adapter 改动。 |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 

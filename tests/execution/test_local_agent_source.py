@@ -81,6 +81,55 @@ def test_local_agent_source_returns_level2_with_evidence(tmp_path):
     assert result.model_label == "claude-sonnet-4-6"
 
 
+def test_local_agent_source_collects_workspace_artifacts(tmp_path):
+    lines = [
+        json.dumps({"type": "text", "delta": "wrote report"}),
+        json.dumps({"type": "result"}),
+    ]
+
+    class _Runner:
+        def is_run_complete(self, outcome):
+            return True
+
+        def run(self, adapter, prompt, *, cwd, timeout_s=300.0, hardened=False):
+            report = tmp_path / "run" / "report.json"
+            report.parent.mkdir(exist_ok=True)
+            report.write_bytes(b'{"answer": 42}\n')
+            return RunOutcome(parsed_stream=ParsedStream(final_text="wrote report", is_complete=True))
+
+    class _Workspace:
+        def acquire(self, bundle_path, case_id):
+            run_dir = tmp_path / "run"
+            run_dir.mkdir(exist_ok=True)
+            return run_dir
+
+        def release(self, run_dir):
+            pass
+
+    src = LocalAgentSource(
+        runner=_Runner(),
+        workspace=_Workspace(),
+        adapter=_StubAdapter(),
+    )
+
+    result = src.get_actual_output(
+        str(tmp_path),
+        "h01",
+        case={"id": "h01", "type": "happy_path"},
+        bundle={"skill_id": "s", "has_scripts": False},
+    )
+
+    assert result.status == "ok"
+    artifacts = result.actual_output["artifacts"]
+    assert artifacts == [
+        {
+            "path": "report.json",
+            "size_bytes": 15,
+            "content": '{"answer": 42}\n',
+        }
+    ]
+
+
 def test_local_agent_source_incomplete_without_entrypoint_evidence(tmp_path):
     lines = [
         json.dumps({"type": "tool_result", "stdout": "other.py", "exit_code": 0}),

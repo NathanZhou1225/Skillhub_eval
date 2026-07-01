@@ -24,6 +24,15 @@ def test_collect_actual_output_empty_parsed():
     assert collect_actual_output(ParsedStream()) == {}
 
 
+def test_collect_actual_output_keeps_artifacts_with_structured_json():
+    from skillhub_eval.core.schemas.report import ParsedStream
+
+    parsed = ParsedStream(final_text='```json\n{"ok": true}\n```')
+    out = collect_actual_output(parsed, cwd_artifacts=[{"path": "report.json"}])
+
+    assert out == {"ok": True, "artifacts": [{"path": "report.json"}]}
+
+
 def test_parse_stream_ignores_malformed_lines():
     lines = ["not-json", json.dumps({"type": "result"})]
     parsed = parse_stream_events(lines)

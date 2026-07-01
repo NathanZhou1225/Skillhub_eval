@@ -113,4 +113,5 @@ def test_defs_declare_framework_fields():
     assert any("trae-cli" in g for g in trae.install_dir_globs)
 
     cursor = get_agent_def("cursor-agent")
-    assert cursor.model_probe == ("--list-models",)
+    assert cursor.model_probe == ("models",)
+    assert ("--list-models",) in cursor.fallback_model_probes

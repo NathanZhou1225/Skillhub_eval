@@ -39,6 +39,7 @@ class AgentDef:
     install_dir_globs: tuple[str, ...] = ()             # relative to LOCALAPPDATA/APPDATA/HOME, glob ok
     version_args: tuple[str, ...] = ("--version",)
     model_probe: tuple[str, ...] | None = None          # argv to list models, e.g. ("models",)
+    fallback_model_probes: tuple[tuple[str, ...], ...] = ()
     prompt_via_stdin: bool = True
 
     @property
@@ -111,7 +112,8 @@ _CATALOG: tuple[AgentDef, ...] = (
         aliases=("cursor_agent",),
         config_dirs=(".cursor",),
         install_dir_globs=("cursor-agent/versions/*",),
-        model_probe=("--list-models",),
+        model_probe=("models",),
+        fallback_model_probes=(("--list-models",),),
     ),
     AgentDef(
         agent_id="trae",

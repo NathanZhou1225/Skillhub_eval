@@ -19,7 +19,11 @@ from skillhub_eval.execution.profile import HardenedProfile, is_redline_case
 from skillhub_eval.execution.runner import AgentAdapter, LocalAgentRunner
 from skillhub_eval.execution.stream_parser import collect_actual_output
 from skillhub_eval.execution.transport.base import run_via_transport
-from skillhub_eval.execution.workspace import PerRunWorkspace
+from skillhub_eval.execution.workspace import (
+    PerRunWorkspace,
+    collect_workspace_artifacts,
+    snapshot_workspace,
+)
 from skillhub_eval.settings import settings
 
 _RATE_LIMIT_MARKERS = ("rate limit", "429", "too many requests")
@@ -117,10 +121,11 @@ class LocalAgentSource:
     ) -> RunOutcome:
         run_dir = self._workspace.acquire(bundle_path, case_id)
         try:
+            before = snapshot_workspace(run_dir)
             prompt = build_harness_prompt(case, bundle)
             hardened = HardenedProfile.use_hardened(adapter, case)
             agent = get_agent_def(getattr(adapter, "agent_id", ""))
-            return run_via_transport(
+            outcome = run_via_transport(
                 adapter,
                 agent,
                 prompt,
@@ -128,6 +133,9 @@ class LocalAgentSource:
                 timeout_s=self._case_timeout_s(case, bundle),
                 hardened=hardened,
                 runner=self._runner,
+            )
+            return outcome.model_copy(
+                update={"workspace_artifacts": collect_workspace_artifacts(run_dir, before)}
             )
         finally:
             self._workspace.release(run_dir)
@@ -145,7 +153,7 @@ class LocalAgentSource:
 
         parsed = outcome.parsed_stream
         assert parsed is not None
-        actual = collect_actual_output(parsed)
+        actual = collect_actual_output(parsed, cwd_artifacts=outcome.workspace_artifacts)
 
         if bundle.get("has_scripts") and bundle.get("entrypoint"):
             if not verify_entrypoint_evidence(parsed.tool_results, bundle["entrypoint"]):

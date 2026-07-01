@@ -4,7 +4,7 @@
 
 本地 Skill 执行与回传契约：引擎在 `case_executing` 阶段通过可插拔 `ExecutionSource` 获取 `actual_output`，支持 `sample_io` 与本地 CLI agent 真跑。
 
-完整 W8 执行桥要求见归档 change `openspec/changes/archive/2026-06-18-local-agent-exec-bridge/specs/skill-execution/spec.md`。本节为 W8.7 可扩展 adapter 框架的 normative 增量（2026-06-30 合入 `main`）。
+完整 W8 执行桥要求见归档 change `openspec/changes/archive/2026-06-18-local-agent-exec-bridge/specs/skill-execution/spec.md`。本节为 W8.7 可扩展 adapter 框架的 normative 增量（2026-06-30 合入 `main`；2026-07-01 补 artifacts 与 Cursor probe hardening）。
 
 ## Requirements
 
@@ -58,7 +58,7 @@
 
 ### Requirement: 通用 model_probe 混合发现
 
-系统 SHALL 以「通用列模型命令（`model_probe`）+ 内置 fallback + 手动输入」混合提供可选模型，并返回 `models_source ∈ {live, fallback, none}`。声明了 `model_probe` 的 agent SHALL 在超时内运行该命令并解析其输出为模型清单（live）；失败或未声明则用 `fallback_models`。已存储但不在当前清单内的模型 SHALL 被保留并标记 custom/stale，不得静默替换。
+系统 SHALL 以「通用列模型命令（`model_probe`）+ 可选 `fallback_model_probes` + 内置 fallback + 手动输入」混合提供可选模型，并返回 `models_source ∈ {live, fallback, none}`。声明了 `model_probe` 的 agent SHALL 在超时内运行该命令并解析其输出为模型清单（live）；若主探测无有效模型，系统 SHALL 依次尝试 `fallback_model_probes`；全部失败或未声明则用 `fallback_models`。已存储但不在当前清单内的模型 SHALL 被保留并标记 custom/stale，不得静默替换。模型解析 SHALL 过滤登录提示、无模型提示、Tip 等非模型状态文本。
 
 #### Scenario: 探测成功用 live
 
@@ -71,6 +71,12 @@
 - **Given** `model_probe` 未声明、超时或非零退出
 - **When** `discover_models` 执行
 - **Then** 返回登记表 `fallback_models` 且 `models_source=fallback`
+
+#### Scenario: Cursor 模型探测兼容不同 CLI 版本
+
+- **Given** cursor-agent 登记 `model_probe=("models",)` 且 `fallback_model_probes` 包含 `("--list-models",)`
+- **When** `models` 无有效模型但 `--list-models` 返回模型清单
+- **Then** `discover_models` 返回 fallback probe 的 live 清单，且不会把登录提示或 "No models available" 当作模型
 
 #### Scenario: 保留自定义模型
 
@@ -94,6 +100,8 @@
 
 正式评估 SHALL 使用全局偏好中的 `exec_agent` 与 `exec_model`（经 `resolve_adapter` 传入各 adapter 的 `--model` 等参数）；agent 连通性 smoke test SHALL 固定使用默认模型，不得误用其他 agent 的 `exec_model`。
 
+本地 agent 执行 SHALL 在每个 case 的隔离 workspace 执行前后做文件指纹快照；新增或修改的小文本文件 SHALL 作为 `actual_output.artifacts[]` 回传（至少包含 `path`、`size_bytes`、`content`）。系统 SHALL 跳过未变化的原始 bundle 文件、常见二进制/缓存文件与过大的文件。若 agent 最终文本包含 structured JSON，artifacts SHALL 与该 JSON 共存而非被丢弃。
+
 #### Scenario: stream-json agent 行为不回归
 
 - **Given** 选用 claude / codex / cursor-agent 执行某 case
@@ -112,6 +120,12 @@
 - **And** 已授予本地执行同意且 bundle `execution_source=local`
 - **When** 引擎进入 `case_executing`
 - **Then** `LocalAgentSource` 以 `resolve_adapter("trae", model="GLM-5.2")` 启动 agent，并将 `--model GLM-5.2` 传入 CLI
+
+#### Scenario: 工作区产物进入 actual_output
+
+- **Given** 本地 agent 执行某 case 后在 per-case workspace 新增 `report.json`
+- **When** `LocalAgentSource` 合成 `ExecResult`
+- **Then** `actual_output.artifacts` 包含该文件的相对路径、大小与文本内容
 
 #### Scenario: ACP 为未实现扩展点
 

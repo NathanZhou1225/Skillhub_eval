@@ -47,3 +47,33 @@ Tip: use --model <id>
     assert by_id["gpt-5.2"]["label"] == "GPT-5.2"
     assert by_id["composer-2.5-fast"]["label"].startswith("Composer")
     assert "Tip:" not in by_id
+
+
+def test_cursor_models_probe_falls_back_to_list_models():
+    calls = []
+
+    def fake_probe(agent, probe=None):
+        calls.append(probe)
+        if probe == ("models",):
+            return None
+        if probe == ("--list-models",):
+            return "gpt-5.2 - GPT-5.2\n"
+        raise AssertionError(f"unexpected probe: {probe}")
+
+    with patch.object(models, "_run_probe", side_effect=fake_probe):
+        disc = models.discover_models(get_agent_def("cursor-agent"))
+
+    assert calls == [("models",), ("--list-models",)]
+    assert disc.models_source == "live"
+    assert any(m["id"] == "gpt-5.2" for m in disc.models)
+
+
+def test_cursor_model_parser_filters_non_model_status_text():
+    out = """No models available. Please sign in to Cursor.
+Tip: run cursor-agent login
+"""
+    with patch.object(models, "_run_probe", return_value=out):
+        disc = models.discover_models(get_agent_def("cursor-agent"))
+
+    assert disc.models_source == "fallback"
+    assert [m["id"] for m in disc.models] == ["default", "gpt-5"]

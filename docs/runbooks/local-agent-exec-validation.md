@@ -59,6 +59,7 @@ Fixture: `testskills/exec-fixture-minimal/` (`execution_source: local`, `entrypo
 3. If global prefs are `sample_io` but bundle requires local → **conflict Modal** (G5); choose local or sample before proceeding.
 4. During eval, stage banner (C09) shows **「本地 Agent 真跑中」** (not「校验样例输出」).
 5. On completion, check report **ExecOutcomeStrip** (C10): `LOCAL` badge, `execution_source_used=local_agent`, `spot_check_eligible=1` when PASS.
+6. If the agent creates or modifies small text files in the per-case workspace, the report payload includes them under `actual_output.artifacts` (`path`, `size_bytes`, `content`). This is intended for JSON/Markdown/log/report outputs produced by the skill run; binary files and unchanged bundle files are skipped.
 
 See [Spot-check queue filter](#spot-check-queue-filter) for history API verification.
 
@@ -73,6 +74,8 @@ See [Spot-check queue filter](#spot-check-queue-filter) for history API verifica
 | POST | `/api/exec/agents/{id}/test` | Smoke via `LocalAgentRunner` (default model per agent; not global `exec_model`) |
 
 OpenAPI: <http://127.0.0.1:8000/docs> (tag `exec`).
+
+Model discovery note: Cursor is probed with `models` first and `--list-models` as fallback; login or "no models" status text is ignored and falls back to built-in model options.
 
 ## Automated E2E (CLI / pytest, skipped by default)
 

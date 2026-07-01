@@ -83,6 +83,8 @@ def collect_actual_output(
     """Synthesize actual_output dict from stream + optional cwd artifacts."""
     structured = extract_fenced_json(parsed.final_text)
     if structured is not None:
+        if cwd_artifacts:
+            return {**structured, "artifacts": cwd_artifacts}
         return structured
 
     payload: dict[str, Any] = {}

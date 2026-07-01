@@ -21,6 +21,7 @@ class RunOutcome(BaseModel):
     transcript_ref: str | None = None
     duration_ms: int | None = None
     stderr_text: str | None = None
+    workspace_artifacts: list[dict] = Field(default_factory=list)
 
 
 class ExecResult(BaseModel):
