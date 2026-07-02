@@ -16,7 +16,7 @@ from skillhub_eval.execution.agent_registry import (
     resolve_adapter,
 )
 from skillhub_eval.execution.detection import detect_agent
-from skillhub_eval.execution.models import discover_models
+from skillhub_eval.execution.models import discover_models, is_model_verified_live
 from skillhub_eval.execution.install_hints import get_install_hint
 from skillhub_eval.execution.runner import LocalAgentRunner
 from skillhub_eval.execution.preferences import (
@@ -45,9 +45,15 @@ class AgentScanItem(BaseModel):
     models: list[AgentModelItem] = []
     models_source: str = "none"
     selected_model: str | None = None
+    selected_model_status: str | None = None
+    selected_model_message: str | None = None
     install_command: str | None = None
     install_docs_url: str | None = None
     install_note: str | None = None
+    diagnosis_ok: bool | None = None
+    diagnosis_reason_code: str | None = None
+    diagnosis_message: str | None = None
+    diagnosis_hint: str | None = None
 
 
 class AgentScanResponse(BaseModel):
@@ -93,6 +99,7 @@ def scan_agents() -> AgentScanResponse:
     agents: list[AgentScanItem] = []
     prefs = get_preferences()
     selected_model = str(prefs.get("exec_model") or DEFAULT_MODEL_ID)
+    active_agent_id = str(prefs.get("exec_agent") or "")
     for agent in get_agent_catalog():
         # Explicit user-initiated scan: bypass the TTL cache so a freshly
         # installed / authenticated CLI is picked up immediately.
@@ -100,6 +107,12 @@ def scan_agents() -> AgentScanResponse:
         models: list[AgentModelItem] = []
         models_source = "none"
         install_command = install_docs_url = install_note = None
+        diagnosis_ok: bool | None = None
+        diagnosis_reason_code: str | None = None
+        diagnosis_message: str | None = None
+        diagnosis_hint: str | None = None
+        selected_model_status: str | None = None
+        selected_model_message: str | None = None
         if det.detected:
             disc = discover_models(agent, stored_model=selected_model)
             models = [
@@ -107,6 +120,36 @@ def scan_agents() -> AgentScanResponse:
                 for m in disc.models
             ]
             models_source = disc.models_source
+            adapter = resolve_adapter(agent.id, model=None)
+            diagnose_fn = getattr(adapter, "diagnose", None)
+            if callable(diagnose_fn):
+                try:
+                    diagnosis = diagnose_fn()
+                except Exception:
+                    diagnosis = None
+                if diagnosis is not None:
+                    diagnosis_ok = diagnosis.ok
+                    diagnosis_reason_code = diagnosis.reason_code
+                    diagnosis_message = diagnosis.message_zh
+                    diagnosis_hint = diagnosis.manual_hint
+
+            if agent.id == active_agent_id:
+                if selected_model == DEFAULT_MODEL_ID:
+                    selected_model_status = "default"
+                    selected_model_message = "使用该 CLI 的默认模型（未在 SkillHub 中显式选择具体模型）。"
+                else:
+                    verified, probe_source = is_model_verified_live(agent, selected_model)
+                    if probe_source != "live":
+                        selected_model_status = "probe_unavailable"
+                        selected_model_message = "暂时无法在线探测该 Agent 的模型列表，无法确认已选模型是否有效。"
+                    elif verified:
+                        selected_model_status = "ok"
+                        selected_model_message = "已选模型已通过在线探测确认存在。"
+                    else:
+                        selected_model_status = "stale"
+                        selected_model_message = (
+                            f"已选模型 {selected_model} 未出现在最近一次在线探测结果中，可能已失效或输入有误。"
+                        )
         else:
             hint = get_install_hint(agent.id)
             if hint:
@@ -124,9 +167,15 @@ def scan_agents() -> AgentScanResponse:
                 models=models,
                 models_source=models_source,
                 selected_model=selected_model,
+                selected_model_status=selected_model_status,
+                selected_model_message=selected_model_message,
                 install_command=install_command,
                 install_docs_url=install_docs_url,
                 install_note=install_note,
+                diagnosis_ok=diagnosis_ok,
+                diagnosis_reason_code=diagnosis_reason_code,
+                diagnosis_message=diagnosis_message,
+                diagnosis_hint=diagnosis_hint,
             )
         )
     return AgentScanResponse(scanned_at=datetime.now(UTC).isoformat(), agents=agents)

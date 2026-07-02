@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import Mock
+
 import pytest
 from fastapi.testclient import TestClient
 
 from skillhub_eval.adapters.api.app import create_app
+from skillhub_eval.execution.diagnostics import DiagnosisResult
 
 
 class _FakeAdapter:
@@ -191,6 +194,61 @@ def test_scan_returns_authstate_models_install_hint():
     assert agents["codex"]["models"]
     assert agents["claude"]["detected"] is False
     assert agents["claude"]["install_command"]
+
+
+def test_scan_surfaces_agent_diagnosis(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    class _DiagnosingAdapter(_FakeAdapter):
+        def diagnose(self):
+            return DiagnosisResult(
+                ok=False,
+                reason_code="TRAE_MODEL_NOT_CONFIGURED",
+                message_zh="Trae 模型未配置",
+                manual_hint="补齐 models provider",
+            )
+
+    def fake_resolve(agent_id: str, model: str | None = None):
+        if agent_id == "trae":
+            return _DiagnosingAdapter(agent_id=agent_id, detected=True, model=model)
+        return _FakeAdapter(agent_id=agent_id, detected=True, model=model)
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.resolve_adapter", fake_resolve)
+
+    resp = client.get("/api/exec/agents/scan")
+    assert resp.status_code == 200
+    trae = next(a for a in resp.json()["agents"] if a["id"] == "trae")
+    assert trae["diagnosis_ok"] is False
+    assert trae["diagnosis_reason_code"] == "TRAE_MODEL_NOT_CONFIGURED"
+    assert trae["diagnosis_message"] == "Trae 模型未配置"
+    assert trae["diagnosis_hint"] == "补齐 models provider"
+
+
+def test_scan_selected_model_default_does_not_probe(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    mock_verify = Mock(return_value=(True, "live"))
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.is_model_verified_live", mock_verify, raising=False)
+
+    resp = client.get("/api/exec/agents/scan")
+    assert resp.status_code == 200
+    agents = {a["id"]: a for a in resp.json()["agents"]}
+    assert agents["claude"]["selected_model_status"] == "default"
+    assert "默认模型" in agents["claude"]["selected_model_message"]
+    assert agents["trae"]["selected_model_status"] is None
+    mock_verify.assert_not_called()
+
+
+def test_scan_selected_model_stale_uses_live_verifier(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    client.put(
+        "/api/exec/preferences",
+        json={"exec_source": "local", "exec_agent": "trae", "exec_model": "GLM-5.2"},
+    )
+    mock_verify = Mock(return_value=(False, "live"))
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.is_model_verified_live", mock_verify, raising=False)
+
+    resp = client.get("/api/exec/agents/scan")
+    assert resp.status_code == 200
+    agents = {a["id"]: a for a in resp.json()["agents"]}
+    assert agents["trae"]["selected_model_status"] == "stale"
+    assert "GLM-5.2" in agents["trae"]["selected_model_message"]
+    mock_verify.assert_called_once()
 
 
 def test_agent_smoke_uses_default_model_not_global_prefs(
