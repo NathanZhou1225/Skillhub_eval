@@ -74,6 +74,15 @@ def test_config_dir_path_returns_first_declared_when_missing(tmp_path, monkeypat
     assert not path.exists()
 
 
+def test_config_dir_path_ignores_file_at_config_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    (tmp_path / ".trae").write_text("not a directory", encoding="utf-8")
+    path = detection.config_dir_path(get_agent_def("trae"))
+    assert path == tmp_path / ".trae"
+    assert path.is_dir() is False
+    assert detection._config_dir_present(get_agent_def("trae")) is False
+
+
 def test_config_dir_path_none_when_agent_declares_no_dirs(tmp_path, monkeypatch):
     from skillhub_eval.execution.agent_registry import AgentDef
 

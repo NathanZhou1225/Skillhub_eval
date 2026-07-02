@@ -47,7 +47,7 @@ def _install_roots() -> list[Path]:
 
 def _config_dir_present(agent: AgentDef) -> bool:
     home = home_dir()
-    return any((home / rel).exists() for rel in agent.config_dirs)
+    return any((home / rel).is_dir() for rel in agent.config_dirs)
 
 
 def config_dir_path(agent: AgentDef) -> Path | None:
@@ -57,7 +57,7 @@ def config_dir_path(agent: AgentDef) -> Path | None:
     home = home_dir()
     for rel in agent.config_dirs:
         candidate = home / rel
-        if candidate.exists():
+        if candidate.is_dir():
             return candidate
     return home / agent.config_dirs[0]
 
