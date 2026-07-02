@@ -31,7 +31,7 @@ def clear_detection_cache() -> None:
     _cache.clear()
 
 
-def _home() -> Path:
+def home_dir() -> Path:
     return Path(os.environ.get("USERPROFILE") or os.environ.get("HOME") or str(Path.home()))
 
 
@@ -41,13 +41,25 @@ def _install_roots() -> list[Path]:
         val = os.environ.get(key)
         if val:
             roots.append(Path(val))
-    roots.append(_home())
+    roots.append(home_dir())
     return roots
 
 
 def _config_dir_present(agent: AgentDef) -> bool:
-    home = _home()
+    home = home_dir()
     return any((home / rel).exists() for rel in agent.config_dirs)
+
+
+def config_dir_path(agent: AgentDef) -> Path | None:
+    """Return the agent's config dir under HOME: first existing, else first declared."""
+    if not agent.config_dirs:
+        return None
+    home = home_dir()
+    for rel in agent.config_dirs:
+        candidate = home / rel
+        if candidate.exists():
+            return candidate
+    return home / agent.config_dirs[0]
 
 
 def resolve_agent_binary(agent: AgentDef) -> str | None:

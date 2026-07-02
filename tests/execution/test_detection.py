@@ -58,3 +58,25 @@ def test_cache_avoids_second_probe():
         detection.detect_agent(get_agent_def("codex"))
         detection.detect_agent(get_agent_def("codex"))
     assert calls["n"] == 1
+
+
+def test_config_dir_path_returns_existing_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    (tmp_path / ".trae").mkdir()
+    path = detection.config_dir_path(get_agent_def("trae"))
+    assert path == tmp_path / ".trae"
+
+
+def test_config_dir_path_returns_first_declared_when_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    path = detection.config_dir_path(get_agent_def("trae"))
+    assert path == tmp_path / ".trae"
+    assert not path.exists()
+
+
+def test_config_dir_path_none_when_agent_declares_no_dirs(tmp_path, monkeypatch):
+    from skillhub_eval.execution.agent_registry import AgentDef
+
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    bare = AgentDef(agent_id="x", label="X", adapter_factory=None, fallback_models=(), config_dirs=())
+    assert detection.config_dir_path(bare) is None
