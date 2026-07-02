@@ -73,6 +73,30 @@ def test_archive_blocked_while_run_in_progress(client_with_repo):
     assert repo.get_conversation(conv_id)["status"] != "archived"
 
 
+def test_archive_allowed_when_run_stale_in_running_status(client_with_repo):
+    client, repo = client_with_repo
+    conv_id = _new_conv(repo)
+    run_id = repo.create_run(
+        skill_id="demo.skill",
+        skill_bundle_path="/tmp/bundle",
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+        conversation_id=conv_id,
+    )
+    repo.update_status(run_id, "case_executing")
+    with repo._conn() as conn:
+        conn.execute(
+            "UPDATE evaluation_runs SET started_at = ? WHERE run_id = ?",
+            ("2020-01-01T00:00:00+00:00", run_id),
+        )
+        conn.commit()
+
+    resp = client.delete(f"/conversations/{conv_id}")
+    assert resp.status_code == 204
+    assert repo.get_conversation(conv_id)["status"] == "archived"
+    assert repo.get_run(run_id)["status"] == "failed"
+
+
 def test_archive_frozen_blocked_for_author_allowed_for_expert(client_with_repo):
     client, repo = client_with_repo
     conv_id = _new_conv(repo)

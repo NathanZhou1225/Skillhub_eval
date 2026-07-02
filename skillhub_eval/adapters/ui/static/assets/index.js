@@ -330,7 +330,8 @@ const KEEP_PENDING_PHASES = new Set([
 
 function syncPendingFromRunStatus(statusObj) {
   const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], '');
-  if (RUNNING_STATUSES.has(String(runStatus))) {
+  const runStartedAt = getStatusValue(statusObj, ['run_started_at', 'active_run_started_at'], '');
+  if (isRunActivelyExecuting(runStatus, runStartedAt)) {
     _optimisticPending = true;
     const stages = getStatusValue(statusObj, ['stage_progress'], []);
     const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
@@ -447,12 +448,23 @@ const RUNNING_STATUSES = new Set([
   'case_executing', 'code_asserting', 'model_judging', 'aggregating'
 ]);
 
+// Keep in sync with skillhub_eval/core/latency.py run_lock_timeout_seconds()
+const RUN_LOCK_TIMEOUT_S = 5400 + 900;
+
+function isRunActivelyExecuting(runStatus, startedAtIso) {
+  if (!RUNNING_STATUSES.has(String(runStatus))) return false;
+  if (!startedAtIso) return true;
+  const startedMs = Date.parse(startedAtIso);
+  if (Number.isNaN(startedMs)) return true;
+  return (Date.now() - startedMs) / 1000 < RUN_LOCK_TIMEOUT_S;
+}
+
 let _sessionListCache = [];
 
 function archiveBlockReason(conv, perspective) {
   if (!conv) return null;
   const runStatus = conv.active_run_status || '';
-  if (RUNNING_STATUSES.has(String(runStatus))) {
+  if (isRunActivelyExecuting(runStatus, conv.active_run_started_at)) {
     return '评估进行中，请稍后再删除';
   }
   if (perspective === 'expert') return null;
@@ -1208,7 +1220,9 @@ function getStatusValue(status, keys, fallback = null) {
 
 function isRunCompleted(statusObj) {
   const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], null);
-  return !runStatus || !RUNNING_STATUSES.has(String(runStatus));
+  const runStartedAt = getStatusValue(statusObj, ['run_started_at', 'active_run_started_at'], '');
+  if (!runStatus) return true;
+  return !isRunActivelyExecuting(runStatus, runStartedAt);
 }
 
 async function fetchConversationStatus() {
@@ -1595,7 +1609,10 @@ function renderAssessmentGateHtml(payload, opts = {}) {
   const gateLabel = gatePassed ? '通过' : (caseGate.passed === false ? '未通过' : '—');
   const optionalOnly = payload.can_enter_formal && (payload.optional_gaps || []).length > 0;
   const showChoices = !embedded && optionalOnly
-    && !RUNNING_STATUSES.has(String(getStatusValue(_latestConversationStatus || {}, ['run_status', 'status'], '')));
+    && !isRunActivelyExecuting(
+      getStatusValue(_latestConversationStatus || {}, ['run_status', 'status'], ''),
+      getStatusValue(_latestConversationStatus || {}, ['run_started_at', 'active_run_started_at'], ''),
+    );
   const optionalBlock = optional.length
     ? `<details class="mt-1"><summary class="cursor-pointer text-slate-600 font-medium text-xs">可选改进（${optional.length} 项，不阻断正式评估）</summary>
         <ul class="list-disc list-inside text-gray-600 mt-1 space-y-0.5 pl-1 text-xs">
@@ -2021,6 +2038,7 @@ function updateComposerState() {
 function updateChatStatusBanner(statusObj) {
   const banner = document.getElementById('chat-status-banner');
   const runStatus = getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], '');
+  const runStartedAt = getStatusValue(statusObj, ['run_started_at', 'active_run_started_at'], '');
   const frozen = getStatusValue(statusObj, ['conversation_status', 'status'], '') === 'frozen' || !!statusObj?.frozen;
   const humanPending = runStatus === 'awaiting_human_review';
   const autoRuns = getStatusValue(statusObj, ['auto_run_count'], 0);
@@ -2032,7 +2050,7 @@ function updateChatStatusBanner(statusObj) {
     banner.textContent = humanPending && getPerspective() === 'author'
       ? '需人工复核 — 作者视角只读。请切换到【专家】视角进行裁定。'
       : '会话已冻结，暂不可修改。';
-  } else if (RUNNING_STATUSES.has(String(runStatus))) {
+  } else if (isRunActivelyExecuting(runStatus, runStartedAt)) {
     banner.className = 'px-4 py-2 text-xs bg-blue-50 text-blue-700 border-b border-blue-100';
     const stages = getStatusValue(statusObj, ['stage_progress'], []);
     const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : runStatus;

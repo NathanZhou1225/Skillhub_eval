@@ -95,6 +95,8 @@ This follow-up makes local CLI model readiness visible before a formal run:
 
 Reference-machine example: `C:\Users\19430\.trae\trae_cli.yaml` selected `GLM-5.2` but had no `models:` provider block, so `trae-cli` could not know which provider/endpoint/key should serve that model. ACL inspection also showed `CodexSandboxUsers` had read/execute but not write access to `.trae`, while the interactive user had full control. Those are local Trae environment issues; SkillHub now surfaces them instead of masking them.
 
+**Update (2026-07-02, real-machine verification):** the `models:`-missing example above turned out to be a false alarm on this machine — GLM-5.2 is a **built-in** Trae model that authenticates via account login and needs no local `models:` provider block at all (`trae-cli models` lists it, and a real run completes successfully, with no `models:` key present in `trae_cli.yaml`). `TraeAdapter.diagnose()` previously checked the static `models:` field before ever consulting the live probe, so it reported `TRAE_MODEL_NOT_CONFIGURED` even when the model demonstrably worked. This has been fixed: `diagnose()` now trusts `is_model_verified_live()` first whenever a model is configured, and only falls back to the `models:` field as a secondary signal when the live probe itself is unavailable. The manual `models:` YAML edit below is only relevant if you are wiring up a **custom** (self-hosted API key) model, not a built-in one.
+
 Manual remediation example:
 
 ```powershell

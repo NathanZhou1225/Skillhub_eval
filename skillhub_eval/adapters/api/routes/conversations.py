@@ -35,6 +35,7 @@ from skillhub_eval.core.ports import Repository
 from skillhub_eval.core.propagation_plan import build_propagation_plan
 from skillhub_eval.core.propagation_plan_enricher import enrich_propagation_plan
 from skillhub_eval.core.propagator import CasePropagator
+from skillhub_eval.core.latency import is_run_actively_executing
 from skillhub_eval.core.schemas.enums import BundleState, EvaluationMode, RUNNING_STATUSES
 from skillhub_eval.core.bundle_security import (
     BundleSecurityScanResult,
@@ -709,13 +710,15 @@ def _assert_can_archive_conversation(
         return
 
     if run.get("status") in RUNNING_STATUSES:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "SESSION_LOCKED",
-                "message": "评估进行中，请稍后再删除。",
-            },
-        )
+        if is_run_actively_executing(run):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "SESSION_LOCKED",
+                    "message": "评估进行中，请稍后再删除。",
+                },
+            )
+        repo.update_status(active_run_id, "failed")
 
     if (
         not is_expert

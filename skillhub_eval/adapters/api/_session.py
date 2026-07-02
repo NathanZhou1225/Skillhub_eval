@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 
 from skillhub_eval.core.ports import Repository
+from skillhub_eval.core.latency import is_run_actively_executing
 from skillhub_eval.core.schemas.enums import RUNNING_STATUSES
 
 
@@ -33,7 +34,7 @@ def check_session_gate(conversation_id: str, repo: Repository) -> None:
     active_run_id = conv.get("active_run_id")
     if active_run_id:
         run = repo.get_run(active_run_id)
-        if run and run.get("status") in RUNNING_STATUSES:
+        if run and is_run_actively_executing(run):
             raise HTTPException(
                 status_code=409,
                 detail={

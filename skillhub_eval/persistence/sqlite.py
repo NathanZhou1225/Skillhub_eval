@@ -763,7 +763,8 @@ class SqliteRepository:
                 CASE WHEN r.human_review_required = 1
                       AND r.status = 'awaiting_human_review'
                      THEN 1 ELSE 0 END AS human_review_pending,
-                r.status AS active_run_status
+                r.status AS active_run_status,
+                r.started_at AS active_run_started_at
             FROM conversations c
             LEFT JOIN evaluation_runs r ON r.run_id = c.active_run_id
             WHERE c.status != 'archived'

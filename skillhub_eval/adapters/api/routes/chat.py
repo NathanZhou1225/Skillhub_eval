@@ -1335,6 +1335,7 @@ async def get_status(
         "status": conv.get("status"),
         "active_run_id": active_run_id,
         "run_status": active_run.get("status") if active_run else None,
+        "run_started_at": active_run.get("started_at") if active_run else None,
         "stage_progress": stage_progress,
         "auto_run_count": int(conv.get("auto_run_count", 0)),
         "max_auto_runs": int(conv.get("max_auto_runs", 5)),

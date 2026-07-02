@@ -2,9 +2,40 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 from skillhub_eval.execution.cli_detect import find_cli_binary
+
+
+def _normalize_command_execution_event(event: dict) -> dict | None:
+    """Normalize a real `codex exec --json` `item.completed` /
+    `command_execution` event into the flat shape verify_entrypoint_evidence()
+    understands (command/stdout/exit_code/is_error).
+
+    Real codex CLI reports every shell command it runs as
+    `{"type": "item.completed", "item": {"type": "command_execution",
+    "command": ..., "aggregated_output": ..., "exit_code": ..., "status":
+    ...}}` — the generic stream parser only lifts `agent_message` items out of
+    `item.completed`, so `tool_results` stayed empty and
+    `verify_entrypoint_evidence()` always reported missing evidence even when
+    the entrypoint genuinely ran (2026-07-02 real-machine finding, same class
+    of gap as the Cursor Agent D14 / Trae D19 fixes).
+    """
+    if event.get("type") != "item.completed":
+        return None
+    item = event.get("item")
+    if not isinstance(item, dict) or item.get("type") != "command_execution":
+        return None
+    exit_code = item.get("exit_code")
+    return {
+        "tool": "command_execution",
+        "command": item.get("command"),
+        "stdout": item.get("aggregated_output"),
+        "stderr": None,
+        "exit_code": exit_code,
+        "is_error": item.get("status") == "failed" or (exit_code is not None and exit_code != 0),
+    }
 
 
 @dataclass
@@ -54,4 +85,23 @@ class CodexAdapter:
     def parse_stream(self, lines: list[str]):
         from skillhub_eval.execution.stream_parser import parse_stream_events
 
-        return parse_stream_events(lines)
+        parsed = parse_stream_events(lines)
+        extra_tool_results: list[dict] = []
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            normalized = _normalize_command_execution_event(event)
+            if normalized is not None:
+                extra_tool_results.append(normalized)
+        if extra_tool_results:
+            parsed = parsed.model_copy(
+                update={"tool_results": [*parsed.tool_results, *extra_tool_results]}
+            )
+        return parsed

@@ -28,6 +28,9 @@ def build_harness_prompt(case: dict, bundle: dict) -> str:
             f"- 必须阅读并遵循 SKILL.md",
             f"- 必须调用声明的 entrypoint 处理本输入：{entrypoint}",
             "- 禁止绕过 pipeline、禁止手编与 returns_schema 不符的结果",
+            "- 你的 shell 已经处于正确的工作目录（cwd），直接用相对路径运行"
+            f"（例如 {entrypoint}），不要先 cd 到绝对路径——本机路径含空格与中文，"
+            "对绝对路径加引号后 cd 在 Windows cmd 下会报路径语法错误",
         ])
     else:
         lines.extend([
