@@ -44,7 +44,7 @@ Open via header pill or **「执行设置」**.
 | Mode | Confirm **本地真跑** selected (default) | `PUT /api/exec/preferences` `{ "exec_source": "local" }` (instant save, no Save button) |
 | Agent | Select a **detected** radio card | `PUT /api/exec/preferences` `{ "exec_agent": "<id>" }` |
 | Consent | Check **我同意本机执行** | `POST /api/exec/consent` |
-| Smoke | Click **[Test]** on agent card (optional; works without consent) | `POST /api/exec/agents/{id}/test` — uses each agent's **default model** (ignores globally selected `exec_model`); ~8–60s depending on CLI |
+| Smoke | Click **[Test]** on agent card (optional; works without consent) | `POST /api/exec/agents/{id}/test` — the UI passes the selected model only for the currently active agent card; other cards keep testing the CLI default; ~8–90s depending on CLI |
 
 Verify readiness: `GET /api/exec/preferences` → `ready=true`, `consent_granted=true`, chosen `exec_agent`. Preferences persist across `serve` restarts (sqlite global row, DB v10).
 
@@ -84,6 +84,28 @@ Before this change, a local-agent failure (agent unavailable, consent missing, C
 
 **If you want `sample_io` scoring instead of blocking on local failure:** switch `exec_source` to `sample_io` in **Exec Settings** and re-run. There is intentionally no "run anyway with sample data" button in the moment of a blocked run — that would reintroduce the "looks like it ran, actually didn't" ambiguity this change removes.
 
+## Selected-model diagnosis and model-aware Test (2026-07-02, Q-29)
+
+This follow-up makes local CLI model readiness visible before a formal run:
+
+- Trae stream-json `type=result` / `type=turn.completed` events with `is_error: true` or `subtype=error_during_execution` are now treated as real failures, not successful completion and not a silent hang. The error text is preserved for the local execution failure path.
+- `GET /api/exec/agents/scan` now returns Trae-specific diagnosis fields when available: `diagnosis_ok`, `diagnosis_reason_code`, `diagnosis_message`, and `diagnosis_hint`. Current Trae reason codes include missing config dir, config dir not writable, missing `models:` provider config, model probe unavailable, and selected model not present in the live model list.
+- The same scan response also returns a generic `selected_model_status` / `selected_model_message` for the currently selected `(exec_agent, exec_model)` pair across all registered agents. Status values are `default`, `ok`, `stale`, and `probe_unavailable`.
+- `POST /api/exec/agents/{id}/test` accepts an optional JSON body: `{ "model": "..." }`. The UI only sends this body when testing the currently selected agent card; non-selected agent cards still send no model to avoid cross-agent model leakage.
+
+Reference-machine example: `C:\Users\19430\.trae\trae_cli.yaml` selected `GLM-5.2` but had no `models:` provider block, so `trae-cli` could not know which provider/endpoint/key should serve that model. ACL inspection also showed `CodexSandboxUsers` had read/execute but not write access to `.trae`, while the interactive user had full control. Those are local Trae environment issues; SkillHub now surfaces them instead of masking them.
+
+Manual remediation example:
+
+```powershell
+# 1) Edit C:\Users\<you>\.trae\trae_cli.yaml and add a real models: provider entry.
+#    The exact provider fields depend on your Trae/GLM provider.
+
+# 2) Make sure the account running skillhub-eval serve can write Trae config.
+icacls "$env:USERPROFILE\.trae"
+icacls "$env:USERPROFILE\.trae" /grant "$env:USERNAME:(OI)(CI)(M)"
+```
+
 ## Deployment note: exec preferences are process-global, not per-user
 
 `consent_granted`, `exec_agent`, and `exec_model` are stored as a single global row (`SqliteRepository.get_exec_preferences`/`set_preferences`), not scoped per browser session or user. If multiple people share one running `skillhub-eval serve` instance, one person's agent/model selection and consent affects everyone's next run. **Each person should run their own local `skillhub-eval serve` instance** rather than sharing one process for a multi-user trial.
@@ -96,7 +118,7 @@ Before this change, a local-agent failure (agent unavailable, consent missing, C
 | GET | `/api/exec/preferences` | `{ exec_source, exec_agent, consent_granted, ready, ready_reason }` |
 | PUT | `/api/exec/preferences` | Update `exec_source` / `exec_agent` |
 | POST | `/api/exec/consent` | Grant execution consent (global) |
-| POST | `/api/exec/agents/{id}/test` | Smoke via `LocalAgentRunner` (default model per agent; not global `exec_model`) |
+| POST | `/api/exec/agents/{id}/test` | Smoke via `LocalAgentRunner`; optional `{ "model": "..." }` body, used by the UI only for the active agent |
 
 OpenAPI: <http://127.0.0.1:8000/docs> (tag `exec`).
 
