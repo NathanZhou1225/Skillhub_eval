@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Body
 from pydantic import BaseModel
 
 from skillhub_eval.execution.agent_registry import (
@@ -85,6 +85,10 @@ class AgentTestResponse(BaseModel):
     ok: bool
     message: str
     duration_ms: int | None = None
+
+
+class AgentTestRequest(BaseModel):
+    model: str | None = None
 
 
 _spawn_process = subprocess.Popen
@@ -206,13 +210,14 @@ def grant_exec_consent() -> ExecConsentResponse:
 
 
 @router.post("/agents/{agent_id}/test", response_model=AgentTestResponse)
-def test_agent(agent_id: str) -> AgentTestResponse:
+def test_agent(agent_id: str, body: AgentTestRequest | None = Body(default=None)) -> AgentTestResponse:
     if agent_id not in _supported_agent_ids():
         return AgentTestResponse(ok=False, message=f"Unsupported agent id: {agent_id}.")
 
-    # Smoke test checks the CLI itself, not the globally selected exec_model (which
-    # may belong to another agent, e.g. trae's GLM-5.2 passed to codex).
-    adapter = resolve_adapter(agent_id, model=None)
+    # The caller must explicitly provide a model for this exact agent; otherwise
+    # smoke tests keep using the CLI default to avoid cross-agent model leakage.
+    requested_model = body.model if body else None
+    adapter = resolve_adapter(agent_id, model=requested_model)
     if not adapter or not adapter.detect():
         return AgentTestResponse(ok=False, message=f"Agent '{agent_id}' not detected.")
 

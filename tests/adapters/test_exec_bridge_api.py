@@ -290,6 +290,64 @@ def test_agent_smoke_uses_default_model_not_global_prefs(
     assert seen == [None]
 
 
+def test_agent_test_accepts_explicit_model(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    seen: list[str | None] = []
+
+    def fake_resolve(agent_id: str, model: str | None = None):
+        seen.append(model)
+        return _FakeAdapter(agent_id=agent_id, detected=True, model=model)
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.resolve_adapter", fake_resolve)
+
+    class _DoneProcess:
+        returncode = 0
+
+        def communicate(self, input=None, timeout=None):
+            return ('{"type":"result","duration_ms":1}\n', "")
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec._spawn_process",
+        lambda *a, **k: _DoneProcess(),
+    )
+
+    resp = client.post("/api/exec/agents/trae/test", json={"model": "GLM-5.2"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert seen == ["GLM-5.2"]
+
+
+def test_agent_test_without_body_still_defaults_to_none(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    seen: list[str | None] = []
+
+    def fake_resolve(agent_id: str, model: str | None = None):
+        seen.append(model)
+        return _FakeAdapter(agent_id=agent_id, detected=True, model=model)
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.resolve_adapter", fake_resolve)
+
+    class _DoneProcess:
+        returncode = 0
+
+        def communicate(self, input=None, timeout=None):
+            return ('{"type":"result","duration_ms":1}\n', "")
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(
+        "skillhub_eval.adapters.api.routes.exec._spawn_process",
+        lambda *a, **k: _DoneProcess(),
+    )
+
+    resp = client.post("/api/exec/agents/codex/test")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert seen == [None]
+
+
 def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     class _FakeProcess:
         def __init__(self, lines: list[str], returncode: int = 0):
