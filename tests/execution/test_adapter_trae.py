@@ -86,6 +86,16 @@ def test_diagnose_reads_fallback_config_filename(tmp_path, monkeypatch):
     assert result.reason_code == "TRAE_MODEL_NOT_CONFIGURED"
 
 
+def test_diagnose_malformed_config_returns_parse_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    cfg_dir = tmp_path / ".trae"
+    cfg_dir.mkdir()
+    (cfg_dir / "trae_cli.yaml").write_text("model: [\n", encoding="utf-8")
+    result = TraeAdapter(model="GLM-5.2").diagnose()
+    assert result.ok is False
+    assert result.reason_code == "TRAE_CONFIG_PARSE_ERROR"
+
+
 def test_diagnose_probe_unavailable(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     cfg_dir = tmp_path / ".trae"

@@ -73,6 +73,13 @@ class TraeAdapter:
             config_path = cfg_dir / "traecli.yaml"
         try:
             raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8")) if config_path.is_file() else {}
+        except yaml.YAMLError:
+            return diagnostics.DiagnosisResult(
+                ok=False,
+                reason_code="TRAE_CONFIG_PARSE_ERROR",
+                message_zh="Trae 配置文件无法解析，请检查 YAML 格式。",
+                manual_hint=f"请打开 {config_path} 检查缩进、括号和冒号格式。",
+            )
         except OSError:
             raw_config = {}
         config = raw_config if isinstance(raw_config, dict) else {}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 
 @dataclass(frozen=True)
@@ -18,14 +19,18 @@ class DiagnosisResult:
 
 def check_writable(dir_path: Path) -> bool:
     """Best-effort probe: can we create and delete a file inside dir_path?"""
-    probe = dir_path / ".skillhub_write_probe"
+    probe = dir_path / f".skillhub_write_probe_{uuid4().hex}"
+    created = False
     try:
-        probe.write_text("ok", encoding="utf-8")
+        with probe.open("x", encoding="utf-8") as fh:
+            fh.write("ok")
+        created = True
     except OSError:
         return False
     finally:
-        try:
-            probe.unlink(missing_ok=True)
-        except OSError:
-            pass
+        if created:
+            try:
+                probe.unlink(missing_ok=True)
+            except OSError:
+                pass
     return True
