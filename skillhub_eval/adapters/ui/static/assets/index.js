@@ -948,6 +948,21 @@ function renderExecAgentCards() {
            <div class="text-gray-400">装好后点「重新扫描」。</div>
          </div>`
       : '';
+    const diagnosisBlock = (detected && agent.diagnosis_ok === false)
+      ? `<div class="mt-1 text-[11px] text-red-700 leading-relaxed">
+           诊断：${escapeHtml(agent.diagnosis_message || '模型配置检测未通过')}
+           ${agent.diagnosis_hint ? `<div class="text-gray-500 mt-0.5">${escapeHtml(agent.diagnosis_hint)}</div>` : ''}
+         </div>`
+      : '';
+    const MODEL_STATUS_CLS = {
+      ok: 'text-emerald-700',
+      default: 'text-gray-500',
+      stale: 'text-amber-700',
+      probe_unavailable: 'text-gray-500',
+    };
+    const modelStatusBlock = (detected && agent.selected_model_status && agent.selected_model_message)
+      ? `<div class="mt-0.5 text-[11px] ${MODEL_STATUS_CLS[agent.selected_model_status] || 'text-gray-500'}">已选模型：${escapeHtml(agent.selected_model_message)}</div>`
+      : '';
     const testMsg = _execAgentTestStatus[agent.id] || '';
     const testClass = /通过|ok|成功/i.test(testMsg)
       ? 'text-green-700'
@@ -964,6 +979,8 @@ function renderExecAgentCards() {
               ${statusLine}
               <div class="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">${auth}${model}</div>
               ${installBlock}
+              ${diagnosisBlock}
+              ${modelStatusBlock}
             </div>
           </div>
           <button type="button" ${detected ? '' : 'disabled'}
@@ -1108,9 +1125,13 @@ async function testExecAgent(agentId) {
   _execAgentTestStatus[agentId] = '测试中…';
   renderExecAgentCards();
   try {
+    // D12: only validate the currently-selected model when testing the
+    // currently-active agent card. Other cards keep testing the CLI default.
+    const isActiveAgent = getSelectedExecAgent() === agentId;
+    const modelToTest = isActiveAgent ? (_execPreferences?.exec_model || null) : null;
     const data = await apiFetch(`/api/exec/agents/${encodeURIComponent(agentId)}/test`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(modelToTest ? { model: modelToTest } : {}),
     });
     const base = data?.message || (data?.ok ? '通过' : '失败');
     const timePart = Number.isFinite(data?.duration_ms) ? `（${data.duration_ms}ms）` : '';
