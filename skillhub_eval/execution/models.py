@@ -94,3 +94,15 @@ def discover_models(agent: AgentDef, *, stored_model: str | None = None) -> Mode
         models = [*models, {"id": sm, "label": sm, "source": "stale" if source == "live" else "custom"}]
 
     return ModelDiscovery(models=models, models_source=source)
+
+
+def is_model_verified_live(agent: AgentDef, model_id: str) -> tuple[bool, str]:
+    """Check model_id against an unmasked live probe.
+
+    discover_models() intentionally re-appends a stored model as stale/custom
+    so dropdowns do not lose the user's selection. This helper asks for no
+    stored model and only trusts live rows, so absence means truly unverified.
+    """
+    disc = discover_models(agent, stored_model=None)
+    live_ids = {m["id"] for m in disc.models if m.get("source") == "live"}
+    return (model_id in live_ids, disc.models_source)

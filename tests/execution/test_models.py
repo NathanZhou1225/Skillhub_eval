@@ -77,3 +77,29 @@ Tip: run cursor-agent login
 
     assert disc.models_source == "fallback"
     assert [m["id"] for m in disc.models] == ["default", "gpt-5"]
+
+
+def test_is_model_verified_live_true_for_live_match():
+    with patch.object(models, "_run_probe", return_value="GLM-5.2\nDeepSeek-V4-Pro\n"):
+        verified, source = models.is_model_verified_live(get_agent_def("trae"), "GLM-5.2")
+    assert verified is True
+    assert source == "live"
+
+
+def test_is_model_verified_live_not_masked_by_self_append():
+    """Regression for the D10 bug: discover_models() self-appends an unseen
+    stored_model as a 'stale' entry, which would defeat a naive
+    `model_id in {m['id'] for m in disc.models}` check. This test drives the
+    real discover_models() path and mocks only the subprocess boundary.
+    """
+    with patch.object(models, "_run_probe", return_value="model-a\nmodel-b\n"):
+        verified, source = models.is_model_verified_live(get_agent_def("trae"), "GLM-5.2")
+    assert source == "live"
+    assert verified is False
+
+
+def test_is_model_verified_live_probe_unavailable():
+    with patch.object(models, "_run_probe", return_value=None):
+        verified, source = models.is_model_verified_live(get_agent_def("trae"), "GLM-5.2")
+    assert source == "fallback"
+    assert verified is False
