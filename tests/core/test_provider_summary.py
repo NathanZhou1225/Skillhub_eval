@@ -1,6 +1,7 @@
 """T5 — provider_summary builder tests."""
 
 from skillhub_eval.core.provider_summary import build_provider_summary, per_case_row_highlight
+from skillhub_eval.core.schemas.report import ExecResult
 
 
 def _votes_r5():
@@ -50,3 +51,29 @@ def test_build_provider_summary_carries_env_labels():
 
     assert summary.provider_a_label == "Provider A"
     assert summary.provider_b_label == "Provider B"
+
+
+def test_build_provider_summary_surfaces_exec_degrade_reason():
+    """Q-27 hardening: per-case local-agent failure reason should reach the report, not dead-end on ExecResult."""
+    votes = [
+        {"model": "deepseek", "case_id": "c01", "score_total": 80.0, "suggested_review_status": "pass"},
+        {"model": "deepseek", "case_id": "c02", "score_total": 75.0, "suggested_review_status": "pass"},
+    ]
+    exec_results = {
+        "c01": ExecResult(status="incomplete", degrade_reason="run_incomplete"),
+        "c02": ExecResult(status="ok"),
+    }
+    summary = build_provider_summary(votes, {}, exec_results=exec_results)
+
+    c01 = next(r for r in summary.per_case if r.case_id == "c01")
+    c02 = next(r for r in summary.per_case if r.case_id == "c02")
+    assert c01.exec_status == "incomplete"
+    assert c01.exec_degrade_reason == "run_incomplete"
+    assert c02.exec_status == "ok"
+    assert c02.exec_degrade_reason is None
+
+
+def test_build_provider_summary_without_exec_results_leaves_fields_none():
+    """Backward compat: sample_io-only runs (no exec_results) must not set exec fields."""
+    summary = build_provider_summary(_votes_r5(), {"ds_score": 86.5, "wb_score": 71.0})
+    assert all(row.exec_status is None and row.exec_degrade_reason is None for row in summary.per_case)

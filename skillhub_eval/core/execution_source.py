@@ -19,8 +19,15 @@ def resolve_execution_source_name(bundle: dict) -> str:
     )
 
 
+#: The only ExecResult.degrade_reason that still triggers a sample_io
+#: substitution. This is a spec'd, deliberate degrade (redline case on an
+#: agent without a hardened execution profile) — not an execution failure —
+#: so it keeps producing a scored report instead of blocking the run.
+_DELIBERATE_DEGRADE_REASONS = frozenset({"redline_no_hardened_profile"})
+
+
 class RoutingExecutionSource:
-    """Primary local execution with sample_io fallback on failure."""
+    """Primary local execution; sample_io only for non-local mode or spec'd degrades."""
 
     def __init__(self, bundle: dict | None = None):
         self._bundle = bundle or {}
@@ -51,6 +58,11 @@ class RoutingExecutionSource:
         )
         if result.status == "ok" and result.actual_output is not None:
             return result
+        if result.degrade_reason not in _DELIBERATE_DEGRADE_REASONS:
+            # Genuine execution failure (timeout, crash, missing evidence, leak,
+            # no consent/agent, ...) — surface it as-is instead of silently
+            # laundering it into a "successful" sample_io result.
+            return result
 
         fb = self._sample.get_actual_output(
             bundle_path, case_id, case=case, bundle=bundle, ctx=ctx,
@@ -62,5 +74,6 @@ class RoutingExecutionSource:
                 confidence="low",
                 status="ok",
                 level="level_1",
+                degrade_reason=result.degrade_reason,
             )
         return result

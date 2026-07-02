@@ -16,7 +16,9 @@ def test_build_args_stream_json():
 def test_build_args_includes_model():
     with patch("skillhub_eval.execution.adapters.trae._resolved_bin", return_value="trae-cli"):
         args = TraeAdapter(model="GLM-5.2").build_args(cwd="/tmp")
-    assert "--model" in args and "GLM-5.2" in args
+    assert "--model" not in args
+    assert "-c" in args
+    assert "model.name=GLM-5.2" in args
 
 
 def test_trae_prompt_via_stdin_false():

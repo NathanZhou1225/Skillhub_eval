@@ -943,6 +943,16 @@ async def _handle_skill_id_confirm_chat(
     if corrected:
         repo.set_conversation_skill_id(conv_id, corrected)
         repo.update_conversation_status(conv_id, "active")
+        repo.append_lui_message(
+            conv_id,
+            role="agent",
+            content=f"好的，按 `{corrected}` 开始评估。",
+        )
+        repo.append_lui_message(
+            conv_id,
+            role="agent",
+            content="正在分析 Skill、检查评估条件并生成材料补充计划，请稍候…",
+        )
         staging_path = Path(settings.staging_root) / conv_id
         try:
             (
@@ -973,13 +983,8 @@ async def _handle_skill_id_confirm_chat(
                 new_run_id=None,
                 bootstrap_status=str(status),
             )
-        _append_bootstrap_system(
-            repo,
-            conv_id,
-            f"已按你指定的 `{corrected}` 开始评估，请稍候…",
-        )
         return ChatResponse(
-            reply=f"好的，按 `{corrected}` 开始评估。",
+            reply=f"已开始评估 Skill `{corrected}`。",
             intent="system_action",
             new_run_id=run_id,
             bootstrap_status="accepted",

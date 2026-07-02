@@ -27,6 +27,18 @@ from skillhub_eval.execution.workspace import (
 from skillhub_eval.settings import settings
 
 _RATE_LIMIT_MARKERS = ("rate limit", "429", "too many requests")
+_STDERR_EXCERPT_MAX_CHARS = 2000
+
+
+def _truncate_stderr(text: str | None) -> str | None:
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    if len(text) <= _STDERR_EXCERPT_MAX_CHARS:
+        return text
+    return text[-_STDERR_EXCERPT_MAX_CHARS:]
 
 
 class LocalAgentSource:
@@ -149,7 +161,7 @@ class LocalAgentSource:
         adapter: AgentAdapter,
     ) -> ExecResult:
         if not self._runner.is_run_complete(outcome):
-            return self._incomplete("run_incomplete")
+            return self._incomplete("run_incomplete", stderr_excerpt=outcome.stderr_text)
 
         parsed = outcome.parsed_stream
         assert parsed is not None
@@ -179,7 +191,7 @@ class LocalAgentSource:
             level="level_2" if bundle.get("has_scripts") else "level_1",
         )
 
-    def _incomplete(self, reason: str) -> ExecResult:
+    def _incomplete(self, reason: str, *, stderr_excerpt: str | None = None) -> ExecResult:
         return ExecResult(
             actual_output=None,
             source="local_agent",
@@ -187,6 +199,7 @@ class LocalAgentSource:
             status="incomplete",
             level="level_1",
             degrade_reason=reason,
+            stderr_excerpt=_truncate_stderr(stderr_excerpt),
         )
 
     def _is_rate_limited(self, outcome: RunOutcome) -> bool:

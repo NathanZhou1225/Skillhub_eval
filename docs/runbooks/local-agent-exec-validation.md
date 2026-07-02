@@ -63,6 +63,31 @@ Fixture: `testskills/exec-fixture-minimal/` (`execution_source: local`, `entrypo
 
 See [Spot-check queue filter](#spot-check-queue-filter) for history API verification.
 
+## Local execution failure is blocked, not silently degraded (2026-07-01, `local-agent-trial-hardening`)
+
+Before this change, a local-agent failure (agent unavailable, consent missing, CLI timeout, etc.) was **silently replaced** by `sample_io` sample data: the run finished as if it had passed, and the report claimed the originally-selected agent/model had executed. This is no longer the case.
+
+**Current behavior:**
+
+- A single case's local execution failure marks that case `incomplete` (does not count toward pass) — the run otherwise proceeds and produces a report.
+- If **every** case in the run fails local execution, or no usable local agent was detected at all, the whole run is finalized as `status=failed` with `reason_codes` including `LOCAL_EXEC_UNAVAILABLE` (no agent) or `LOCAL_EXEC_ALL_CASES_FAILED` (agent ran but every case failed). No report is produced pretending the run passed.
+- One exception: `redline_no_hardened_profile` (an agent without a hardened execution profile hitting a redline/adversarial case) is a **deliberate** design degrade, not a failure — it still substitutes `sample_io` for that specific case, by spec.
+
+**How to read why a run/case failed:**
+
+- Report (`EvaluationReport`): `exec_agent_label`/`exec_model_label` are only non-null when a case actually executed successfully via `local_agent`. `exec_requested_agent_label`/`exec_requested_model_label` always show what the user's preferences pointed at, whether or not it actually ran — so a report can never claim an agent "ran" when it didn't.
+- Per-case: `CaseScoreRow.exec_status`/`exec_degrade_reason` (surfaced in the UI as a red "本地执行未完成" badge with a Chinese reason on hover).
+- Event log: every local-agent failure is persisted as a `local_agent_failure` analytics event (`case_id`, `degrade_reason`, a bounded `stderr_excerpt`), queryable via `SqliteRepository.log_event`/the `analytics_events` table even after the report UI is closed.
+- UI: `formatScoreDisplay`/`formatScoreCompact` render `LOCAL_EXEC_UNAVAILABLE`/`LOCAL_EXEC_ALL_CASES_FAILED` as a red "本地执行阻断" badge instead of a score.
+
+**Real-machine confirmation (2026-07-01):** a fresh run against Trae/GLM-5.2 (`run_id=9f5ff946-...`) produced `status=failed`, `reason_codes=['LOCAL_EXEC_ALL_CASES_FAILED']`, `exec_agent_label=None` (not claimed as executed), `exec_requested_agent_label=Trae`. All 5 cases logged `local_agent_failure` events with `degrade_reason=run_incomplete` (streamed output never reached its end marker). **The specific reason `trae-cli` produces `run_incomplete` on this machine is not yet root-caused** — that is tracked as a follow-up backlog item, not fixed by this change.
+
+**If you want `sample_io` scoring instead of blocking on local failure:** switch `exec_source` to `sample_io` in **Exec Settings** and re-run. There is intentionally no "run anyway with sample data" button in the moment of a blocked run — that would reintroduce the "looks like it ran, actually didn't" ambiguity this change removes.
+
+## Deployment note: exec preferences are process-global, not per-user
+
+`consent_granted`, `exec_agent`, and `exec_model` are stored as a single global row (`SqliteRepository.get_exec_preferences`/`set_preferences`), not scoped per browser session or user. If multiple people share one running `skillhub-eval serve` instance, one person's agent/model selection and consent affects everyone's next run. **Each person should run their own local `skillhub-eval serve` instance** rather than sharing one process for a multi-user trial.
+
 ### Exec Bridge API reference
 
 | Method | Path | Purpose |

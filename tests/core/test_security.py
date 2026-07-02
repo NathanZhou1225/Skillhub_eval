@@ -469,7 +469,7 @@ class TestEngineSecurityIntegration:
         skill_dir = tmp_path / "leak-skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nrisk_level: low\n---\n# Test\ndescription: test",
+            "---\nrisk_level: low\nexecution_source: sample_io\n---\n# Test\ndescription: test",
             encoding="utf-8",
         )
         eval_dir = skill_dir / "eval_cases"

@@ -36,7 +36,7 @@ class TraeAdapter:
             "--yolo",
         ]
         if self.model:
-            args.extend(["--model", self.model])
+            args.extend(["-c", f"model.name={self.model}"])
         return args
 
     def parse_stream(self, lines: list[str]):

@@ -87,6 +87,26 @@ def test_runner_incomplete_without_result_event():
     assert not runner.is_run_complete(outcome)
 
 
+def test_runner_does_not_complete_on_stream_error_result():
+    lines = [
+        json.dumps({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "error": "Models is required",
+        })
+    ]
+
+    def fake_spawn(args, **kwargs):
+        return _FakeProcess(returncode=1, stdout_lines=[ln + "\n" for ln in lines])
+
+    runner = LocalAgentRunner(spawn_fn=fake_spawn)
+    outcome = runner.run(_StubAdapter(), "run skill", cwd="/tmp/work")
+
+    assert not runner.is_run_complete(outcome)
+    assert outcome.stderr_text == "Models is required"
+
+
 def test_parse_stream_events_collects_tool_result():
     lines = [
         json.dumps({"type": "tool_result", "stdout": "ok", "exit_code": 0}),

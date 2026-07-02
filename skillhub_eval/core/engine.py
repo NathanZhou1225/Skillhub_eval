@@ -124,9 +124,23 @@ class EvaluationEngine:
             case=case,
             bundle=bundle or self._current_bundle,
         )
+        if result.source == "local_agent" and result.status != "ok":
+            self._log_local_agent_failure(case_id, result)
         with self._case_exec_lock:
             self._case_exec_results[case_id] = result
         return result
+
+    def _log_local_agent_failure(self, case_id: str, result: ExecResult) -> None:
+        """Persist the real failure reason so it survives even though the
+        run/case is no longer silently masked by a sample_io substitution."""
+        run_id = getattr(self, "_current_run_id", None)
+        if not run_id:
+            return
+        self.repo.log_event(run_id, "local_agent_failure", {
+            "case_id": case_id,
+            "degrade_reason": result.degrade_reason,
+            "stderr_excerpt": result.stderr_excerpt,
+        })
 
     def _get_case_actual_output(
         self,
@@ -163,37 +177,102 @@ class EvaluationEngine:
         return "mixed"
 
     def _exec_agent_report_fields(self, bundle: dict) -> dict[str, str | None]:
-        """Local exec agent/model for report header; prefers completed case results."""
+        """Local exec agent/model for report header.
+
+        `exec_agent_*`/`exec_model_*` SHALL only be populated when a case
+        genuinely executed via `local_agent` with `status=="ok"` — never
+        inferred from the user's mere preference selection (that would claim
+        execution that never happened). `exec_requested_*` always reflects
+        what the user selected, regardless of whether it actually ran, so the
+        UI can distinguish "requested but not executed" from "executed".
+        """
+        from skillhub_eval.core.execution_source import resolve_execution_source_name
+
+        requested = self._exec_requested_fields()
+        if resolve_execution_source_name(bundle) != "local":
+            requested = {"exec_requested_agent_label": None, "exec_requested_model_label": None}
+
         for result in self._case_exec_results.values():
-            if result.source == "local_agent" and result.agent_id:
+            if result.source == "local_agent" and result.status == "ok" and result.agent_id:
                 return {
                     "exec_agent_id": result.agent_id,
                     "exec_agent_label": result.agent_label,
                     "exec_model_id": result.model_id,
                     "exec_model_label": result.model_label,
+                    **requested,
                 }
-        from skillhub_eval.core.execution_source import resolve_execution_source_name
+        return {
+            "exec_agent_id": None,
+            "exec_agent_label": None,
+            "exec_model_id": None,
+            "exec_model_label": None,
+            **requested,
+        }
+
+    def _exec_requested_fields(self) -> dict[str, str | None]:
         from skillhub_eval.execution.agent_registry import DEFAULT_MODEL_ID, get_agent_def
         from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
 
-        if resolve_execution_source_name(bundle) != "local":
-            return {
-                "exec_agent_id": None,
-                "exec_agent_label": None,
-                "exec_model_id": None,
-                "exec_model_label": None,
-            }
         agent_id = get_exec_agent()
         agent = get_agent_def(agent_id)
         model_id = get_exec_model()
         return {
-            "exec_agent_id": agent_id,
-            "exec_agent_label": agent.label if agent else agent_id,
-            "exec_model_id": model_id,
-            "exec_model_label": (
+            "exec_requested_agent_label": agent.label if agent else agent_id,
+            "exec_requested_model_label": (
                 "默认模型" if model_id == DEFAULT_MODEL_ID else model_id
             ),
         }
+
+    def _local_exec_attempted_results(self) -> list[ExecResult]:
+        """Case results counted for the local-exec-health check.
+
+        Excludes cases that deliberately degraded to sample_io for a spec'd
+        reason (e.g. redline case on an agent without a hardened profile) —
+        those are by-design substitutions, not evidence the agent is broken.
+        """
+        return [
+            r for r in self._case_exec_results.values()
+            if r.degrade_reason != "redline_no_hardened_profile"
+        ]
+
+    def _local_exec_all_failed(self, bundle: dict) -> bool:
+        """True when local execution was requested but every attempted case
+        failed — i.e. nothing was genuinely scored via a real local agent run."""
+        if not self._uses_local_execution(bundle):
+            return False
+        attempted = self._local_exec_attempted_results()
+        if not attempted:
+            return False
+        return not any(r.source == "local_agent" and r.status == "ok" for r in attempted)
+
+    def _save_local_exec_blocked(
+        self,
+        run_id: str,
+        bundle: dict,
+        bundle_state: BundleState,
+        evaluation_mode: EvaluationMode,
+    ) -> None:
+        """Local execution was requested but produced zero successful cases —
+        block the run with the real reasons instead of returning a report
+        built on nothing (see local-agent-trial-hardening)."""
+        attempted = self._local_exec_attempted_results()
+        unavailable_reasons = {"agent_unavailable", "consent_required"}
+        all_unavailable = bool(attempted) and all(
+            r.degrade_reason in unavailable_reasons for r in attempted
+        )
+        reason_code = "LOCAL_EXEC_UNAVAILABLE" if all_unavailable else "LOCAL_EXEC_ALL_CASES_FAILED"
+        evidence = [
+            {
+                "case_id": case_id,
+                "degrade_reason": result.degrade_reason,
+                "stderr_excerpt": result.stderr_excerpt,
+            }
+            for case_id, result in self._case_exec_results.items()
+            if result.degrade_reason != "redline_no_hardened_profile"
+        ]
+        self._save_fail(
+            run_id, bundle, bundle_state, evaluation_mode, [reason_code], evidence,
+        )
 
     def _compute_spot_check_eligible(
         self,
@@ -250,6 +329,7 @@ class EvaluationEngine:
         repo.append_stage(run_id, "level0_checking")
         bundle = ingest_bundle(skill_bundle_path)
         self._current_bundle = bundle
+        self._current_run_id = run_id
         self._case_exec_results = {}
         if self._execution_source_override is not None:
             self._execution_source = self._execution_source_override
@@ -460,6 +540,10 @@ class EvaluationEngine:
             )
             return
         self._log_local_agent_usage(run_id)
+        if self._local_exec_all_failed(bundle):
+            self._log_stage_timing(run_id, "case_executing", t_case_exec)
+            self._save_local_exec_blocked(run_id, bundle, bundle_state, evaluation_mode)
+            return
         level_achieved = self._compute_level_achieved()
         self._log_stage_timing(run_id, "case_executing", t_case_exec)
 
@@ -675,6 +759,7 @@ class EvaluationEngine:
             agg,
             provider_a_label=getattr(self.ds, "label", "DeepSeek"),
             provider_b_label=getattr(self.wb, "label", "Gemini"),
+            exec_results=self._case_exec_results,
         )
 
         narrative = build_report_narrative({

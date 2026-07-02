@@ -39,6 +39,24 @@ def test_parse_stream_ignores_malformed_lines():
     assert parsed.is_complete
 
 
+def test_parse_stream_result_error_is_not_successful_completion():
+    lines = [
+        json.dumps({"type": "system", "subtype": "init", "model": "GLM-5.2"}),
+        json.dumps({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "error": "failed to create agent: Models is required",
+        }),
+    ]
+
+    parsed = parse_stream_events(lines)
+
+    assert parsed.is_error
+    assert parsed.error_text == "failed to create agent: Models is required"
+    assert not parsed.is_complete
+
+
 def test_parse_stream_codex_turn_completed():
     lines = [
         json.dumps({"type": "thread.started", "thread_id": "t1"}),

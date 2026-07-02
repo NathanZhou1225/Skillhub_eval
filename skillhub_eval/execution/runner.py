@@ -84,6 +84,8 @@ class LocalAgentRunner:
                 except OSError:
                     stderr_text = ""
         parsed = adapter.parse_stream(lines)
+        if not stderr_text and getattr(parsed, "is_error", False):
+            stderr_text = parsed.error_text or ""
         return RunOutcome(
             exit_code=exit_code or 0,
             parsed_stream=parsed,
@@ -156,5 +158,5 @@ class LocalAgentRunner:
     def is_run_complete(self, outcome: RunOutcome) -> bool:
         """Stream-json completion is authoritative (Codex may be killed after turn.completed)."""
         parsed = outcome.parsed_stream
-        return parsed is not None and parsed.is_complete
+        return parsed is not None and parsed.is_complete and not parsed.is_error
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .schemas.report import CaseScoreRow, ProviderSummary
+from .schemas.report import CaseScoreRow, ExecResult, ProviderSummary
 
 _R5_UI_HIGHLIGHT_GAP = 15
 
@@ -18,6 +18,7 @@ def build_provider_summary(
     *,
     provider_a_label: str = "DeepSeek",
     provider_b_label: str = "Gemini",
+    exec_results: dict[str, ExecResult] | None = None,
 ) -> ProviderSummary:
     """
     Derive bundle-level and per-case scores from raw votes + aggregate output.
@@ -51,6 +52,7 @@ def build_provider_summary(
         gap: float | None = None
         if ds_s is not None and wb_s is not None:
             gap = round(abs(ds_s - wb_s), 1)
+        exec_result = (exec_results or {}).get(case_id)
         per_case.append(
             CaseScoreRow(
                 case_id=case_id,
@@ -63,6 +65,8 @@ def build_provider_summary(
                 gemini_suggested_status=(
                     wb_v.get("suggested_review_status") if wb_v else None
                 ),
+                exec_status=exec_result.status if exec_result else None,
+                exec_degrade_reason=exec_result.degrade_reason if exec_result else None,
             )
         )
 

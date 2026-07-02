@@ -73,7 +73,7 @@ def _make_bundle(tmp_path: Path, *,
 
     (root / "SKILL.md").write_text(
         f"---\nname: {name}\nid: skill.{name}\nrisk_level: {risk}\n"
-        "description: 员工出勤智能核查\n---\n# Test Skill\n",
+        "execution_source: sample_io\ndescription: 员工出勤智能核查\n---\n# Test Skill\n",
         encoding="utf-8",
     )
 

@@ -19,6 +19,8 @@ def parse_stream_events(lines: Iterable[str]) -> ParsedStream:
     usage: dict | None = None
     duration_ms: int | None = None
     is_complete = False
+    is_error = False
+    error_text: str | None = None
 
     for raw in lines:
         line = raw.strip()
@@ -45,12 +47,18 @@ def parse_stream_events(lines: Iterable[str]) -> ParsedStream:
         elif event_type == "tool_result":
             tool_results.append(event)
         elif event_type in ("result", "turn.completed"):
-            is_complete = True
+            if event.get("is_error") or event.get("subtype") == "error_during_execution":
+                is_error = True
+                raw_error = event.get("error") or event.get("message")
+                if isinstance(raw_error, str) and raw_error:
+                    error_text = raw_error
+            else:
+                is_complete = True
             if isinstance(event.get("usage"), dict):
                 usage = event["usage"]
             if event.get("duration_ms") is not None:
                 duration_ms = int(event["duration_ms"])
-            if event_type == "result":
+            if event_type == "result" and not is_error:
                 result_text = event.get("result") or event.get("text")
                 if isinstance(result_text, str) and result_text:
                     final_text_parts.append(result_text)
@@ -61,6 +69,8 @@ def parse_stream_events(lines: Iterable[str]) -> ParsedStream:
         usage=usage,
         duration_ms=duration_ms,
         is_complete=is_complete,
+        is_error=is_error,
+        error_text=error_text,
     )
 
 

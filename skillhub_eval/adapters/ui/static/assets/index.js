@@ -49,6 +49,15 @@ function isInternalUserMessage(text) {
   return t.startsWith('__ACTION_') || t.startsWith('__SYSTEM_') || t.startsWith('__TRIGGER_');
 }
 
+function pendingPhaseForCurrentStatus() {
+  // D4: chip-click and typed confirmation/correction both land on the same
+  // backend branch (skill-id confirm), so key the optimistic label off the
+  // conversation's current status rather than how the message was sent.
+  const convStatus = getStatusValue(_latestConversationStatus || {}, ['status', 'conversation_status'], '');
+  if (convStatus === 'awaiting_skill_id_confirm') return 'checking_requirements';
+  return 'thinking';
+}
+
 function activityPhaseForAction(payloadText) {
   const t = String(payloadText || '').trim();
   if (t === ACTION_CONFIRM_SKILL) return 'checking_requirements';
@@ -633,6 +642,8 @@ const REASON_ZH = {
   'RISK_CASE_COUNT_INSUFFICIENT': '当前风险等级用例数量不足',
   'EVAL_WORKFLOW_TIMEOUT': '评估超时',
   'EVAL_PROVIDER_UNAVAILABLE': '双模型 API 均未返回有效分数',
+  'LOCAL_EXEC_UNAVAILABLE': '本地 Agent 不可用（未检测到或未授权），本次未执行、未出报告',
+  'LOCAL_EXEC_ALL_CASES_FAILED': '本地 Agent 执行全部失败，本次未出报告（非静默降级为示例数据）',
 };
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -707,11 +718,18 @@ function getExecModelsForSelectedAgent() {
   return models.length ? models : [{ id: 'default', label: '默认模型', source: 'fallback' }];
 }
 
+// Shared machine-reason → 中文 map: covers both pre-run readiness gating
+// (consent_required/agent_unavailable/...) and post-run per-case degrade
+// reasons from ExecResult.degrade_reason (run_incomplete/output_leak/...).
 const EXEC_READY_REASON_ZH = {
   consent_required: '请先勾选下方「同意本机执行」',
   agent_unavailable: '所选 Agent 未在本机检测到（请重新扫描或检查 PATH）',
   agent_not_selected: '请先选择一个已检测到的 Agent',
   invalid_exec_source: '执行来源无效',
+  run_incomplete: '本地 Agent 未在超时前完成（流式输出未读到结束标记，可能是网络慢、模型繁忙或 CLI 版本不兼容）',
+  missing_entrypoint_evidence: '未检测到入口脚本的执行证据（tool_result 缺少 entrypoint 调用记录）',
+  output_leak: '产出疑似包含敏感信息，已被安全过滤拦截',
+  redline_no_hardened_profile: '当前 Agent 不支持该红线题所需的强化执行模式',
 };
 
 function formatExecReadyReason(reason) {
@@ -918,7 +936,7 @@ function renderExecAgentCards() {
       ? `<span class="text-[11px] text-gray-500">模型：${escapeHtml(MODEL_SRC_LABELS[agent.models_source] || agent.models_source)}</span>`
       : '';
     const statusLine = detected
-      ? `<div class="text-xs text-green-700 mt-0.5">已检测到${agent.bin_path ? `：${escapeHtml(agent.bin_path)}` : ''}</div>`
+      ? `<div class="text-xs text-green-700 mt-0.5 break-all">已检测到${agent.bin_path ? `：${escapeHtml(agent.bin_path)}` : ''}</div>`
       : `<div class="text-xs text-amber-800 mt-0.5">未检测到（不可选）</div>
          ${agent.detect_hint ? `<div class="text-[11px] text-gray-500 mt-1 leading-relaxed">${escapeHtml(agent.detect_hint)}</div>` : ''}`;
     const installBlock = (!detected && agent.install_command)
@@ -1097,6 +1115,14 @@ async function testExecAgent(agentId) {
     const base = data?.message || (data?.ok ? '通过' : '失败');
     const timePart = Number.isFinite(data?.duration_ms) ? `（${data.duration_ms}ms）` : '';
     _execAgentTestStatus[agentId] = `${base}${timePart}`;
+    // D5: a successful smoke test proves the agent is authenticated/usable —
+    // optimistically flip the badge from "待测试" to "可用" without a real
+    // auth probe (which can hang, e.g. `cursor-agent auth status` on Windows).
+    // Resets on the next full re-scan.
+    if (data?.ok) {
+      const entry = (_execScanCache?.agents || []).find((a) => a.id === agentId);
+      if (entry) entry.auth_status = 'ok';
+    }
   } catch (e) {
     _execAgentTestStatus[agentId] = `失败：${e.message}`;
   }
@@ -2068,7 +2094,7 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
   if (!silent && displayText) {
     _messagesCache = [..._messagesCache, { role: 'user', content: displayText, message_type: 'text' }];
     _optimisticPending = true;
-    _optimisticPendingLabel = activityPhaseLabel('thinking');
+    _optimisticPendingLabel = activityPhaseLabel(pendingPhaseForCurrentStatus());
     renderMessages(_messagesCache);
   } else if (silent && isInternalUserMessage(payloadText)) {
     _optimisticPending = true;
@@ -2220,6 +2246,32 @@ function renderLocalAgentBudget(reportLike) {
   </div>`;
 }
 
+let _usageDetailSeq = 0;
+const _usageDetailStash = {};
+
+function _bucketUsageRows(rows) {
+  const bucket = (label) => ({ label, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  const buckets = {
+    local: bucket('本地 Agent'),
+    providerA: bucket('Provider A · DeepSeek'),
+    providerB: bucket('Provider B · Gemini'),
+    other: bucket('其他'),
+  };
+  for (const row of rows) {
+    const label = String(row.provider_label || '');
+    let key = 'other';
+    if (row.stage === 'local_agent') key = 'local';
+    else if (/deepseek/i.test(label)) key = 'providerA';
+    else if (/gemini/i.test(label)) key = 'providerB';
+    const b = buckets[key];
+    b.prompt_tokens += Number(row.prompt_tokens || 0);
+    b.completion_tokens += Number(row.completion_tokens || 0);
+    b.total_tokens += Number(row.total_tokens || 0);
+  }
+  return buckets;
+}
+
+/** D6: compact by default (总计 + 3 buckets), full per-stage table on demand via a modal. */
 function renderUsageSummary(reportLike) {
   const report = getReportPayload(reportLike || {});
   const summary = report?.usage_summary || reportLike?.usage_summary;
@@ -2229,6 +2281,34 @@ function renderUsageSummary(reportLike) {
   const prompt = Number(summary.totals.prompt_tokens || 0);
   const completion = Number(summary.totals.completion_tokens || 0);
   const partial = summary.partial ? '<span class="text-amber-700 ml-2">部分调用未返回 usage</span>' : '';
+  const buckets = _bucketUsageRows(rows);
+
+  const id = `u${++_usageDetailSeq}`;
+  _usageDetailStash[id] = rows;
+
+  const bucketChip = (b) => b.total_tokens
+    ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-gray-700">${escapeHtml(b.label)} <strong class="font-mono">${b.total_tokens}</strong></span>`
+    : '';
+
+  return `
+    <section class="mt-4 border border-gray-200 bg-white rounded">
+      <div class="px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+        <h4 class="text-sm font-semibold text-gray-900">Token 消耗</h4>
+        <button type="button" onclick="openUsageDetailModal('${id}')" class="text-xs text-blue-600 hover:underline">查看明细 →</button>
+      </div>
+      <div class="px-3 pb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-blue-800">总计 <strong class="font-mono">${total}</strong>（输入 ${prompt} / 输出 ${completion}）</span>
+        ${bucketChip(buckets.providerA)}
+        ${bucketChip(buckets.providerB)}
+        ${bucketChip(buckets.local)}
+        ${bucketChip(buckets.other)}
+        ${partial}
+      </div>
+    </section>`;
+}
+
+function openUsageDetailModal(id) {
+  const rows = _usageDetailStash[id] || [];
   const body = rows.length
     ? rows.map((row) => `
       <tr class="border-t border-gray-100">
@@ -2241,29 +2321,28 @@ function renderUsageSummary(reportLike) {
         <td class="py-1 text-right">${Number(row.total_tokens || 0)}</td>
       </tr>`).join('')
     : '<tr><td colspan="7" class="py-2 text-gray-400">暂无分阶段 usage 明细</td></tr>';
-  return `
-    <section class="mt-4 border border-gray-200 bg-white rounded">
-      <div class="px-3 py-2 border-b border-gray-200 flex items-center justify-between gap-3">
-        <h4 class="text-sm font-semibold text-gray-900">Token 消耗</h4>
-        <div class="text-xs text-gray-600">总计 ${total}（输入 ${prompt} / 输出 ${completion}）${partial}</div>
-      </div>
-      <div class="px-3 py-2 overflow-x-auto">
-        <table class="w-full text-xs text-left">
-          <thead class="text-gray-500">
-            <tr>
-              <th class="py-1 pr-2">阶段</th>
-              <th class="py-1 pr-2">Provider</th>
-              <th class="py-1 pr-2">模型</th>
-              <th class="py-1 pr-2">Case</th>
-              <th class="py-1 text-right">输入</th>
-              <th class="py-1 text-right">输出</th>
-              <th class="py-1 text-right">总计</th>
-            </tr>
-          </thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>
-    </section>`;
+  const modalBody = document.getElementById('usage-detail-modal-body');
+  if (!modalBody) return;
+  modalBody.innerHTML = `
+    <table class="w-full text-xs text-left">
+      <thead class="text-gray-500">
+        <tr>
+          <th class="py-1 pr-2">阶段</th>
+          <th class="py-1 pr-2">Provider</th>
+          <th class="py-1 pr-2">模型</th>
+          <th class="py-1 pr-2">Case</th>
+          <th class="py-1 text-right">输入</th>
+          <th class="py-1 text-right">输出</th>
+          <th class="py-1 text-right">总计</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>`;
+  document.getElementById('usage-detail-modal').classList.remove('hidden');
+}
+
+function closeUsageDetailModal() {
+  document.getElementById('usage-detail-modal')?.classList.add('hidden');
 }
 
 function getTimingSummary(d) {
@@ -2290,6 +2369,9 @@ function formatScoreCompact(d) {
   }
   if (v.reason_codes.includes('EVAL_WORKFLOW_TIMEOUT')) {
     return '<span class="text-red-600">超时</span>';
+  }
+  if (v.reason_codes.includes('LOCAL_EXEC_UNAVAILABLE') || v.reason_codes.includes('LOCAL_EXEC_ALL_CASES_FAILED')) {
+    return '<span class="text-red-600">本地执行阻断</span>';
   }
   if (v.score_total_source === 'null_due_to_disagreement') {
     return '<span class="text-amber-800">R5 分歧</span>';
@@ -2561,6 +2643,13 @@ function formatScoreDisplay(d) {
       ${renderStageProgressList(progress)}
     </div>`;
   }
+  if (codes.includes('LOCAL_EXEC_UNAVAILABLE') || codes.includes('LOCAL_EXEC_ALL_CASES_FAILED')) {
+    const code = codes.includes('LOCAL_EXEC_UNAVAILABLE') ? 'LOCAL_EXEC_UNAVAILABLE' : 'LOCAL_EXEC_ALL_CASES_FAILED';
+    return `<div class="space-y-1">
+      <span class="text-red-600 font-medium">本地执行阻断，未出报告</span>
+      <div class="text-xs text-red-700">${escapeHtml(REASON_ZH[code] || code)}</div>
+    </div>`;
+  }
   if (src === 'null_due_to_disagreement') {
     const ps = getProviderSummary(d);
     const bars = ps ? renderProviderSummaryBars(ps, { showR5Headline: true, compact: true }) : '';
@@ -2752,9 +2841,12 @@ function renderPerCaseDetails(ps, collapsed = true, runId = null, showTrace = fa
     const traceCell = showTrace && runId
       ? `<td class="px-2 py-1 text-xs"><a href="/ui/trace.html?run_id=${encodeURIComponent(runId)}#case-${encodeURIComponent(row.case_id)}" target="_blank" rel="noopener" class="text-indigo-700 hover:text-indigo-900 whitespace-nowrap">评分过程 →</a></td>`
       : '';
+    const execBadge = row.exec_status === 'incomplete'
+      ? `<span class="ml-1 inline-block px-1 rounded bg-red-100 text-red-700 text-[10px] align-middle" title="${escapeHtml(formatExecReadyReason(row.exec_degrade_reason))}">本地执行未完成</span>`
+      : '';
     return `
       <tr class="${hi ? 'bg-red-50' : ''}">
-        <td class="px-2 py-1 font-mono text-xs">${escapeHtml(row.case_id)}</td>
+        <td class="px-2 py-1 font-mono text-xs">${escapeHtml(row.case_id)}${execBadge}</td>
         <td class="px-2 py-1 text-right">${row.deepseek_score != null ? row.deepseek_score : '—'}</td>
         <td class="px-2 py-1 text-right">${row.gemini_score != null ? row.gemini_score : '—'}</td>
         <td class="px-2 py-1 text-right font-medium ${hi ? 'text-red-600' : ''}">${row.gap != null ? row.gap : '—'}</td>
@@ -2913,6 +3005,23 @@ function escapeHtml(s) {
 function runRefLabel(runId) {
   const compact = String(runId || '').replace(/-/g, '').slice(0, 8).toUpperCase();
   return compact ? `EVAL-${compact}` : '';
+}
+
+/** D3: report exec-agent fields are honest — only non-null when a case actually
+ * ran via local_agent. Show what ran, or what was requested but didn't run. */
+function renderExecAttributionCard(d) {
+  const report = getReportPayload(d);
+  const agentLabel = report.exec_agent_label;
+  const requestedAgentLabel = report.exec_requested_agent_label;
+  if (!agentLabel && !requestedAgentLabel) return '';
+  if (agentLabel) {
+    return `<div class="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+      本地执行：<strong>${escapeHtml(agentLabel)}</strong> / ${escapeHtml(report.exec_model_label || '默认模型')} — 本次已成功执行
+    </div>`;
+  }
+  return `<div class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+    已选择 <strong>${escapeHtml(requestedAgentLabel)}</strong> / ${escapeHtml(report.exec_requested_model_label || '默认模型')}，但本次未成功执行（详见下方失败原因）
+  </div>`;
 }
 
 function renderRunRefBar(runId, skillId, statusZh) {
@@ -3389,6 +3498,7 @@ async function openRunDetail(runId, opts = {}) {
         ${codes.length ? `<div class="text-xs text-amber-700 mt-1">${codes.map(c => REASON_ZH[c] || c).map(r => `• ${escapeHtml(r)}`).join('<br>')}</div>` : ''}
       </div>
       <div class="text-sm border-t border-gray-100 pt-3">${formatScoreDisplay(d)}</div>
+      ${renderExecAttributionCard(d)}
       ${convBlock}
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}

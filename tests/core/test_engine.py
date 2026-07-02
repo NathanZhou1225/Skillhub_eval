@@ -106,10 +106,13 @@ class CallCountProvider(BaseLLMProvider):
 # ─── bundle fixtures ──────────────────────────────────────────────────────────
 
 def make_confirmed_low_bundle(tmp_path, n_cases: int = 3) -> str:
+    """Model-judging test fixture — explicitly sample_io so it is unaffected by
+    the global exec_source preference (which defaults to "local"; see
+    make_local_exec_bundle for tests that actually exercise local execution)."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "SKILL.md").write_text(
         "---\nname: test-skill\nid: skill.test\nrisk_level: low\n"
-        "description: 员工出勤智能核查\n---\n# Test\n",
+        "execution_source: sample_io\ndescription: 员工出勤智能核查\n---\n# Test\n",
         encoding="utf-8",
     )
     ec = tmp_path / "eval_cases"
@@ -121,6 +124,45 @@ def make_confirmed_low_bundle(tmp_path, n_cases: int = 3) -> str:
         )
     (tmp_path / "sample_io").mkdir()
     return str(tmp_path)
+
+
+def make_local_exec_bundle(tmp_path, n_cases: int = 3) -> str:
+    """Same as make_confirmed_low_bundle but declares execution_source: local."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "SKILL.md").write_text(
+        "---\nname: test-skill\nid: skill.test\nrisk_level: low\n"
+        "execution_source: local\ndescription: 员工出勤智能核查\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    ec = tmp_path / "eval_cases"
+    ec.mkdir()
+    for i in range(n_cases):
+        (ec / f"case_{i:02d}.yaml").write_text(
+            f"id: case_{i:02d}\ntype: happy_path\nuser_intent: test intent {i}\n",
+            encoding="utf-8",
+        )
+    (tmp_path / "sample_io").mkdir()
+    return str(tmp_path)
+
+
+class FakeExecutionSource:
+    """Deterministic per-case ExecResult stand-in for RoutingExecutionSource,
+    used to test engine-level local-exec blocking/report-honesty behavior
+    without spawning real CLI agents."""
+
+    def __init__(self, results_by_case: dict):
+        self._results = results_by_case
+
+    def set_local_timeout(self, timeout_s) -> None:
+        pass
+
+    def get_actual_output(self, bundle_path, case_id, *, case=None, bundle=None, ctx=None):
+        from skillhub_eval.core.schemas.report import ExecResult
+
+        return self._results.get(
+            case_id,
+            ExecResult(source="local_agent", status="incomplete", degrade_reason="run_incomplete"),
+        )
 
 
 def make_draft_enriched_bundle(tmp_path) -> str:
@@ -1087,3 +1129,160 @@ async def test_skill_summary_uses_deepseek_not_gemini(tmp_path):
     )
     report = repo.get_report(run_id)
     assert report["skill_summary"]["overall_verdict"] == "DS 摘要"
+
+
+@pytest.mark.asyncio
+async def test_local_exec_all_cases_failed_blocks_run(tmp_path, monkeypatch):
+    """Every case's local execution fails → run is blocked (failed) with a
+    distinguishing reason code, not silently scored via sample_io."""
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    fake_source = FakeExecutionSource({
+        f"case_{i:02d}": ExecResult(
+            source="local_agent", status="incomplete",
+            degrade_reason="run_incomplete", stderr_excerpt="boom",
+        )
+        for i in range(3)
+    })
+    engine, repo = make_engine(tmp_path)
+    engine._execution_source_override = fake_source
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    run = repo.get_run(run_id)
+    assert run["status"] == "failed"
+
+    report = repo.get_report(run_id)
+    assert report is not None
+    assert "LOCAL_EXEC_ALL_CASES_FAILED" in report["reason_codes"]
+    assert report["exec_agent_label"] is None
+    assert report["exec_model_label"] is None
+    assert any(e.get("degrade_reason") == "run_incomplete" for e in report["evidence"])
+
+
+@pytest.mark.asyncio
+async def test_local_exec_agent_unavailable_uses_distinct_reason_code(tmp_path):
+    """When local exec was requested but the agent was never reachable at all
+    (consent/agent_unavailable), use LOCAL_EXEC_UNAVAILABLE instead of the
+    generic all-cases-failed code."""
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    fake_source = FakeExecutionSource({
+        f"case_{i:02d}": ExecResult(
+            source="local_agent", status="incomplete", degrade_reason="agent_unavailable",
+        )
+        for i in range(3)
+    })
+    engine, repo = make_engine(tmp_path)
+    engine._execution_source_override = fake_source
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert "LOCAL_EXEC_UNAVAILABLE" in report["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_local_exec_partial_failure_does_not_block_run(tmp_path):
+    """A single flaky case does not fail the whole run — it stays incomplete
+    while the rest of the run completes and produces a report."""
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    ok_result = ExecResult(
+        actual_output={"ok": True}, source="local_agent", status="ok",
+        agent_id="trae", agent_label="Trae", model_id="GLM-5.2", model_label="GLM-5.2",
+        level="level_2",
+    )
+    fake_source = FakeExecutionSource({
+        "case_00": ok_result,
+        "case_01": ExecResult(
+            source="local_agent", status="incomplete", degrade_reason="run_incomplete",
+        ),
+        "case_02": ok_result,
+    })
+    engine, repo = make_engine(tmp_path)
+    engine._execution_source_override = fake_source
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    run = repo.get_run(run_id)
+    assert run["status"] != "failed"
+
+    report = repo.get_report(run_id)
+    assert "LOCAL_EXEC_ALL_CASES_FAILED" not in (report.get("reason_codes") or [])
+    assert "LOCAL_EXEC_UNAVAILABLE" not in (report.get("reason_codes") or [])
+    assert report["exec_agent_label"] == "Trae"
+    assert report["exec_model_label"] == "GLM-5.2"
+
+    events = repo.list_events(run_id, event_name="local_agent_failure")
+    assert any(e["payload"]["case_id"] == "case_01" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_exec_report_fields_never_claim_preference_as_executed(tmp_path):
+    """exec_agent_label/exec_model_label must stay null when nothing actually
+    executed locally, even though the user's preference selection is always
+    surfaced separately via exec_requested_*."""
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=1)
+    fake_source = FakeExecutionSource({
+        "case_00": ExecResult(source="local_agent", status="incomplete", degrade_reason="run_incomplete"),
+    })
+    engine, repo = make_engine(tmp_path)
+    engine._execution_source_override = fake_source
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert report["exec_agent_label"] is None
+    assert report["exec_model_label"] is None
+    assert report["exec_requested_agent_label"]
+    assert report["exec_requested_model_label"]

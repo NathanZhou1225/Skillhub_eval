@@ -13,6 +13,8 @@ class ParsedStream(BaseModel):
     usage: dict | None = None
     duration_ms: int | None = None
     is_complete: bool = False
+    is_error: bool = False
+    error_text: str | None = None
 
 
 class RunOutcome(BaseModel):
@@ -37,6 +39,7 @@ class ExecResult(BaseModel):
     status: str = "ok"  # ok | incomplete
     level: str = "level_1"  # level_1 | level_2
     degrade_reason: str | None = None
+    stderr_excerpt: str | None = None
 
 
 class DimensionScores(BaseModel):
@@ -83,6 +86,8 @@ class CaseScoreRow(BaseModel):
     gap: float | None = None
     ds_suggested_status: str | None = None
     gemini_suggested_status: str | None = None
+    exec_status: str | None = None  # "ok" | "incomplete"; None when no local-agent exec attempted
+    exec_degrade_reason: str | None = None  # ExecResult.degrade_reason, surfaced for self-diagnosis
 
 
 class ReportNarrative(BaseModel):
@@ -180,6 +185,12 @@ class EvaluationReport(BaseModel):
     exec_agent_label: str | None = None
     exec_model_id: str | None = None
     exec_model_label: str | None = None
+    # What the user selected in exec preferences — populated regardless of
+    # whether local execution actually succeeded. exec_agent_label/exec_model_label
+    # above are ONLY populated when a case genuinely executed via local_agent;
+    # never inferred from preferences alone (see local-agent-trial-hardening).
+    exec_requested_agent_label: str | None = None
+    exec_requested_model_label: str | None = None
     usage_summary: UsageSummary | None = None
     # e.g. {"happy_path": 3, "edge": 2, "refusal": 0, "adversarial": 0}
     rubric_version: str = "v1.2"

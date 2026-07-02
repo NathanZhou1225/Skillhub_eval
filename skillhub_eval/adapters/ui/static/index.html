@@ -401,6 +401,17 @@
   </div>
 </div>
 
+<!-- ── Token usage detail modal (D6) ─────────────────────────────────────────── -->
+<div id="usage-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onclick="if(event.target===this)closeUsageDetailModal()">
+  <div class="bg-white border border-gray-300 shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+      <h3 class="font-semibold text-gray-900">Token 消耗明细</h3>
+      <button type="button" onclick="closeUsageDetailModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    </div>
+    <div id="usage-detail-modal-body" class="text-sm text-gray-700 overflow-x-auto"></div>
+  </div>
+</div>
+
 <!-- ── Toast ─────────────────────────────────────────────────────────────────── -->
 <div id="toast" class="fixed bottom-6 right-6 hidden bg-gray-900 text-white text-sm px-4 py-3 rounded-xl shadow-xl max-w-sm z-50 transition"></div>
 
