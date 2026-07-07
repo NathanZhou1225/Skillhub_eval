@@ -57,9 +57,10 @@ from .schemas import (
     RiskLevel,
 )
 from .chat_notifications import on_run_terminal_chat_notifications
-from .eval_stage_messages import maybe_append_formal_eval_stage_notice
+from .eval_stage_messages import maybe_append_formal_eval_stage_notice, maybe_append_local_execution_check_notice
 from .schemas.enums import VALID_CASE_TYPES
 from .schemas.report import RiskLockProvenance, ExecResult
+from skillhub_eval.execution.safe_preflight_case import formal_eval_cases
 from skillhub_eval.settings import settings
 
 # 1.2 §3 rubric weights for bundle score_total derivation from sub_scores
@@ -505,7 +506,8 @@ class EvaluationEngine:
             repo.save_gaps(run_id, gaps_json)
 
         if self._requires_runtime_preflight(bundle):
-            preflight = self._valid_runtime_preflight(
+            preflight = self._ensure_valid_runtime_preflight(
+                run_id,
                 skill_bundle_path,
                 locked_risk_level=risk_locked.value,
             )
@@ -519,6 +521,8 @@ class EvaluationEngine:
                     [self._runtime_preflight_required_evidence(skill_bundle_path, risk_locked.value)],
                 )
                 return
+            bundle = ingest_bundle(skill_bundle_path)
+            self._current_bundle = bundle
 
         # ── Phase 3: CaseExec (local agent or sample_io per ExecutionSource) ───
         t_case_exec = time.monotonic()
@@ -538,7 +542,7 @@ class EvaluationEngine:
                 "started_at": datetime.now(UTC).isoformat(),
             })
 
-        cases = bundle["eval_cases"]
+        cases = formal_eval_cases(bundle)
         try:
             if self._uses_local_execution(bundle):
                 await asyncio.wait_for(
@@ -880,14 +884,59 @@ class EvaluationEngine:
             and resolve_execution_source_name(bundle) == "local"
         )
 
+    def _ensure_valid_runtime_preflight(
+        self,
+        run_id: str,
+        skill_bundle_path: str,
+        *,
+        locked_risk_level: str | None = None,
+    ) -> dict | None:
+        from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
+        from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case
+
+        runner = self._preflight_runner()
+        runtime_id = get_exec_agent()
+        model_id = get_exec_model()
+
+        cached = runner.check_cached(
+            skill_bundle_path,
+            runtime_id=runtime_id,
+            model_id=model_id,
+            locked_risk_level=locked_risk_level,
+        )
+        if cached is not None and cached.get("status") == "passed":
+            return cached
+
+        ensure_safe_preflight_case(
+            skill_bundle_path,
+            locked_risk_level=locked_risk_level,
+        )
+
+        maybe_append_local_execution_check_notice(self.repo, run_id)
+        result = runner.run(
+            skill_bundle_path,
+            runtime_id=runtime_id,
+            model_id=model_id,
+            locked_risk_level=locked_risk_level,
+        )
+        if result.status != "passed":
+            return None
+
+        return runner.check_cached(
+            skill_bundle_path,
+            runtime_id=runtime_id,
+            model_id=model_id,
+            locked_risk_level=locked_risk_level,
+        )
+
     def _valid_runtime_preflight(
         self,
         skill_bundle_path: str,
         *,
         locked_risk_level: str | None = None,
     ) -> dict | None:
+        """Cache-only check retained for tests and diagnostics."""
         from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
-        from skillhub_eval.execution.preflight_runner import PreflightRunner
 
         runner = self._preflight_runner()
         return runner.check_cached(
@@ -910,7 +959,7 @@ class EvaluationEngine:
         model_id = get_exec_model()
         evidence = {
             "field": "local_runtime_preflight",
-            "detail": "当前选择的本地 runtime/model 尚未通过当前 skill 的 preflight，正式本地评估已阻止。",
+            "detail": "本地执行环境检查未通过或尚未完成，正式本地评估已阻止。",
             "runtime_id": runtime_id,
             "model_id": model_id,
             "locked_risk_level": locked_risk_level,

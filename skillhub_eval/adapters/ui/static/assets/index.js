@@ -655,7 +655,7 @@ const REASON_ZH = {
   'RISK_CASE_COUNT_INSUFFICIENT': '当前风险等级用例数量不足',
   'EVAL_WORKFLOW_TIMEOUT': '评估超时',
   'EVAL_PROVIDER_UNAVAILABLE': '双模型 API 均未返回有效分数',
-  'LOCAL_RUNTIME_PREFLIGHT_REQUIRED': '当前本地 Runtime 尚未通过本 Skill 的 Preflight，正式本地评估已阻止',
+  'LOCAL_RUNTIME_PREFLIGHT_REQUIRED': '当前 Skill 的本地执行环境检查尚未通过，正式本地评估已阻止',
   'LOCAL_EXEC_UNAVAILABLE': '本地 Agent 不可用（未检测到或未授权），本次未执行、未出报告',
   'LOCAL_EXEC_ALL_CASES_FAILED': '本地 Agent 执行全部失败，本次未出报告（非静默降级为示例数据）',
   'LOCAL_RUNTIME_CLI_UNAVAILABLE': '本地 CLI 未检测到或不可调用',
@@ -760,11 +760,41 @@ const EXEC_READY_REASON_ZH = {
   local_runtime_prompt_too_large: '当前 CLI 通过命令行参数接收 prompt，内容过长，需缩短 case 或改用 stdin/prompt-file runtime',
   local_runtime_skill_injection_unavailable: '当前 skill 无可用注入方式',
   runtime_auth_missing: '本地 CLI 未登录或配置不可用',
-  runtime_safe_preflight_required: '高风险 skill 缺少安全 preflight 用例',
-  runtime_missing_entrypoint_evidence: 'preflight 未观察到入口脚本执行证据',
-  runtime_run_incomplete: 'preflight 未完成或返回错误',
-  runtime_parser_missing: 'preflight 输出无法解析',
+  runtime_safe_preflight_required: '需要先生成本地执行环境检查用例',
+  runtime_missing_entrypoint_evidence: '环境检查未观察到入口脚本执行证据',
+  runtime_run_incomplete: '环境检查未完成或返回错误',
+  runtime_parser_missing: '环境检查输出无法解析',
 };
+
+const LOCAL_CHECK_STATUS_ZH = {
+  missing: '尚未检查',
+  passed: '已通过',
+  failed: '检查失败',
+  expired: '已过期',
+  blocked: '需生成检查用例或修复环境',
+  not_applicable: '未选择 Skill',
+};
+
+function getActiveSkillBundlePath() {
+  const inp = document.getElementById('inp-bundle-path');
+  const fromInput = inp && inp.value ? inp.value.trim() : '';
+  if (fromInput) return fromInput;
+  const messages = Array.isArray(_messagesCache) ? _messagesCache : [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const payload = _messagesCache[i].payload_json || _messagesCache[i].payload || {};
+    if (payload.skill_bundle_path) return payload.skill_bundle_path;
+  }
+  return '';
+}
+
+function formatLocalCheckStatus(agent) {
+  if (!agent || !agent.local_check_status) return '';
+  const label = LOCAL_CHECK_STATUS_ZH[agent.local_check_status] || agent.local_check_status;
+  const expiry = agent.local_check_expires_at
+    ? `（有效至 ${formatScanTime(agent.local_check_expires_at)}）`
+    : '';
+  return `${label}${expiry}`;
+}
 
 function formatExecReadyReason(reason) {
   if (!reason) return '';
@@ -1012,6 +1042,27 @@ function renderExecAgentCards() {
     const testClass = /通过|ok|成功/i.test(testMsg)
       ? 'text-green-700'
       : (/失败|error|未|fail/i.test(testMsg) ? 'text-red-700' : 'text-gray-500');
+    const skillPath = getActiveSkillBundlePath();
+    const localCheckLine = agent.local_check_status && agent.local_check_status !== 'not_applicable'
+      ? `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
+           <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(formatLocalCheckStatus(agent))}
+           ${agent.local_check_message_zh ? `<span class="text-indigo-600"> — ${escapeHtml(agent.local_check_message_zh)}</span>` : ''}
+         </div>`
+      : (skillPath
+        ? '<div class="mt-1 text-[11px] text-gray-500">当前 Skill 检查：请在 Bundle 路径有效时重新扫描</div>'
+        : '<div class="mt-1 text-[11px] text-gray-400">填写 Bundle 路径后可查看当前 Skill 检查状态</div>');
+    const checkBtn = (skillPath && detected && agent.can_run_local_check)
+      ? `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-indigo-300 text-indigo-800 hover:bg-indigo-50"
+          onclick="event.stopPropagation(); runLocalExecutionCheck('${escapeHtml(agent.id)}')">
+          ${agent.local_check_status === 'passed' ? '重新检查' : '运行环境检查'}
+        </button>`
+      : '';
+    const switchBtn = (skillPath && agent.can_switch_and_rerun && !checked)
+      ? `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 ml-1"
+          onclick="event.stopPropagation(); switchToVerifiedRuntime('${escapeHtml(agent.id)}')">
+          改用此工具
+        </button>`
+      : '';
 
     return `
       <label class="block px-3 py-2 cursor-pointer transition ${cardClass}${disabledClass}" onclick="${detected ? `onExecAgentRadioChange('${escapeHtml(agent.id)}')` : ''}">
@@ -1023,14 +1074,19 @@ function renderExecAgentCards() {
               <div class="text-sm font-medium text-gray-900">${escapeHtml(agent.label || EXEC_AGENT_LABELS[agent.id] || agent.id)}</div>
               ${statusLine}
               <div class="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">${auth}${model}</div>
+              <div class="mt-0.5 text-[11px] text-gray-500">连接测试：${escapeHtml(testMsg || '点击右侧「连接测试」')}</div>
+              ${localCheckLine}
               ${installBlock}
               ${diagnosisBlock}
               ${modelStatusBlock}
             </div>
           </div>
-          <button type="button" ${detected ? '' : 'disabled'}
-            class="shrink-0 text-xs px-2 py-1 border border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-700 disabled:opacity-50"
-            onclick="event.stopPropagation(); testExecAgent('${escapeHtml(agent.id)}')">Test</button>
+          <div class="flex flex-col gap-1 items-end">
+            <button type="button" ${detected ? '' : 'disabled'}
+              class="shrink-0 text-xs px-2 py-1 border border-gray-300 hover:border-blue-400 text-gray-700 hover:text-blue-700 disabled:opacity-50"
+              onclick="event.stopPropagation(); testExecAgent('${escapeHtml(agent.id)}')">连接测试</button>
+            ${checkBtn}${switchBtn}
+          </div>
         </div>
         <div class="text-xs mt-1.5 ${testClass}">${escapeHtml(testMsg)}</div>
       </label>`;
@@ -1065,7 +1121,9 @@ async function fetchExecScan(silent = false) {
   renderExecScanSummary();
   renderExecAgentCards();
   try {
-    const data = await apiFetch('/api/exec/agents/scan');
+    const skillPath = getActiveSkillBundlePath();
+    const qs = skillPath ? `?skill_bundle_path=${encodeURIComponent(skillPath)}` : '';
+    const data = await apiFetch(`/api/exec/agents/scan${qs}`);
     if (seq !== _execScanSeq) return _execScanCache;
     _execScanCache = data || { scanned_at: null, agents: [] };
     renderExecBridgeIndicator();
@@ -1196,28 +1254,84 @@ async function testExecAgent(agentId) {
 }
 
 async function runRuntimePreflightFromDetail(encodedPath, encodedRuntime, encodedModel) {
-  const skillPath = decodeURIComponent(encodedPath || '');
-  const runtimeId = decodeURIComponent(encodedRuntime || '');
-  const modelId = decodeURIComponent(encodedModel || 'default') || 'default';
+  await runLocalExecutionCheck(decodeURIComponent(encodedRuntime || ''), {
+    skillPath: decodeURIComponent(encodedPath || ''),
+    modelId: decodeURIComponent(encodedModel || 'default'),
+  });
+}
+
+async function runLocalExecutionCheck(runtimeId, opts = {}) {
+  const skillPath = opts.skillPath || getActiveSkillBundlePath();
+  const modelId = opts.modelId || (getSelectedExecAgent() === runtimeId ? getSelectedExecModel() : 'default');
   if (!skillPath || !runtimeId) {
-    toast('缺少 preflight 参数', false);
-    return;
+    toast('缺少环境检查参数', false);
+    return null;
   }
   const key = `${runtimeId}:${modelId}:${skillPath}`;
   _runtimePreflightStatus[key] = { status: 'running' };
   try {
     const data = await apiFetch(`/api/exec/runtimes/${encodeURIComponent(runtimeId)}/preflight`, {
       method: 'POST',
-      body: JSON.stringify({ skill_bundle_path: skillPath, model: modelId }),
+      body: JSON.stringify({
+        skill_bundle_path: skillPath,
+        model: modelId,
+        force: !!opts.force,
+        regenerate_check_case: !!opts.regenerate,
+      }),
     });
     _runtimePreflightStatus[key] = data;
-    const msg = formatRuntimePreflightStatus(data);
-    toast(`Runtime preflight：${msg}`, data?.status === 'passed');
-    await fetchExecPreferences();
+    const msg = data?.message_zh || formatLocalCheckStatus({ local_check_status: data?.status, local_check_expires_at: data?.expires_at });
+    toast(`本地执行环境检查：${msg}`, data?.status === 'passed');
+    await fetchExecScan(true);
+    return data;
   } catch (e) {
     _runtimePreflightStatus[key] = { status: 'error', failure_reason: e.message };
-    toast(`Runtime preflight 失败：${e.message}`, false);
+    toast(`本地执行环境检查失败：${e.message}`, false);
+    return null;
   }
+}
+
+async function switchToVerifiedRuntime(runtimeId) {
+  const skillPath = getActiveSkillBundlePath();
+  if (!skillPath) {
+    toast('请先填写 Bundle 路径', false);
+    return;
+  }
+  try {
+    const data = await apiFetch('/api/exec/runtimes/switch', {
+      method: 'POST',
+      body: JSON.stringify({
+        runtime_id: runtimeId,
+        model: 'default',
+        skill_bundle_path: skillPath,
+      }),
+    });
+    toast(data?.message_zh || '已切换本地工具', true);
+    await fetchExecPreferences(true);
+    await fetchExecScan(true);
+  } catch (e) {
+    toast(`切换失败：${e.message}`, false);
+  }
+}
+
+function renderLocalExecCheckRecovery(d) {
+  const codes = (d.report && d.report.reason_codes) || d.reason_codes || [];
+  if (!codes.includes('LOCAL_RUNTIME_PREFLIGHT_REQUIRED')) return '';
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const alternates = agents.filter((a) => a.can_switch_and_rerun && a.id !== getSelectedExecAgent());
+  return `<div class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-3 py-2 space-y-2">
+    <div><strong>本地执行环境检查未通过。</strong>连接测试只证明 CLI 能响应；环境检查会验证该工具能读取当前 Skill、调用必要入口并返回可评估结果。</div>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
+        onclick="runLocalExecutionCheck(getSelectedExecAgent(), { force: true })">重新检查</button>
+      <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
+        onclick="runLocalExecutionCheck(getSelectedExecAgent(), { regenerate: true, force: true })">重新生成检查用例</button>
+      <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
+        onclick="switchExecBannerToSample()">使用样例输出评估（非本地真跑）</button>
+      ${alternates.map((a) => `<button type="button" class="px-2 py-1 border border-emerald-300 bg-white hover:bg-emerald-50"
+        onclick="switchToVerifiedRuntime('${escapeHtml(a.id)}')">改用已检查通过的 ${escapeHtml(a.label || a.id)}</button>`).join('')}
+    </div>
+  </div>`;
 }
 
 function startExecBridgePoll() {
@@ -3016,6 +3130,7 @@ async function pollStatus(runId) {
       ${terminal ? renderDisagreementCard(d) : ''}
       ${terminal ? renderRiskLockCard(d) : ''}
       ${reasonHtml}
+      ${renderLocalExecCheckRecovery(d)}
       ${renderLevel0Evidence(d)}
       ${humanHtml}
       ${renderProviderErrorPanel(d)}
@@ -3117,7 +3232,7 @@ function renderExecAttributionCard(d) {
     ? `<button type="button"
         class="ml-2 inline-flex items-center px-2 py-0.5 border border-amber-300 text-amber-800 bg-white hover:bg-amber-100 text-[11px]"
         onclick="runRuntimePreflightFromDetail('${encodeURIComponent(skillPath)}','${encodeURIComponent(runtimeId)}','${encodeURIComponent(modelId)}')">
-        运行 Preflight
+        运行环境检查
       </button>`
     : '';
   if (!agentLabel && !requestedAgentLabel) return '';

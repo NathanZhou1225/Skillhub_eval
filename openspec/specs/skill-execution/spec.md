@@ -201,3 +201,31 @@
 - **Given** 一轮评估中至少一个 case 的 `ExecResult.source=local_agent` 成功执行
 - **When** 引擎生成 `EvaluationReport`
 - **Then** `exec_agent_label`/`exec_model_label` SHALL 取自该成功 `ExecResult` 的 `agent_label`/`model_label`
+
+## Runtime platform（2026-07-07 合入）
+
+以下增量自 OpenSpec change `local-cli-runtime-platform` 同步。用户面向文案使用「本地执行环境检查」；实现与开发者文档仍可使用 preflight/runtime 术语。
+
+### Requirement: 本地 CLI runtime 平台契约
+
+系统 SHALL 将本地 CLI agent 抽象为可复用 runtime，而非由评估引擎直接依赖各 CLI 的启动参数与原始输出格式。每个 runtime SHALL 通过声明式定义描述身份、二进制解析、版本探测、认证/配置探测、模型探测、prompt 传输方式、skill 注入策略、stream 格式、工具能力、preflight 配置、安装/修复指引。系统 SHALL 至少支持 `Codex`、`Cursor Agent`、`Trae`、`Claude`、`Antigravity` 五个 runtime。
+
+runtime definition SHALL 随代码版本化；resolved CLI path、用户选择的 runtime/model、preflight cache SHALL 作为本机用户状态保存在 SQLite，且 SHALL NOT 写回 runtime definition。
+
+### Requirement: 统一 AgentEvent 事件层
+
+系统 SHALL 将各 CLI 原始输出流归一化为内部 `AgentEvent` 流，再由统一逻辑合成 `ParsedStream`/`ExecResult`。完整 live raw stream SHALL 仅保存在 ignored 目录（例如 `.tmp/raw_runtime_streams/`）；仓库内 fixture SHALL 经 sanitizer 脱敏。默认测试套件 SHALL NOT 依赖本机已安装 CLI；live E2E 仅在 `RUN_LOCAL_AGENT=1` 等显式开关下运行。
+
+### Requirement: 正式本地评估必须通过 runtime preflight（本地执行环境检查）
+
+当用户选择本地 CLI runtime 时，系统 SHALL 在正式本地评估开始前检查所选 runtime/model 是否存在有效的 preflight pass（绑定当前 skill fingerprint）。缺失/失败/过期时 SHALL 阻止进入 `case_executing` 并返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`。高风险 bundle 缺少安全 preflight case 时，系统 MAY 自动生成 `runtime_preflight_01`（`type: preflight`），且该 case SHALL 不计入正式 case 数量与 judge 评分。
+
+缓存 SHALL 在 SQLite 中保存 24 小时，并在 runtime id、model id、skill fingerprint、CLI path/version 或 SkillHub version 变化时失效。
+
+### Requirement: 显式 runtime 切换而非自动 fallback
+
+preflight 未通过或 runtime 失败时，系统 SHALL NOT 自动切换 runtime。UI MAY 展示其他已通过检查的 runtime，并通过 `POST /api/exec/runtimes/switch` 等显式操作更新本地偏好后由用户重新发起评估。
+
+### Requirement: 执行来源传输分派（修订）
+
+`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派；正式执行 SHALL 先经过 runtime readiness 与 preflight 校验。`ExecResult` 仍为评估引擎边界，judge 与评分聚合逻辑不变。

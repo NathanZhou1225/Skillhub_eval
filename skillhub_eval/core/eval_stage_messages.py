@@ -10,6 +10,7 @@ FormalEvalStage = Literal["case_executing", "model_judging"]
 
 FORMAL_EVAL_STARTED_NEUTRAL = "评估需求已满足，正式评估已启动，请稍候…"
 FORMAL_EVAL_STARTED_FROM_READINESS = "好的，正式评估已启动，请稍候…"
+LOCAL_EXECUTION_CHECK_MESSAGE = "正在检查本地执行环境，请稍候…"
 
 
 def case_executing_message(*, uses_local_execution: bool) -> str:
@@ -54,4 +55,21 @@ def maybe_append_formal_eval_stage_notice(
         role="agent",
         content=content,
         run_id=run_id,
+    )
+
+
+def maybe_append_local_execution_check_notice(repo: Repository, run_id: str) -> None:
+    """User-visible notice before automatic local execution environment check."""
+    run = repo.get_run(run_id) or {}
+    conv_id = run.get("conversation_id")
+    if not conv_id:
+        return
+    repo.append_stage(run_id, "local_execution_check")
+    repo.append_lui_message(
+        str(conv_id),
+        role="agent",
+        content=LOCAL_EXECUTION_CHECK_MESSAGE,
+        run_id=run_id,
+        message_type="readiness_result",
+        payload_json={"phase": "local_execution_check"},
     )

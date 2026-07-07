@@ -18,6 +18,8 @@ from skillhub_eval.execution.agent_registry import (
 )
 from skillhub_eval.execution.preflight_runner import PreflightRunner
 from skillhub_eval.execution.runtime_defs import get_runtime_def
+from skillhub_eval.execution.runtime_readiness import build_runtime_readiness
+from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case
 from skillhub_eval.persistence.sqlite import SqliteRepository
 from skillhub_eval.execution.detection import detect_agent
 from skillhub_eval.execution.models import discover_models, is_model_verified_live
@@ -58,6 +60,18 @@ class AgentScanItem(BaseModel):
     diagnosis_reason_code: str | None = None
     diagnosis_message: str | None = None
     diagnosis_hint: str | None = None
+    install_status: str | None = None
+    invocation_status: str | None = None
+    model_status: str | None = None
+    model_message_zh: str | None = None
+    capability_status: str | None = None
+    local_check_status: str | None = None
+    local_check_checked_at: str | None = None
+    local_check_expires_at: str | None = None
+    local_check_message_zh: str | None = None
+    can_run_local_check: bool | None = None
+    can_switch_and_rerun: bool | None = None
+    cli_version: str | None = None
 
 
 class AgentScanResponse(BaseModel):
@@ -99,6 +113,19 @@ class RuntimePreflightRequest(BaseModel):
     skill_bundle_path: str
     model: str | None = None
     force: bool = False
+    regenerate_check_case: bool = False
+
+
+class RuntimeSwitchRequest(BaseModel):
+    runtime_id: str
+    model: str | None = None
+    skill_bundle_path: str
+
+
+class RuntimeSwitchResponse(BaseModel):
+    ok: bool
+    message_zh: str
+    preferences: ExecPreferencesResponse
 
 
 class RuntimePreflightResponse(BaseModel):
@@ -126,7 +153,10 @@ def _supported_agent_ids() -> set[str]:
 
 
 @router.get("/agents/scan", response_model=AgentScanResponse)
-def scan_agents() -> AgentScanResponse:
+def scan_agents(
+    skill_bundle_path: str | None = None,
+    repo: SqliteRepository = Depends(get_repo),
+) -> AgentScanResponse:
     agents: list[AgentScanItem] = []
     prefs = get_preferences()
     selected_model = str(prefs.get("exec_model") or DEFAULT_MODEL_ID)
@@ -187,6 +217,15 @@ def scan_agents() -> AgentScanResponse:
                 install_command = hint.get("install_command")
                 install_docs_url = hint.get("docs_url")
                 install_note = hint.get("platform_note")
+
+        readiness = build_runtime_readiness(
+            agent,
+            det=det,
+            selected_model=selected_model if agent.id == active_agent_id else DEFAULT_MODEL_ID,
+            active_agent_id=active_agent_id,
+            skill_bundle_path=skill_bundle_path,
+            repo=repo if skill_bundle_path else None,
+        )
         agents.append(
             AgentScanItem(
                 id=agent.id,
@@ -197,7 +236,7 @@ def scan_agents() -> AgentScanResponse:
                 detect_hint=det.detect_hint,
                 models=models,
                 models_source=models_source,
-                selected_model=selected_model,
+                selected_model=selected_model if agent.id == active_agent_id else None,
                 selected_model_status=selected_model_status,
                 selected_model_message=selected_model_message,
                 install_command=install_command,
@@ -207,6 +246,18 @@ def scan_agents() -> AgentScanResponse:
                 diagnosis_reason_code=diagnosis_reason_code,
                 diagnosis_message=diagnosis_message,
                 diagnosis_hint=diagnosis_hint,
+                install_status=readiness["install_status"],
+                invocation_status=readiness["invocation_status"],
+                model_status=readiness["model_status"] if agent.id == active_agent_id else None,
+                model_message_zh=readiness["model_message_zh"] if agent.id == active_agent_id else None,
+                capability_status=readiness["capability_status"],
+                local_check_status=readiness["local_check_status"],
+                local_check_checked_at=readiness["local_check_checked_at"],
+                local_check_expires_at=readiness["local_check_expires_at"],
+                local_check_message_zh=readiness["local_check_message_zh"],
+                can_run_local_check=readiness["can_run_local_check"],
+                can_switch_and_rerun=readiness["can_switch_and_rerun"],
+                cli_version=readiness.get("cli_version"),
             )
         )
     return AgentScanResponse(scanned_at=datetime.now(UTC).isoformat(), agents=agents)
@@ -287,21 +338,57 @@ def run_runtime_preflight(
         raise HTTPException(status_code=404, detail=f"Unsupported runtime id: {runtime_id}")
 
     runner = PreflightRunner(repo=repo)
+    model_id = body.model or DEFAULT_MODEL_ID
+    if body.regenerate_check_case:
+        ensure_safe_preflight_case(body.skill_bundle_path, force=True)
     if not body.force:
         cached = runner.check_cached(
             body.skill_bundle_path,
             runtime_id=runtime.runtime_id,
-            model_id=body.model or DEFAULT_MODEL_ID,
+            model_id=model_id,
         )
         if cached is not None:
             return RuntimePreflightResponse.model_validate({**cached, "cached": True})
 
+    ensure_safe_preflight_case(body.skill_bundle_path)
     result = runner.run(
         body.skill_bundle_path,
         runtime_id=runtime.runtime_id,
-        model_id=body.model or DEFAULT_MODEL_ID,
+        model_id=model_id,
     )
     return RuntimePreflightResponse.model_validate(result.to_cache_row())
+
+
+@router.post("/runtimes/switch", response_model=RuntimeSwitchResponse)
+def switch_verified_runtime(
+    body: RuntimeSwitchRequest,
+    repo: SqliteRepository = Depends(get_repo),
+) -> RuntimeSwitchResponse:
+    runtime = get_runtime_def(body.runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail=f"Unsupported runtime id: {body.runtime_id}")
+
+    model_id = body.model or DEFAULT_MODEL_ID
+    readiness = build_runtime_readiness(
+        next(agent for agent in get_agent_catalog() if agent.id == body.runtime_id),
+        selected_model=model_id,
+        active_agent_id=body.runtime_id,
+        skill_bundle_path=body.skill_bundle_path,
+        repo=repo,
+    )
+    if readiness.get("local_check_status") != "passed":
+        raise HTTPException(
+            status_code=409,
+            detail="所选本地工具尚未通过当前 Skill 的本地执行环境检查，无法切换。",
+        )
+
+    updated = set_preferences(exec_agent=body.runtime_id, exec_model=model_id)
+    label = runtime.label
+    return RuntimeSwitchResponse(
+        ok=True,
+        message_zh=f"已切换到已检查通过的 {label}，可重新发起正式评估。",
+        preferences=ExecPreferencesResponse.model_validate(updated),
+    )
 
 
 def _probe_cursor_auth_status() -> str:

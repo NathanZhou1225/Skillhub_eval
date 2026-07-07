@@ -92,6 +92,11 @@ def _load_cases(eval_cases_dir: Path) -> tuple[list[dict], list[dict]]:
     return cases, malformed_cases
 
 
+def is_preflight_case(case: dict) -> bool:
+    """True for internal local-execution check cases excluded from formal eval counts."""
+    return bool(case.get("safe_preflight")) or case.get("type") == "preflight"
+
+
 def load_sample_io(bundle_path: str, case_id: str) -> dict | None:
     """
     Load the sample_io actual output for a case_id.
@@ -149,6 +154,7 @@ def ingest_bundle(bundle_path: str) -> dict:
     execution_source = meta.get("execution_source") or None
 
     skill_id = meta.get("id") or meta.get("name") or root.name
+    formal_cases = [c for c in cases if not is_preflight_case(c)]
 
     return {
         "skill_id": skill_id,
@@ -159,7 +165,7 @@ def ingest_bundle(bundle_path: str) -> dict:
         "risk_level_declared": meta.get("risk_level"),
         "eval_cases": cases,
         "malformed_cases": malformed_cases,
-        "n_cases": len(cases),
+        "n_cases": len(formal_cases),
         "has_sample_io": has_sample_io,
         "has_scripts": has_scripts,
         "entrypoint": entrypoint,

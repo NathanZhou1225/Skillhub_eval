@@ -1,0 +1,2 @@
+{"type": "text", "text": "hello "}
+{"type": "result", "result": "hello done", "duration_ms": 5, "usage": {"input_tokens": 1}}

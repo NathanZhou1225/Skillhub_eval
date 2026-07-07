@@ -177,3 +177,49 @@ grant_exec_consent("<skill_id>")
 Or disable gate: `EXEC_CONSENT_REQUIRED=false`
 
 Web UI path: use **Exec Settings → 我同意本机执行** (`POST /api/exec/consent`) instead.
+
+## Local execution environment check (2026-07-07, runtime productization)
+
+Product-facing term: **本地执行环境检查**. Developer docs may still say *preflight* / *runtime*.
+
+### What「连接测试」means vs environment check
+
+| Action | Proves | Does NOT prove |
+|--------|--------|----------------|
+| **连接测试** (`POST /api/exec/agents/{id}/test`) | CLI binary resolves, responds to a minimal probe, optional model hint | Current Skill can be read, entrypoint can run, formal local eval is allowed |
+| **本地执行环境检查** (`POST /api/exec/runtimes/{id}/preflight`) | Selected runtime+model can execute a **safe check case** for the **current skill fingerprint**, with entrypoint evidence when required | Judge scores, formal eval cases |
+
+UI: Exec Settings cards show both lines separately. A green connection test must not imply formal local evaluation readiness.
+
+### Automatic check before formal local eval
+
+When `execution_source=local` and cache has no valid pass for `(runtime, model, skill_fingerprint)`:
+
+1. Engine may auto-generate `eval_cases/runtime_preflight_01.yaml` for **high-risk** bundles without an authored safe case (`ensure_safe_preflight_case`).
+2. Engine emits visible stage `local_execution_check` / message「正在检查本地执行环境」.
+3. `PreflightRunner` runs once; on pass, formal eval continues; on fail/blocked → `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` before `case_executing`.
+
+Preflight cases (`type: preflight`, `safe_preflight: true`) are excluded from formal case counts and judge scoring.
+
+### Manual retry / switch / sample_io fallback
+
+- **重新检查**: `POST /api/exec/runtimes/{id}/preflight` with `force=true`.
+- **重新生成检查用例**: same endpoint with `regenerate_check_case=true` (replaces only system-generated `runtime_preflight_01.yaml`).
+- **改用另一个已检查通过的本地工具**: `POST /api/exec/runtimes/switch` — updates SQLite preferences only after verifying `local_check_status=passed` for the current skill fingerprint. Does not auto-switch during a run.
+- **使用样例输出评估（非本地真跑）**: set `exec_source=sample_io` via Exec Settings.
+
+`GET /api/exec/agents/scan?skill_bundle_path=...` returns readiness fields: `install_status`, `invocation_status`, `local_check_status`, `can_run_local_check`, `can_switch_and_rerun`, etc.
+
+### Capture and sanitize stream fixtures
+
+1. Save raw CLI stdout lines under `.tmp/raw_runtime_streams/<runtime>.jsonl` (gitignored).
+2. Sanitize:
+
+```bash
+python scripts/sanitize_runtime_stream.py .tmp/raw_runtime_streams/cursor_agent.jsonl
+```
+
+3. Commit output under `tests/fixtures/runtime_streams/`. Sanitizer redacts usernames, absolute paths, tokens, and truncates long prompts while preserving event shapes.
+4. Regression: `pytest tests/execution/test_runtime_stream_fixtures.py -q`
+
+Live CLI E2E remains opt-in (`RUN_LOCAL_AGENT=1`); default pytest must not require installed CLIs.

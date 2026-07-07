@@ -12,7 +12,8 @@ can apply them at different points in the pipeline:
 """
 
 from .ingest import validate_execution_meta
-from .schemas.enums import RiskLevel, CASE_COUNT_GATES, CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
+from skillhub_eval.core.schemas.enums import RiskLevel, CASE_COUNT_GATES, CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
+from skillhub_eval.core.ingest import is_preflight_case
 
 
 class Level0Checker:
@@ -126,6 +127,8 @@ class Level0Checker:
         # Type coverage check (W3 题型完整性门槛) — only run after count passes
         if len(reason_codes) == 0:
             for c in (bundle.get("eval_cases") or []):
+                if is_preflight_case(c):
+                    continue
                 t = c.get("type", "")
                 if t in VALID_CASE_TYPES:
                     type_counts[t] = type_counts.get(t, 0) + 1

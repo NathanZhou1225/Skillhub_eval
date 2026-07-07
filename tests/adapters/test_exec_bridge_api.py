@@ -500,3 +500,141 @@ def test_runtime_preflight_rejects_unknown_runtime(client: TestClient, tmp_path)
     )
 
     assert resp.status_code == 404
+
+
+def test_scan_includes_runtime_readiness_fields(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.probe_cli_invocation",
+        lambda _path, _args: "ok",
+    )
+    resp = client.get("/api/exec/agents/scan")
+    assert resp.status_code == 200
+    agents = resp.json()["agents"]
+    claude = next(a for a in agents if a["id"] == "claude")
+    assert claude["install_status"] == "installed"
+    assert claude["invocation_status"] == "ok"
+    assert claude["local_check_status"] == "not_applicable"
+    assert claude["can_run_local_check"] is False
+
+
+def test_scan_local_check_passed_when_cache_valid(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from datetime import UTC, datetime, timedelta
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.probe_cli_invocation",
+        lambda _path, _args: "ok",
+    )
+    monkeypatch.setattr("skillhub_eval.execution.preferences.get_exec_agent", lambda: "claude")
+    monkeypatch.setattr("skillhub_eval.execution.preferences.get_exec_model", lambda: "default")
+
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+    from skillhub_eval.persistence.sqlite import SqliteRepository
+    from skillhub_eval.settings import settings
+
+    repo = SqliteRepository(settings.eval_db_path)
+    repo.init_db()
+    runner = PreflightRunner(repo=repo, version_probe=lambda _p, _a: "claude 1.0")
+    context = runner._context(str(skill), "claude", "default")
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="ok",
+        manual_hint=None,
+        evidence={},
+    )
+
+    resp = client.get("/api/exec/agents/scan", params={"skill_bundle_path": str(skill)})
+    assert resp.status_code == 200
+    claude = next(a for a in resp.json()["agents"] if a["id"] == "claude")
+    assert claude["local_check_status"] == "passed"
+    assert claude["local_check_message_zh"] == "已通过"
+    assert claude["can_switch_and_rerun"] is True
+
+
+def test_switch_verified_runtime_updates_preferences(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from datetime import UTC, datetime, timedelta
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.probe_cli_invocation",
+        lambda _path, _args: "ok",
+    )
+
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+    from skillhub_eval.persistence.sqlite import SqliteRepository
+    from skillhub_eval.settings import settings
+
+    repo = SqliteRepository(settings.eval_db_path)
+    repo.init_db()
+    runner = PreflightRunner(repo=repo, version_probe=lambda _p, _a: "claude 1.0")
+    context = runner._context(str(skill), "claude", "default")
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="ok",
+        manual_hint=None,
+        evidence={},
+    )
+
+    before_catalog = [a.id for a in __import__("skillhub_eval.execution.agent_registry", fromlist=["get_agent_catalog"]).get_agent_catalog()]
+    resp = client.post(
+        "/api/exec/runtimes/switch",
+        json={"runtime_id": "claude", "model": "default", "skill_bundle_path": str(skill)},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["preferences"]["exec_agent"] == "claude"
+    after_catalog = [a.id for a in __import__("skillhub_eval.execution.agent_registry", fromlist=["get_agent_catalog"]).get_agent_catalog()]
+    assert before_catalog == after_catalog
+
+
+def test_switch_rejects_unverified_runtime(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.probe_cli_invocation",
+        lambda _path, _args: "ok",
+    )
+    resp = client.post(
+        "/api/exec/runtimes/switch",
+        json={"runtime_id": "claude", "model": "default", "skill_bundle_path": str(skill)},
+    )
+    assert resp.status_code == 409

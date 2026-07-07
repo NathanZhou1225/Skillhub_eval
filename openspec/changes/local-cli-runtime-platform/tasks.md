@@ -11,11 +11,11 @@
 
 ## 2. Detection / Auth / Model Readiness
 
-- [ ] 2.1 Upgrade scan logic to return install readiness, invocability, CLI version/path, config/auth state, model readiness, and runtime capability readiness.
+- [x] 2.1 Upgrade scan logic to return install readiness, invocability, CLI version/path, config/auth state, model readiness, and runtime capability readiness.
       Verify: focused API tests for installed/missing/not-invocable/auth-missing/probe-unavailable states.
-- [ ] 2.2 Keep model discovery live/fallback/stale/custom behavior, but map it into product-level readiness messages.
+- [x] 2.2 Keep model discovery live/fallback/stale/custom behavior, but map it into product-level readiness messages.
       Verify: model discovery tests for selected model ok/stale/default/probe unavailable.
-- [ ] 2.3 Add runtime-specific diagnosis hooks only where needed, preserving generic readiness for all runtimes.
+- [x] 2.3 Add runtime-specific diagnosis hooks only where needed, preserving generic readiness for all runtimes.
       Verify: a runtime without custom diagnosis still returns generic readiness.
 
 ## 3. Unified AgentEvent Layer
@@ -64,22 +64,22 @@
 
 ## 7. UI Runtime Platform Surface
 
-- [ ] 7.1 Replace/upgrade current exec agent cards with runtime readiness cards showing install/auth/model/capability/preflight status.
+- [x] 7.1 Replace/upgrade current exec agent cards with runtime readiness cards showing install/auth/model/capability/preflight status.
       Verify: `node --check` and targeted UI contract tests if available.
 - [x] 7.2 Add "run preflight" action and display cached preflight time/expiry/fingerprint status.
       Verify: API interaction tests and manual browser smoke if server is run.
-- [ ] 7.3 Add explicit "switch to this verified runtime and rerun" action for runtimes with passed preflight.
+- [x] 7.3 Add explicit "switch to this verified runtime and rerun" action for runtimes with passed preflight.
       Verify: UI/API tests confirm no automatic switching and correct preference update only after user action.
-- [ ] 7.4 Ensure explicit one-click switch updates only local user preferences, not project runtime definitions.
+- [x] 7.4 Ensure explicit one-click switch updates only local user preferences, not project runtime definitions.
       Verify: preference endpoint tests assert selected runtime/model changes locally and runtime catalog output remains unchanged.
 - [x] 7.5 Ensure report attribution continues to distinguish requested runtime/model from actual executed runtime/model.
       Verify: existing Q-28 attribution tests plus one new runtime-switch scenario.
 
 ## 8. Real Stream Fixtures and Live E2E
 
-- [ ] 8.1 Add sanitized real stream fixtures for Codex, Cursor Agent, Trae, Claude, and Antigravity under tests/fixtures or equivalent.
+- [x] 8.1 Add sanitized real stream fixtures for Codex, Cursor Agent, Trae, Claude, and Antigravity under tests/fixtures or equivalent.
       Verify: parser/event normalizer tests consume fixtures directly.
-- [ ] 8.2 Add local-only raw stream capture guidance and sanitizer so `.tmp/raw_runtime_streams/` captures never need to enter Git.
+- [x] 8.2 Add local-only raw stream capture guidance and sanitizer so `.tmp/raw_runtime_streams/` captures never need to enter Git.
       Verify: sanitizer output removes usernames, absolute paths, tokens, long transcripts, and unrelated prompt text while preserving event shapes.
 - [ ] 8.3 Keep opt-in live runtime E2E tests behind environment flags; add/update tests for all five runtimes where installed.
       Verify: default test suite skips live tests; `RUN_LOCAL_AGENT=1` can exercise installed runtimes.
@@ -90,7 +90,7 @@
 
 ## 9. Docs and Change Closure
 
-- [ ] 9.1 Update `docs/runbooks/local-agent-exec-validation.md` with runtime platform concepts, preflight, explicit switching, and troubleshooting.
+- [x] 9.1 Update `docs/runbooks/local-agent-exec-validation.md` with runtime platform concepts, preflight, explicit switching, and troubleshooting.
 - [x] 9.2 Propose updates to `RECORD.md` and `.project_memory/active/SPRINT_phase3-eval-system.md` after implementation verification.
-- [ ] 9.3 Sync accepted requirements into `openspec/specs/skill-execution/spec.md` during archive.
+- [x] 9.3 Sync accepted requirements into `openspec/specs/skill-execution/spec.md` during archive.
 - [ ] 9.4 Archive OpenSpec change only after tests, live checks, and user acceptance.

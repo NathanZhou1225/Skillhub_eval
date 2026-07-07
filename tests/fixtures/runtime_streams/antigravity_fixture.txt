@@ -1,0 +1,2 @@
+{"type": "text", "text": "OK"}
+{"type": "result", "duration_ms": 5}

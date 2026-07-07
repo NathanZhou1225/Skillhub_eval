@@ -11,7 +11,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from skillhub_eval.core.ingest import _load_cases
+from skillhub_eval.core.ingest import _load_cases, is_preflight_case
 from skillhub_eval.core.schemas.enums import CASE_TYPE_REQUIREMENTS, VALID_CASE_TYPES
 
 
@@ -60,6 +60,8 @@ class CaseSanitizer:
         existing_counts: dict[str, int] = {}
         invalid_type_count = 0
         for case in cases:
+            if is_preflight_case(case):
+                continue
             case_type = case.get("type")
             if case_type is None or case_type not in VALID_CASE_TYPES:
                 invalid_type_count += 1

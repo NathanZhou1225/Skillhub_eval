@@ -1,0 +1,2 @@
+{"type": "tool_call", "subtype": "completed", "call_id": "tool_1", "tool_call": {"shellToolCall": {"args": {"command": "python scripts/run.py"}, "result": {"success": {"exitCode": 0, "stdout": "{\"status\": \"success\", \"ok\": true}\n", "stderr": ""}}}}}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "duration_ms": 42}
