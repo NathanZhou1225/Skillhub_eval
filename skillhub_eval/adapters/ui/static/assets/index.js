@@ -24,6 +24,7 @@ let _execPreferences = null;
 let _execPollTimer = null;
 let _execBannerDismissed = false;
 const _execAgentTestStatus = {};
+const _runtimePreflightStatus = {};
 let _bridgePromptEl = null;
 let _pendingFormalResume = false;
 let _pendingFormalAction = null;
@@ -654,8 +655,21 @@ const REASON_ZH = {
   'RISK_CASE_COUNT_INSUFFICIENT': '当前风险等级用例数量不足',
   'EVAL_WORKFLOW_TIMEOUT': '评估超时',
   'EVAL_PROVIDER_UNAVAILABLE': '双模型 API 均未返回有效分数',
+  'LOCAL_RUNTIME_PREFLIGHT_REQUIRED': '当前本地 Runtime 尚未通过本 Skill 的 Preflight，正式本地评估已阻止',
   'LOCAL_EXEC_UNAVAILABLE': '本地 Agent 不可用（未检测到或未授权），本次未执行、未出报告',
   'LOCAL_EXEC_ALL_CASES_FAILED': '本地 Agent 执行全部失败，本次未出报告（非静默降级为示例数据）',
+  'LOCAL_RUNTIME_CLI_UNAVAILABLE': '本地 CLI 未检测到或不可调用',
+  'LOCAL_RUNTIME_AUTH_MISSING': '本地 CLI 未登录或配置不可用',
+  'LOCAL_RUNTIME_DEFINITION_MISSING': '该 Agent 缺少 runtime 定义',
+  'LOCAL_RUNTIME_PROMPT_TOO_LARGE': '当前 CLI 的命令行 prompt 超过安全长度',
+  'LOCAL_RUNTIME_SKILL_INJECTION_UNAVAILABLE': '当前 Skill 无可用注入方式',
+  'LOCAL_RUNTIME_RUN_INCOMPLETE': '本地 Runtime 未完成执行或输出流未结束',
+  'LOCAL_RUNTIME_PARSER_MISSING': '本地 Runtime 输出无法解析',
+  'LOCAL_RUNTIME_MISSING_ENTRYPOINT_EVIDENCE': '未观察到入口脚本执行证据',
+  'LOCAL_RUNTIME_OUTPUT_LEAK': '本地产出疑似包含敏感信息，已拦截',
+  'LOCAL_RUNTIME_HARDENED_PROFILE_UNAVAILABLE': '该 Runtime 不支持红线题所需强化模式',
+  'LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED': '高风险 Skill 缺少安全 Preflight 用例',
+  'LOCAL_RUNTIME_ADAPTER_UNAVAILABLE': '该 Runtime 暂无可用 adapter',
 };
 
 // ── Tab switching ─────────────────────────────────────────────────────────────
@@ -742,11 +756,30 @@ const EXEC_READY_REASON_ZH = {
   missing_entrypoint_evidence: '未检测到入口脚本的执行证据（tool_result 缺少 entrypoint 调用记录）',
   output_leak: '产出疑似包含敏感信息，已被安全过滤拦截',
   redline_no_hardened_profile: '当前 Agent 不支持该红线题所需的强化执行模式',
+  local_runtime_definition_missing: '该 Agent 缺少 runtime 定义，请先升级 Runtime 配置',
+  local_runtime_prompt_too_large: '当前 CLI 通过命令行参数接收 prompt，内容过长，需缩短 case 或改用 stdin/prompt-file runtime',
+  local_runtime_skill_injection_unavailable: '当前 skill 无可用注入方式',
+  runtime_auth_missing: '本地 CLI 未登录或配置不可用',
+  runtime_safe_preflight_required: '高风险 skill 缺少安全 preflight 用例',
+  runtime_missing_entrypoint_evidence: 'preflight 未观察到入口脚本执行证据',
+  runtime_run_incomplete: 'preflight 未完成或返回错误',
+  runtime_parser_missing: 'preflight 输出无法解析',
 };
 
 function formatExecReadyReason(reason) {
   if (!reason) return '';
   return EXEC_READY_REASON_ZH[reason] || reason;
+}
+
+function formatRuntimePreflightStatus(item) {
+  if (!item) return '';
+  const status = item.status === 'passed' ? '通过'
+    : item.status === 'failed' ? '失败'
+    : item.status === 'blocked' ? '已阻止'
+    : item.status || '未知';
+  const cached = item.cached ? '（缓存）' : '';
+  const reason = item.failure_reason ? `：${formatExecReadyReason(item.failure_reason)}` : '';
+  return `${status}${cached}${reason}`;
 }
 
 function getExecReadyReason() {
@@ -1160,6 +1193,31 @@ async function testExecAgent(agentId) {
     _execAgentTestStatus[agentId] = `失败：${e.message}`;
   }
   renderExecAgentCards();
+}
+
+async function runRuntimePreflightFromDetail(encodedPath, encodedRuntime, encodedModel) {
+  const skillPath = decodeURIComponent(encodedPath || '');
+  const runtimeId = decodeURIComponent(encodedRuntime || '');
+  const modelId = decodeURIComponent(encodedModel || 'default') || 'default';
+  if (!skillPath || !runtimeId) {
+    toast('缺少 preflight 参数', false);
+    return;
+  }
+  const key = `${runtimeId}:${modelId}:${skillPath}`;
+  _runtimePreflightStatus[key] = { status: 'running' };
+  try {
+    const data = await apiFetch(`/api/exec/runtimes/${encodeURIComponent(runtimeId)}/preflight`, {
+      method: 'POST',
+      body: JSON.stringify({ skill_bundle_path: skillPath, model: modelId }),
+    });
+    _runtimePreflightStatus[key] = data;
+    const msg = formatRuntimePreflightStatus(data);
+    toast(`Runtime preflight：${msg}`, data?.status === 'passed');
+    await fetchExecPreferences();
+  } catch (e) {
+    _runtimePreflightStatus[key] = { status: 'error', failure_reason: e.message };
+    toast(`Runtime preflight 失败：${e.message}`, false);
+  }
 }
 
 function startExecBridgePoll() {
@@ -3052,14 +3110,26 @@ function renderExecAttributionCard(d) {
   const report = getReportPayload(d);
   const agentLabel = report.exec_agent_label;
   const requestedAgentLabel = report.exec_requested_agent_label;
+  const skillPath = report.skill_bundle_path || d.skill_bundle_path || '';
+  const runtimeId = report.exec_agent_id || _execPreferences?.exec_agent || '';
+  const modelId = report.exec_model_id || _execPreferences?.exec_model || 'default';
+  const preflightButton = (skillPath && runtimeId)
+    ? `<button type="button"
+        class="ml-2 inline-flex items-center px-2 py-0.5 border border-amber-300 text-amber-800 bg-white hover:bg-amber-100 text-[11px]"
+        onclick="runRuntimePreflightFromDetail('${encodeURIComponent(skillPath)}','${encodeURIComponent(runtimeId)}','${encodeURIComponent(modelId)}')">
+        运行 Preflight
+      </button>`
+    : '';
   if (!agentLabel && !requestedAgentLabel) return '';
   if (agentLabel) {
     return `<div class="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
       本地执行：<strong>${escapeHtml(agentLabel)}</strong> / ${escapeHtml(report.exec_model_label || '默认模型')} — 本次已成功执行
+      ${preflightButton}
     </div>`;
   }
   return `<div class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
     已选择 <strong>${escapeHtml(requestedAgentLabel)}</strong> / ${escapeHtml(report.exec_requested_model_label || '默认模型')}，但本次未成功执行（详见下方失败原因）
+    ${preflightButton}
   </div>`;
 }
 

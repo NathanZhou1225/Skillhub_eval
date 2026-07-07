@@ -1170,6 +1170,7 @@ async def test_local_exec_all_cases_failed_blocks_run(tmp_path, monkeypatch):
     assert report["exec_agent_label"] is None
     assert report["exec_model_label"] is None
     assert any(e.get("degrade_reason") == "run_incomplete" for e in report["evidence"])
+    assert any(e.get("runtime_failure_code") == "LOCAL_RUNTIME_RUN_INCOMPLETE" for e in report["evidence"])
 
 
 @pytest.mark.asyncio
@@ -1252,6 +1253,7 @@ async def test_local_exec_partial_failure_does_not_block_run(tmp_path):
 
     events = repo.list_events(run_id, event_name="local_agent_failure")
     assert any(e["payload"]["case_id"] == "case_01" for e in events)
+    assert any(e["payload"]["runtime_failure_code"] == "LOCAL_RUNTIME_RUN_INCOMPLETE" for e in events)
 
 
 @pytest.mark.asyncio
@@ -1286,3 +1288,262 @@ async def test_exec_report_fields_never_claim_preference_as_executed(tmp_path):
     assert report["exec_model_label"] is None
     assert report["exec_requested_agent_label"]
     assert report["exec_requested_model_label"]
+
+
+@pytest.mark.asyncio
+async def test_local_runtime_preflight_required_blocks_formal_local_eval(tmp_path, monkeypatch):
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+    monkeypatch.setattr(engine, "_valid_runtime_preflight", lambda _path, **_kwargs: None)
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert report["status"] == "failed"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_sample_io_eval_does_not_require_runtime_preflight(tmp_path, monkeypatch):
+    bundle = make_confirmed_low_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+
+    def fail_if_called(_path, **_kwargs):
+        raise AssertionError("sample_io should not check runtime preflight")
+
+    monkeypatch.setattr(engine, "_valid_runtime_preflight", fail_if_called)
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_valid_runtime_preflight_allows_formal_local_case_exec(tmp_path, monkeypatch):
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+    monkeypatch.setattr(engine, "_valid_runtime_preflight", lambda _path, **_kwargs: {"status": "passed"})
+
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="codex",
+                agent_label="Codex",
+                model_id="default",
+                model_label="默认模型",
+            )
+
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(
+        run_id=run_id,
+        skill_bundle_path=bundle,
+        bundle_state=BundleState.confirmed,
+        evaluation_mode=EvaluationMode.capability_full,
+    )
+
+    report = repo.get_report(run_id)
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert report["level_achieved"] == "level_2"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_engine_gate_accepts_real_sqlite_preflight_cache(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from skillhub_eval.core.schemas.report import ExecResult
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+
+    monkeypatch.setattr("skillhub_eval.execution.detection.resolve_agent_binary", lambda _agent: "/bin/codex")
+    monkeypatch.setattr("skillhub_eval.execution.detection._config_dir_present", lambda _agent: True)
+    preflight_runner = PreflightRunner(repo=repo, version_probe=lambda _path, _args: "codex 1.0")
+    monkeypatch.setattr(engine, "_preflight_runner", lambda: preflight_runner)
+    context = preflight_runner._context(
+        bundle, "claude", "default"
+    )
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="ok",
+        manual_hint=None,
+        evidence={"safe_preflight": True},
+    )
+
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="claude",
+                agent_label="Claude",
+                model_id="default",
+                model_label="默认模型",
+            )
+
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(run_id, bundle, BundleState.confirmed, EvaluationMode.capability_full)
+
+    report = repo.get_report(run_id)
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
+
+
+@pytest.mark.asyncio
+async def test_engine_gate_rejects_expired_real_preflight_cache(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+
+    monkeypatch.setattr("skillhub_eval.execution.detection.resolve_agent_binary", lambda _agent: "/bin/codex")
+    monkeypatch.setattr("skillhub_eval.execution.detection._config_dir_present", lambda _agent: True)
+    preflight_runner = PreflightRunner(repo=repo, version_probe=lambda _path, _args: "codex 1.0")
+    monkeypatch.setattr(engine, "_preflight_runner", lambda: preflight_runner)
+    context = preflight_runner._context(
+        bundle, "claude", "default"
+    )
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=(now - timedelta(hours=2)).isoformat(),
+        expires_at=(now - timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="expired",
+        manual_hint=None,
+        evidence={},
+    )
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(run_id, bundle, BundleState.confirmed, EvaluationMode.capability_full)
+
+    report = repo.get_report(run_id)
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
+    evidence = report["evidence"][0]
+    assert evidence["diagnosis"] == "cache_invalid"
+    assert evidence["cached_status"] == "passed"
+    assert evidence["cached_runtime_failure_code"] == "LOCAL_RUNTIME_UNKNOWN"
+
+
+@pytest.mark.asyncio
+async def test_engine_gate_rejects_locked_high_without_safe_preflight(tmp_path, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+    from skillhub_eval.core.schemas.enums import RiskLevel
+
+    bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
+    engine, repo = make_engine(tmp_path)
+    monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
+
+    async def fake_review_risk_level(*_args, **_kwargs):
+        return RiskLevel.high, "AI high"
+
+    monkeypatch.setattr("skillhub_eval.core.engine.review_risk_level", fake_review_risk_level)
+    monkeypatch.setattr("skillhub_eval.execution.detection.resolve_agent_binary", lambda _agent: "/bin/codex")
+    monkeypatch.setattr("skillhub_eval.execution.detection._config_dir_present", lambda _agent: True)
+    preflight_runner = PreflightRunner(repo=repo, version_probe=lambda _path, _args: "codex 1.0")
+    monkeypatch.setattr(engine, "_preflight_runner", lambda: preflight_runner)
+    context = preflight_runner._context(
+        bundle, "claude", "default"
+    )
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="ok",
+        manual_hint=None,
+        evidence={"safe_preflight": False},
+    )
+
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path=bundle,
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    await engine.run_async(run_id, bundle, BundleState.confirmed, EvaluationMode.capability_full)
+
+    report = repo.get_report(run_id)
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
+    assert report["evidence"][0]["locked_risk_level"] == "high"

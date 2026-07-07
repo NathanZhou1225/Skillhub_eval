@@ -388,3 +388,115 @@ def test_agent_test(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     fail_body = fail_resp.json()
     assert fail_body["ok"] is False
     assert "not detected" in fail_body["message"].lower()
+
+
+def test_runtime_preflight_returns_cached_result_without_switching_preferences(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n", encoding="utf-8")
+
+    before = client.get("/api/exec/preferences").json()
+
+    class _FakePreflightRunner:
+        def __init__(self, repo):
+            self.repo = repo
+
+        def check_cached(self, skill_bundle_path, *, runtime_id, model_id):
+            return {
+                "runtime_id": runtime_id,
+                "model_id": model_id,
+                "skill_fingerprint": "skill-fp",
+                "fingerprint": "runtime-fp",
+                "status": "passed",
+                "checked_at": "2026-07-05T00:00:00+00:00",
+                "expires_at": "2026-07-06T00:00:00+00:00",
+                "cli_path": "/bin/codex",
+                "cli_version": "codex 1.0",
+                "failure_reason": None,
+                "message_zh": "cached ok",
+                "manual_hint": None,
+                "evidence": {"source": "cache"},
+            }
+
+        def run(self, *args, **kwargs):
+            raise AssertionError("cache hit should not run preflight")
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.PreflightRunner", _FakePreflightRunner)
+
+    resp = client.post(
+        "/api/exec/runtimes/codex/preflight",
+        json={"skill_bundle_path": str(skill), "model": "default"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "passed"
+    assert body["cached"] is True
+    assert body["evidence"] == {"source": "cache"}
+    assert client.get("/api/exec/preferences").json() == before
+
+
+def test_runtime_preflight_runs_when_cache_missing(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n", encoding="utf-8")
+
+    class _FakeResult:
+        def to_cache_row(self):
+            return {
+                "runtime_id": "trae",
+                "model_id": "GLM-5.2",
+                "skill_fingerprint": "skill-fp",
+                "fingerprint": "runtime-fp",
+                "status": "failed",
+                "cached": False,
+                "checked_at": "2026-07-05T00:00:00+00:00",
+                "expires_at": "2026-07-06T00:00:00+00:00",
+                "cli_path": "/bin/trae",
+                "cli_version": "trae 1.0",
+                "failure_reason": "runtime_missing_entrypoint_evidence",
+                "message_zh": "missing evidence",
+                "manual_hint": "check stream",
+                "evidence": {"source": "run"},
+            }
+
+    class _FakePreflightRunner:
+        def __init__(self, repo):
+            self.repo = repo
+
+        def check_cached(self, skill_bundle_path, *, runtime_id, model_id):
+            return None
+
+        def run(self, skill_bundle_path, *, runtime_id, model_id):
+            assert runtime_id == "trae"
+            assert model_id == "GLM-5.2"
+            return _FakeResult()
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.PreflightRunner", _FakePreflightRunner)
+
+    resp = client.post(
+        "/api/exec/runtimes/trae/preflight",
+        json={"skill_bundle_path": str(skill), "model": "GLM-5.2"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "failed"
+    assert body["cached"] is False
+    assert body["failure_reason"] == "runtime_missing_entrypoint_evidence"
+    assert body["evidence"] == {"source": "run"}
+
+
+def test_runtime_preflight_rejects_unknown_runtime(client: TestClient, tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    resp = client.post(
+        "/api/exec/runtimes/nope/preflight",
+        json={"skill_bundle_path": str(skill), "model": "default"},
+    )
+
+    assert resp.status_code == 404

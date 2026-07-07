@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import shutil
+import json
 from dataclasses import dataclass
 
 from skillhub_eval.execution.cli_detect import find_cli_binary
+from skillhub_eval.execution.events import AgentEvent, AgentEventType, ToolResultPayload
+from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
 
 
 def _normalize_tool_call_event(event: dict) -> dict | None:
@@ -82,19 +85,14 @@ class CursorAgentAdapter:
         return [self.resolved_bin(), *args]
 
     def parse_stream(self, lines: list[str]):
-        from skillhub_eval.core.schemas.report import ParsedStream
+        return parsed_stream_from_events(self.normalize_events(lines))
 
+    def normalize_events(self, lines: list[str]) -> list[AgentEvent]:
         state: dict = {}
-        text_parts: list[str] = []
-        tool_results: list[dict] = []
-        usage = None
-        duration_ms = None
-        is_complete = False
-        is_error = False
-        error_text: str | None = None
+        events: list[AgentEvent] = []
+        text_events: list[AgentEvent] = []
+        terminal_event: AgentEvent | None = None
         result_text: str | None = None
-
-        import json
 
         for raw in lines:
             line = raw.strip()
@@ -113,7 +111,7 @@ class CursorAgentAdapter:
                 if isinstance(chunk, str) and chunk:
                     delta = _emit_cursor_text_delta(chunk, state)
                     if delta:
-                        text_parts.append(delta)
+                        text_events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": delta}))
             elif event_type == "assistant":
                 # Real cursor-agent nests per-token text under message.content[],
                 # not a top-level `text`/`delta` field.
@@ -122,36 +120,46 @@ class CursorAgentAdapter:
                     if isinstance(block, dict) and isinstance(block.get("text"), str):
                         delta = _emit_cursor_text_delta(block["text"], state)
                         if delta:
-                            text_parts.append(delta)
+                            text_events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": delta}))
             elif event_type == "tool_result":
-                tool_results.append(event)
+                events.append(AgentEvent(type=AgentEventType.TOOL_RESULT, payload=event))
             elif event_type == "tool_call":
                 normalized = _normalize_tool_call_event(event)
                 if normalized is not None:
-                    tool_results.append(normalized)
+                    events.append(AgentEvent(type=AgentEventType.TOOL_RESULT, payload=_tool_result_payload(normalized)))
             elif event_type == "result":
                 if event.get("is_error"):
-                    is_error = True
                     raw_error = event.get("error") or event.get("message")
+                    if isinstance(event.get("usage"), dict):
+                        events.append(AgentEvent(type=AgentEventType.USAGE, payload=event["usage"]))
+                    payload = {"is_error": True, "duration_ms": event.get("duration_ms")}
                     if isinstance(raw_error, str) and raw_error:
-                        error_text = raw_error
+                        payload["error_text"] = raw_error
+                    terminal_event = AgentEvent(type=AgentEventType.DONE, payload=payload)
                 else:
-                    is_complete = True
                     raw_result = event.get("result")
                     if isinstance(raw_result, str) and raw_result:
                         result_text = raw_result
-                if isinstance(event.get("usage"), dict):
-                    usage = event["usage"]
-                if event.get("duration_ms") is not None:
-                    duration_ms = int(event["duration_ms"])
+                    payload = {"duration_ms": event.get("duration_ms")}
+                    if isinstance(event.get("usage"), dict):
+                        events.append(AgentEvent(type=AgentEventType.USAGE, payload=event["usage"]))
+                    if result_text is not None:
+                        payload["result"] = result_text
+                    terminal_event = AgentEvent(type=AgentEventType.DONE, payload=payload)
 
-        final_text = result_text if result_text is not None else "".join(text_parts)
-        return ParsedStream(
-            final_text=final_text,
-            tool_results=tool_results,
-            usage=usage,
-            duration_ms=duration_ms,
-            is_complete=is_complete,
-            is_error=is_error,
-            error_text=error_text,
-        )
+        if result_text is None:
+            events.extend(text_events)
+        if terminal_event is not None:
+            events.append(terminal_event)
+        return events
+
+
+def _tool_result_payload(raw: dict) -> ToolResultPayload:
+    return ToolResultPayload(
+        tool=str(raw.get("tool") or ""),
+        command=raw.get("command") if isinstance(raw.get("command"), str) else None,
+        stdout=raw.get("stdout") if isinstance(raw.get("stdout"), str) else "",
+        stderr=raw.get("stderr") if isinstance(raw.get("stderr"), str) else "",
+        exit_code=raw.get("exit_code") if isinstance(raw.get("exit_code"), int) else None,
+        is_error=bool(raw.get("is_error")),
+    )

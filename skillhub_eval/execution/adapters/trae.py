@@ -7,6 +7,9 @@ from dataclasses import dataclass
 
 import yaml
 
+from skillhub_eval.execution.events import AgentEvent, AgentEventType, ToolResultPayload
+from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
+
 
 def _extract_bash_commands(lines: list[str]) -> dict[str, str]:
     """Map assistant tool_call id -> Bash command string.
@@ -119,11 +122,11 @@ class TraeAdapter:
         return args
 
     def parse_stream(self, lines: list[str]):
-        from skillhub_eval.execution.stream_parser import parse_stream_events
+        return parsed_stream_from_events(self.normalize_events(lines))
 
-        parsed = parse_stream_events(lines)
+    def normalize_events(self, lines: list[str]) -> list[AgentEvent]:
         commands = _extract_bash_commands(lines)
-        extra_tool_results: list[dict] = []
+        events: list[AgentEvent] = []
         for raw in lines:
             line = raw.strip()
             if not line:
@@ -134,14 +137,39 @@ class TraeAdapter:
                 continue
             if not isinstance(event, dict):
                 continue
+            event_type = event.get("type")
+            if event_type in ("text", "assistant"):
+                delta = event.get("delta") or event.get("text") or ""
+                if isinstance(delta, str) and delta:
+                    events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": delta}))
+            elif event_type == "item.completed":
+                item = event.get("item")
+                if isinstance(item, dict) and item.get("type") == "agent_message":
+                    text = item.get("text") or ""
+                    if isinstance(text, str) and text:
+                        events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": text}))
+            elif event_type == "tool_result":
+                events.append(AgentEvent(type=AgentEventType.TOOL_RESULT, payload=event))
+            elif event_type in ("result", "turn.completed"):
+                payload: dict = {}
+                if event.get("is_error") or event.get("subtype") == "error_during_execution":
+                    payload["is_error"] = True
+                    raw_error = event.get("error") or event.get("message")
+                    if isinstance(raw_error, str) and raw_error:
+                        payload["error_text"] = raw_error
+                elif event_type == "result":
+                    result_text = event.get("result") or event.get("text")
+                    if isinstance(result_text, str) and result_text:
+                        payload["result"] = result_text
+                if isinstance(event.get("usage"), dict):
+                    events.append(AgentEvent(type=AgentEventType.USAGE, payload=event["usage"]))
+                if event.get("duration_ms") is not None:
+                    payload["duration_ms"] = event["duration_ms"]
+                events.append(AgentEvent(type=AgentEventType.DONE, payload=payload))
             normalized = _normalize_tool_result_event(event, commands)
             if normalized is not None:
-                extra_tool_results.append(normalized)
-        if extra_tool_results:
-            parsed = parsed.model_copy(
-                update={"tool_results": [*parsed.tool_results, *extra_tool_results]}
-            )
-        return parsed
+                events.append(AgentEvent(type=AgentEventType.TOOL_RESULT, payload=_tool_result_payload(normalized)))
+        return events
 
     def diagnose(self):
         from skillhub_eval.execution.agent_registry import get_agent_def
@@ -224,3 +252,14 @@ class TraeAdapter:
             )
 
         return diagnostics.DiagnosisResult(ok=True, reason_code=None, message_zh="Trae 配置检查通过。")
+
+
+def _tool_result_payload(raw: dict) -> ToolResultPayload:
+    return ToolResultPayload(
+        tool=str(raw.get("tool") or ""),
+        command=raw.get("command") if isinstance(raw.get("command"), str) else None,
+        stdout=raw.get("stdout") if isinstance(raw.get("stdout"), str) else "",
+        stderr=raw.get("stderr") if isinstance(raw.get("stderr"), str) else "",
+        exit_code=raw.get("exit_code") if isinstance(raw.get("exit_code"), int) else None,
+        is_error=bool(raw.get("is_error")),
+    )

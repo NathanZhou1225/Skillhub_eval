@@ -4,6 +4,21 @@ from unittest.mock import patch
 
 from skillhub_eval.execution.adapters.codex import CodexAdapter
 from skillhub_eval.execution.evidence import verify_entrypoint_evidence
+from skillhub_eval.execution.events import AgentEventType
+from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
+
+
+def _assert_equivalent_to_event_builder(adapter: CodexAdapter, lines: list[str]) -> None:
+    parsed = adapter.parse_stream(lines)
+    from_events = parsed_stream_from_events(adapter.normalize_events(lines))
+
+    assert from_events.final_text == parsed.final_text
+    assert from_events.tool_results == parsed.tool_results
+    assert from_events.usage == parsed.usage
+    assert from_events.duration_ms == parsed.duration_ms
+    assert from_events.is_complete == parsed.is_complete
+    assert from_events.is_error == parsed.is_error
+    assert from_events.error_text == parsed.error_text
 
 
 def test_codex_build_args_hardened_disables_network():
@@ -77,3 +92,49 @@ def test_codex_parse_stream_failed_command_execution_is_not_evidence():
     ]
     parsed = adapter.parse_stream(lines)
     assert verify_entrypoint_evidence(parsed.tool_results, "scripts/run.py") is False
+
+
+def test_codex_normalize_events_captures_command_execution_as_tool_result():
+    lines = [
+        json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "python scripts/run.py",
+                "aggregated_output": '{"status": "success", "ok": true}\n',
+                "exit_code": 0,
+                "status": "completed",
+            },
+        }),
+        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}),
+    ]
+
+    events = CodexAdapter().normalize_events(lines)
+
+    assert any(
+        e.type == AgentEventType.TOOL_RESULT and e.payload.command == "python scripts/run.py"
+        for e in events
+    )
+    assert any(e.type == AgentEventType.DONE for e in events)
+
+
+def test_codex_normalize_events_matches_parse_stream_for_command_execution_and_turn_completed():
+    adapter = CodexAdapter()
+    lines = [
+        json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}),
+        json.dumps({
+            "type": "item.completed",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "python scripts/run.py",
+                "aggregated_output": '{"status": "success", "ok": true}\n',
+                "exit_code": 0,
+                "status": "completed",
+            },
+        }),
+        json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 1}}),
+    ]
+
+    _assert_equivalent_to_event_builder(adapter, lines)

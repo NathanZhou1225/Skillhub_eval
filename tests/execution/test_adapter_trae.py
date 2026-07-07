@@ -6,6 +6,21 @@ import yaml
 from skillhub_eval.execution import diagnostics, models as models_module
 from skillhub_eval.execution.adapters.trae import TraeAdapter
 from skillhub_eval.execution.evidence import verify_entrypoint_evidence
+from skillhub_eval.execution.events import AgentEventType
+from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
+
+
+def _assert_equivalent_to_event_builder(adapter: TraeAdapter, lines: list[str]) -> None:
+    parsed = adapter.parse_stream(lines)
+    from_events = parsed_stream_from_events(adapter.normalize_events(lines))
+
+    assert from_events.final_text == parsed.final_text
+    assert from_events.tool_results == parsed.tool_results
+    assert from_events.usage == parsed.usage
+    assert from_events.duration_ms == parsed.duration_ms
+    assert from_events.is_complete == parsed.is_complete
+    assert from_events.is_error == parsed.is_error
+    assert from_events.error_text == parsed.error_text
 
 
 def test_build_args_stream_json():
@@ -133,6 +148,87 @@ def test_trae_parse_stream_failed_bash_tool_result_is_not_evidence():
     ]
     parsed = adapter.parse_stream(lines)
     assert verify_entrypoint_evidence(parsed.tool_results, "scripts/run.py") is False
+
+
+def test_trae_normalize_events_correlates_tool_call_and_tool_result():
+    lines = [
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "function": {
+                            "name": "Bash",
+                            "arguments": json.dumps({"command": "python scripts/run.py"}),
+                        },
+                    }
+                ]
+            },
+        }),
+        json.dumps({
+            "type": "user",
+            "subtype": "tool_result",
+            "tool_use_id": "call-1",
+            "tool_name": "Bash",
+            "content": {
+                "structured_content": {"stdout": '{"ok": true}\n', "stderr": "", "exit_code": 0},
+                "is_error": False,
+            },
+        }),
+        json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": '```json\n{"ok": true}\n```',
+            "duration_ms": 50,
+        }),
+    ]
+
+    events = TraeAdapter().normalize_events(lines)
+
+    assert any(
+        e.type == AgentEventType.TOOL_RESULT and e.payload.command == "python scripts/run.py"
+        for e in events
+    )
+    assert any(e.type == AgentEventType.DONE for e in events)
+
+
+def test_trae_normalize_events_matches_parse_stream_for_generic_result_and_tool_result():
+    adapter = TraeAdapter()
+    lines = [
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "Bash", "arguments": json.dumps({"command": "python scripts/run.py"})},
+                    }
+                ]
+            },
+        }),
+        json.dumps({
+            "type": "user",
+            "subtype": "tool_result",
+            "tool_use_id": "call_1",
+            "tool_name": "Bash",
+            "content": {
+                "structured_content": {"stdout": '{"status": "success"}\n', "stderr": "", "exit_code": 0},
+                "is_error": False,
+            },
+        }),
+        json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "result": "done",
+            "duration_ms": 12004,
+            "usage": {"input_tokens": 10, "output_tokens": 1},
+        }),
+    ]
+
+    _assert_equivalent_to_event_builder(adapter, lines)
 
 
 def test_diagnose_missing_config_dir(tmp_path, monkeypatch):

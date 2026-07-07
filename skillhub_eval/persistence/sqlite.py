@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS exec_preferences (
 
 
 class SqliteRepository:
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
 
     def __init__(self, db_path: str = "data/skillhub_eval.db"):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -269,6 +269,7 @@ class SqliteRepository:
                 )
                 """
             )
+            self._create_runtime_preflight_cache(cursor)
 
             version = cursor.execute("PRAGMA user_version").fetchone()[0]
             if version < 1:
@@ -437,7 +438,38 @@ class SqliteRepository:
                         "ADD COLUMN exec_model TEXT NOT NULL DEFAULT 'default'"
                     )
                 cursor.execute("PRAGMA user_version = 11")
+            if version < 12:
+                self._create_runtime_preflight_cache(cursor)
+                cursor.execute("PRAGMA user_version = 12")
         return datetime.now(UTC).isoformat()
+
+    def _create_runtime_preflight_cache(self, cursor: sqlite3.Cursor) -> None:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runtime_preflight_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                runtime_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                skill_fingerprint TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                status TEXT NOT NULL,
+                cli_path TEXT,
+                cli_version TEXT,
+                checked_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                failure_reason TEXT,
+                message_zh TEXT,
+                manual_hint TEXT,
+                evidence_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_preflight_cache_key
+            ON runtime_preflight_cache (runtime_id, model_id, skill_fingerprint)
+            """
+        )
 
     def get_exec_preferences(self) -> dict | None:
         with self._conn() as conn:
@@ -445,6 +477,93 @@ class SqliteRepository:
                 "SELECT * FROM exec_preferences WHERE id = 1"
             ).fetchone()
         return dict(row) if row else None
+
+    def upsert_runtime_preflight(
+        self,
+        *,
+        runtime_id: str,
+        model_id: str,
+        skill_fingerprint: str,
+        fingerprint: str,
+        status: str,
+        cli_path: str | None,
+        cli_version: str | None,
+        checked_at: str,
+        expires_at: str,
+        failure_reason: str | None,
+        message_zh: str | None,
+        manual_hint: str | None,
+        evidence: dict | None,
+    ) -> dict:
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO runtime_preflight_cache (
+                    runtime_id, model_id, skill_fingerprint, fingerprint, status,
+                    cli_path, cli_version, checked_at, expires_at, failure_reason,
+                    message_zh, manual_hint, evidence_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(runtime_id, model_id, skill_fingerprint) DO UPDATE SET
+                    fingerprint=excluded.fingerprint,
+                    status=excluded.status,
+                    cli_path=excluded.cli_path,
+                    cli_version=excluded.cli_version,
+                    checked_at=excluded.checked_at,
+                    expires_at=excluded.expires_at,
+                    failure_reason=excluded.failure_reason,
+                    message_zh=excluded.message_zh,
+                    manual_hint=excluded.manual_hint,
+                    evidence_json=excluded.evidence_json
+                """,
+                (
+                    runtime_id,
+                    model_id,
+                    skill_fingerprint,
+                    fingerprint,
+                    status,
+                    cli_path,
+                    cli_version,
+                    checked_at,
+                    expires_at,
+                    failure_reason,
+                    message_zh,
+                    manual_hint,
+                    json.dumps(evidence or {}, ensure_ascii=False),
+                ),
+            )
+            row = conn.execute(
+                """
+                SELECT * FROM runtime_preflight_cache
+                WHERE runtime_id=? AND model_id=? AND skill_fingerprint=?
+                """,
+                (runtime_id, model_id, skill_fingerprint),
+            ).fetchone()
+        return self._runtime_preflight_row_to_dict(row)
+
+    def get_runtime_preflight(
+        self,
+        *,
+        runtime_id: str,
+        model_id: str,
+        skill_fingerprint: str,
+    ) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM runtime_preflight_cache
+                WHERE runtime_id=? AND model_id=? AND skill_fingerprint=?
+                """,
+                (runtime_id, model_id, skill_fingerprint),
+            ).fetchone()
+        return self._runtime_preflight_row_to_dict(row) if row else None
+
+    def _runtime_preflight_row_to_dict(self, row: sqlite3.Row) -> dict:
+        item = dict(row)
+        try:
+            item["evidence"] = json.loads(item.pop("evidence_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            item["evidence"] = {}
+        return item
 
     def upsert_exec_preferences(
         self,

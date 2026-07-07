@@ -133,12 +133,15 @@ class EvaluationEngine:
     def _log_local_agent_failure(self, case_id: str, result: ExecResult) -> None:
         """Persist the real failure reason so it survives even though the
         run/case is no longer silently masked by a sample_io substitution."""
+        from skillhub_eval.execution.failure_taxonomy import runtime_failure_code
+
         run_id = getattr(self, "_current_run_id", None)
         if not run_id:
             return
         self.repo.log_event(run_id, "local_agent_failure", {
             "case_id": case_id,
             "degrade_reason": result.degrade_reason,
+            "runtime_failure_code": runtime_failure_code(result.degrade_reason),
             "stderr_excerpt": result.stderr_excerpt,
         })
 
@@ -255,6 +258,8 @@ class EvaluationEngine:
         """Local execution was requested but produced zero successful cases —
         block the run with the real reasons instead of returning a report
         built on nothing (see local-agent-trial-hardening)."""
+        from skillhub_eval.execution.failure_taxonomy import runtime_failure_code
+
         attempted = self._local_exec_attempted_results()
         unavailable_reasons = {"agent_unavailable", "consent_required"}
         all_unavailable = bool(attempted) and all(
@@ -265,6 +270,7 @@ class EvaluationEngine:
             {
                 "case_id": case_id,
                 "degrade_reason": result.degrade_reason,
+                "runtime_failure_code": runtime_failure_code(result.degrade_reason),
                 "stderr_excerpt": result.stderr_excerpt,
             }
             for case_id, result in self._case_exec_results.items()
@@ -497,6 +503,22 @@ class EvaluationEngine:
         if not is_confirmed:
             gaps_json = self._build_gaps_snapshot(run_id, bundle, bundle_state)
             repo.save_gaps(run_id, gaps_json)
+
+        if self._requires_runtime_preflight(bundle):
+            preflight = self._valid_runtime_preflight(
+                skill_bundle_path,
+                locked_risk_level=risk_locked.value,
+            )
+            if preflight is None:
+                self._save_fail(
+                    run_id,
+                    bundle,
+                    bundle_state,
+                    evaluation_mode,
+                    ["LOCAL_RUNTIME_PREFLIGHT_REQUIRED"],
+                    [self._runtime_preflight_required_evidence(skill_bundle_path, risk_locked.value)],
+                )
+                return
 
         # ── Phase 3: CaseExec (local agent or sample_io per ExecutionSource) ───
         t_case_exec = time.monotonic()
@@ -849,6 +871,76 @@ class EvaluationEngine:
         from skillhub_eval.core.execution_source import resolve_execution_source_name
 
         return resolve_execution_source_name(bundle) == "local"
+
+    def _requires_runtime_preflight(self, bundle: dict) -> bool:
+        from skillhub_eval.core.execution_source import resolve_execution_source_name
+
+        return (
+            self._execution_source_override is None
+            and resolve_execution_source_name(bundle) == "local"
+        )
+
+    def _valid_runtime_preflight(
+        self,
+        skill_bundle_path: str,
+        *,
+        locked_risk_level: str | None = None,
+    ) -> dict | None:
+        from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
+        from skillhub_eval.execution.preflight_runner import PreflightRunner
+
+        runner = self._preflight_runner()
+        return runner.check_cached(
+            skill_bundle_path,
+            runtime_id=get_exec_agent(),
+            model_id=get_exec_model(),
+            locked_risk_level=locked_risk_level,
+        )
+
+    def _runtime_preflight_required_evidence(
+        self,
+        skill_bundle_path: str,
+        locked_risk_level: str | None,
+    ) -> dict:
+        from skillhub_eval.execution.failure_taxonomy import runtime_failure_code
+        from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
+        from skillhub_eval.execution.preflight_runner import PreflightRunner
+
+        runtime_id = get_exec_agent()
+        model_id = get_exec_model()
+        evidence = {
+            "field": "local_runtime_preflight",
+            "detail": "当前选择的本地 runtime/model 尚未通过当前 skill 的 preflight，正式本地评估已阻止。",
+            "runtime_id": runtime_id,
+            "model_id": model_id,
+            "locked_risk_level": locked_risk_level,
+        }
+        try:
+            context = self._preflight_runner()._context(skill_bundle_path, runtime_id, model_id)
+        except Exception as exc:
+            evidence["diagnosis"] = "context_error"
+            evidence["message"] = str(exc)
+            return evidence
+        latest = self.repo.get_runtime_preflight(
+            runtime_id=context["runtime"].runtime_id,
+            model_id=context["model_id"],
+            skill_fingerprint=context["skill_fingerprint"],
+        )
+        if latest is None:
+            evidence["diagnosis"] = "missing_cache"
+            return evidence
+        evidence["diagnosis"] = "cache_invalid"
+        evidence["cached_status"] = latest.get("status")
+        evidence["cached_failure_reason"] = latest.get("failure_reason")
+        evidence["cached_runtime_failure_code"] = runtime_failure_code(latest.get("failure_reason"))
+        evidence["cached_expires_at"] = latest.get("expires_at")
+        evidence["fingerprint_matches"] = latest.get("fingerprint") == context["fingerprint"]
+        return evidence
+
+    def _preflight_runner(self):
+        from skillhub_eval.execution.preflight_runner import PreflightRunner
+
+        return PreflightRunner(repo=self.repo)
 
     def _run_case_exec_phase(
         self,

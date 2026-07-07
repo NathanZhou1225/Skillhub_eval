@@ -15,7 +15,7 @@ from skillhub_eval.persistence.sqlite import SqliteRepository
 from skillhub_eval.settings import Settings, settings
 
 
-def test_migration_to_v11_creates_exec_preferences(tmp_path):
+def test_migration_through_v11_creates_exec_preferences(tmp_path):
     db_path = str(tmp_path / "v9_to_v11.db")
     with sqlite3.connect(db_path) as conn:
         conn.execute("PRAGMA user_version = 9")
@@ -29,7 +29,7 @@ def test_migration_to_v11_creates_exec_preferences(tmp_path):
             row[1] for row in conn.execute("PRAGMA table_info('exec_preferences')")
         }
 
-    assert version == 11
+    assert version == SqliteRepository.SCHEMA_VERSION
     assert {
         "id",
         "exec_source",

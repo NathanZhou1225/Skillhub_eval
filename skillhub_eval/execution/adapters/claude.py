@@ -41,6 +41,51 @@ class ClaudeAdapter:
         return [self.resolved_bin(), *args]
 
     def parse_stream(self, lines: list[str]):
-        from skillhub_eval.execution.stream_parser import parse_stream_events
+        from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
 
-        return parse_stream_events(lines)
+        return parsed_stream_from_events(self.normalize_events(lines))
+
+    def normalize_events(self, lines: list[str]):
+        import json
+
+        from skillhub_eval.execution.events import AgentEvent, AgentEventType
+
+        events: list[AgentEvent] = []
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                events.append(AgentEvent(type=AgentEventType.RAW_UNSUPPORTED, payload={"raw": raw}))
+                continue
+            if not isinstance(event, dict):
+                events.append(AgentEvent(type=AgentEventType.RAW_UNSUPPORTED, payload={"raw": event}))
+                continue
+
+            event_type = event.get("type")
+            if event_type in ("text", "assistant"):
+                delta = event.get("delta") or event.get("text") or ""
+                if isinstance(delta, str) and delta:
+                    events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": delta}))
+            elif event_type == "tool_result":
+                events.append(AgentEvent(type=AgentEventType.TOOL_RESULT, payload=event))
+            elif event_type in ("result", "turn.completed"):
+                payload: dict = {}
+                if event.get("duration_ms") is not None:
+                    payload["duration_ms"] = int(event["duration_ms"])
+                if event.get("is_error") or event.get("subtype") == "error_during_execution":
+                    payload["is_error"] = True
+                    payload["error_text"] = event.get("error") or event.get("message") or ""
+                else:
+                    if isinstance(event.get("result"), str):
+                        payload["result"] = event["result"]
+                    elif isinstance(event.get("text"), str):
+                        payload["text"] = event["text"]
+                events.append(AgentEvent(type=AgentEventType.DONE, payload=payload))
+                if isinstance(event.get("usage"), dict):
+                    events.append(AgentEvent(type=AgentEventType.USAGE, payload=event["usage"]))
+            else:
+                events.append(AgentEvent(type=AgentEventType.RAW_UNSUPPORTED, payload={"raw": event}))
+        return events

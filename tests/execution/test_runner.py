@@ -1,8 +1,11 @@
 import json
+import threading
+import time
+from unittest.mock import patch
 
 import pytest
 
-from skillhub_eval.execution.runner import LocalAgentRunner, _FakeProcess
+from skillhub_eval.execution.runner import LocalAgentRunner, _FakeProcess, _kill_process_tree
 from skillhub_eval.execution.stream_parser import (
     collect_actual_output,
     extract_fenced_json,
@@ -141,3 +144,82 @@ def test_collect_actual_output_fallback_to_text_and_tools():
     assert out["text"] == "plain"
     assert out["tool_results"] == [{"stdout": "x"}]
     assert out["artifacts"] == [{"path": "out.json"}]
+
+
+class _BlockingStdin:
+    """stdin.write() that blocks forever, simulating a wrapper process that
+    never starts draining its own stdin pipe."""
+
+    def write(self, data):
+        threading.Event().wait()
+        return len(data)
+
+    def close(self):
+        pass
+
+
+class _BlockingStdout:
+    """stdout iterator that never yields a line and never raises StopIteration."""
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        threading.Event().wait()
+        raise StopIteration
+
+
+class _HangingProcess:
+    """Popen-like fake whose stdin write and stdout read both block forever."""
+
+    def __init__(self):
+        self.stdin = _BlockingStdin()
+        self.stdout = _BlockingStdout()
+        self.stderr = None
+        self.pid = 999999
+        self.returncode = None
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        return self.returncode if self.returncode is not None else 0
+
+
+def test_stream_until_complete_enforces_deadline_even_if_stdin_write_blocks():
+    """Regression (2026-07-02 real-machine finding): stdin.write() used to run
+    synchronously on the main thread *before* the deadline loop even started,
+    so a write that blocks (e.g. the wrapper process hasn't started reading
+    stdin yet) bypassed timeout_s entirely — two real cursor-agent processes
+    hung for 50+ minutes, far past their configured per-case timeout, before
+    this fix moved the write onto a background thread."""
+    proc = _HangingProcess()
+    runner = LocalAgentRunner()
+    with patch("skillhub_eval.execution.runner._kill_process_tree", side_effect=lambda p: p.kill()) as mock_kill:
+        started = time.monotonic()
+        lines, exit_code = runner._stream_until_complete(proc, "prompt", timeout_s=0.2)
+        elapsed = time.monotonic() - started
+    assert elapsed < 5.0
+    mock_kill.assert_called_once_with(proc)
+    assert lines == []
+
+
+def test_kill_process_tree_uses_taskkill_on_windows():
+    proc = _HangingProcess()
+    with patch("skillhub_eval.execution.runner.sys.platform", "win32"), \
+         patch("skillhub_eval.execution.runner.subprocess.run") as mock_run:
+        _kill_process_tree(proc)
+    mock_run.assert_called_once()
+    args = mock_run.call_args[0][0]
+    assert args == ["taskkill", "/PID", "999999", "/T", "/F"]
+    assert proc.returncode is None  # proc.kill() itself was not called
+
+
+def test_kill_process_tree_falls_back_to_proc_kill_off_windows():
+    proc = _HangingProcess()
+    with patch("skillhub_eval.execution.runner.sys.platform", "linux"):
+        _kill_process_tree(proc)
+    assert proc.returncode == -9

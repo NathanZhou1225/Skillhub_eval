@@ -7,14 +7,18 @@ import subprocess
 import tempfile
 import time
 
-from fastapi import APIRouter, Body
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel, Field
 
+from skillhub_eval.adapters.api.deps import get_repo
 from skillhub_eval.execution.agent_registry import (
     DEFAULT_MODEL_ID,
     get_agent_catalog,
     resolve_adapter,
 )
+from skillhub_eval.execution.preflight_runner import PreflightRunner
+from skillhub_eval.execution.runtime_defs import get_runtime_def
+from skillhub_eval.persistence.sqlite import SqliteRepository
 from skillhub_eval.execution.detection import detect_agent
 from skillhub_eval.execution.models import discover_models, is_model_verified_live
 from skillhub_eval.execution.install_hints import get_install_hint
@@ -89,6 +93,29 @@ class AgentTestResponse(BaseModel):
 
 class AgentTestRequest(BaseModel):
     model: str | None = None
+
+
+class RuntimePreflightRequest(BaseModel):
+    skill_bundle_path: str
+    model: str | None = None
+    force: bool = False
+
+
+class RuntimePreflightResponse(BaseModel):
+    runtime_id: str
+    model_id: str
+    skill_fingerprint: str
+    fingerprint: str
+    status: str
+    cached: bool = False
+    checked_at: str
+    expires_at: str
+    cli_path: str | None = None
+    cli_version: str | None = None
+    failure_reason: str | None = None
+    message_zh: str = ""
+    manual_hint: str | None = None
+    evidence: dict = Field(default_factory=dict)
 
 
 _spawn_process = subprocess.Popen
@@ -247,6 +274,34 @@ def test_agent(agent_id: str, body: AgentTestRequest | None = Body(default=None)
         message=f"Agent '{agent_id}' smoke test passed.",
         duration_ms=outcome.duration_ms if outcome.duration_ms is not None else elapsed_ms,
     )
+
+
+@router.post("/runtimes/{runtime_id}/preflight", response_model=RuntimePreflightResponse)
+def run_runtime_preflight(
+    runtime_id: str,
+    body: RuntimePreflightRequest,
+    repo: SqliteRepository = Depends(get_repo),
+) -> RuntimePreflightResponse:
+    runtime = get_runtime_def(runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail=f"Unsupported runtime id: {runtime_id}")
+
+    runner = PreflightRunner(repo=repo)
+    if not body.force:
+        cached = runner.check_cached(
+            body.skill_bundle_path,
+            runtime_id=runtime.runtime_id,
+            model_id=body.model or DEFAULT_MODEL_ID,
+        )
+        if cached is not None:
+            return RuntimePreflightResponse.model_validate({**cached, "cached": True})
+
+    result = runner.run(
+        body.skill_bundle_path,
+        runtime_id=runtime.runtime_id,
+        model_id=body.model or DEFAULT_MODEL_ID,
+    )
+    return RuntimePreflightResponse.model_validate(result.to_cache_row())
 
 
 def _probe_cursor_auth_status() -> str:

@@ -17,6 +17,8 @@ from skillhub_eval.execution.evidence import verify_entrypoint_evidence
 from skillhub_eval.execution.harness_prompt import build_harness_prompt
 from skillhub_eval.execution.profile import HardenedProfile, is_redline_case
 from skillhub_eval.execution.runner import AgentAdapter, LocalAgentRunner
+from skillhub_eval.execution.runtime_defs import get_runtime_def
+from skillhub_eval.execution.skill_injection import SkillInjectionError, prepare_skill_injection
 from skillhub_eval.execution.stream_parser import collect_actual_output
 from skillhub_eval.execution.transport.base import run_via_transport
 from skillhub_eval.execution.workspace import (
@@ -114,11 +116,15 @@ class LocalAgentSource:
         adapter: AgentAdapter,
     ) -> ExecResult:
         outcome = self._execute_once(bundle_path, case_id, case, bundle, adapter)
+        if isinstance(outcome, ExecResult):
+            return outcome
         if self._is_rate_limited(outcome):
             self._rate_limited = True
             for delay_s in (1.0, 2.0):
                 time.sleep(delay_s)
                 outcome = self._execute_once(bundle_path, case_id, case, bundle, adapter)
+                if isinstance(outcome, ExecResult):
+                    return outcome
                 if not self._is_rate_limited(outcome):
                     break
         return self._outcome_to_exec_result(outcome, case, bundle, case_id, adapter)
@@ -130,11 +136,27 @@ class LocalAgentSource:
         case: dict,
         bundle: dict,
         adapter: AgentAdapter,
-    ) -> RunOutcome:
+    ) -> RunOutcome | ExecResult:
         run_dir = self._workspace.acquire(bundle_path, case_id)
         try:
             before = snapshot_workspace(run_dir)
-            prompt = build_harness_prompt(case, bundle)
+            runtime = get_runtime_def(getattr(adapter, "agent_id", ""))
+            if runtime is None:
+                return self._incomplete(
+                    "local_runtime_definition_missing",
+                    stderr_excerpt=f"No runtime definition for adapter {getattr(adapter, 'agent_id', '')!r}.",
+                )
+            else:
+                try:
+                    prepared = prepare_skill_injection(
+                        runtime,
+                        case=case,
+                        bundle=bundle,
+                        skill_dir=run_dir,
+                    )
+                except SkillInjectionError as exc:
+                    return self._incomplete(exc.reason_code, stderr_excerpt=str(exc))
+                prompt = prepared.prompt
             hardened = HardenedProfile.use_hardened(adapter, case)
             agent = get_agent_def(getattr(adapter, "agent_id", ""))
             outcome = run_via_transport(

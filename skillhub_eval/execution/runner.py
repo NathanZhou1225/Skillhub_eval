@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import queue
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -11,6 +12,31 @@ from typing import Callable, Protocol, runtime_checkable
 
 from skillhub_eval.core.schemas.report import RunOutcome
 from skillhub_eval.execution.stream_parser import parse_stream_events
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    """Kill proc and all of its descendants.
+
+    On Windows, `proc.kill()` only terminates the immediate child. Local agent
+    CLIs resolved to a `.cmd`/`.bat` wrapper (e.g. cursor-agent.CMD) actually
+    run as `cmd.exe /c <wrapper> ...`, which in turn spawns the real `node.exe`
+    process as a grandchild. Killing just the `cmd.exe` wrapper leaves that
+    grandchild running as an orphan indefinitely — confirmed on a real machine
+    2026-07-02: two orphaned cursor-agent node.exe processes kept running (with
+    their own further child processes) for 50+ minutes, well past their
+    configured per-case timeout, until manually killed with `taskkill /T /F`.
+    """
+    if sys.platform == "win32":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True,
+                timeout=5,
+            )
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
+    proc.kill()
 
 
 @runtime_checkable
@@ -100,8 +126,19 @@ class LocalAgentRunner:
         timeout_s: float,
     ) -> tuple[list[str], int]:
         if proc.stdin:
-            proc.stdin.write(prompt)
-            proc.stdin.close()
+            def _write_stdin() -> None:
+                try:
+                    proc.stdin.write(prompt)
+                    proc.stdin.close()
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+
+            # Written from a background thread — not the main thread — so a
+            # write that blocks (e.g. the wrapper process hasn't started
+            # reading stdin yet) can never delay the deadline loop below from
+            # starting. Previously this was a blocking call made before the
+            # loop existed, so a stuck write bypassed timeout_s entirely.
+            threading.Thread(target=_write_stdin, daemon=True).start()
 
         lines: list[str] = []
         line_queue: queue.Queue[str | None] = queue.Queue()
@@ -136,7 +173,7 @@ class LocalAgentRunner:
                 break
 
         if proc.poll() is None:
-            proc.kill()
+            _kill_process_tree(proc)
             try:
                 proc.wait(timeout=2)
             except subprocess.TimeoutExpired:

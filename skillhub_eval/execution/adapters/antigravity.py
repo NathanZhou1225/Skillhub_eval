@@ -46,11 +46,60 @@ class AntigravityAdapter:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def parse_stream(self, lines: list[str]):
-        from skillhub_eval.core.schemas.report import ParsedStream
-        from skillhub_eval.execution.stream_parser import parse_stream_events
+        from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
 
-        parsed = parse_stream_events(lines)
-        if parsed.final_text or parsed.is_complete:
-            return parsed
+        return parsed_stream_from_events(self.normalize_events(lines))
+
+    def normalize_events(self, lines: list[str]):
+        import json
+
+        from skillhub_eval.execution.events import AgentEvent, AgentEventType
+
+        events: list[AgentEvent] = []
+        has_meaningful_structured_event = False
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+
+            event_type = event.get("type")
+            if event_type in ("text", "assistant"):
+                delta = event.get("delta") or event.get("text") or ""
+                if isinstance(delta, str) and delta:
+                    has_meaningful_structured_event = True
+                    events.append(AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": delta}))
+            elif event_type in ("result", "turn.completed"):
+                has_meaningful_structured_event = True
+                payload: dict = {}
+                if event.get("duration_ms") is not None:
+                    payload["duration_ms"] = int(event["duration_ms"])
+                if event.get("is_error") or event.get("subtype") == "error_during_execution":
+                    payload["is_error"] = True
+                    payload["error_text"] = event.get("error") or event.get("message") or ""
+                else:
+                    if isinstance(event.get("result"), str):
+                        payload["result"] = event["result"]
+                    elif isinstance(event.get("text"), str):
+                        payload["text"] = event["text"]
+                events.append(AgentEvent(type=AgentEventType.DONE, payload=payload))
+                if isinstance(event.get("usage"), dict):
+                    events.append(AgentEvent(type=AgentEventType.USAGE, payload=event["usage"]))
+            else:
+                events.append(AgentEvent(type=AgentEventType.RAW_UNSUPPORTED, payload={"raw": event}))
+
+        if has_meaningful_structured_event:
+            return events
+
         text = "\n".join(line for line in lines if line.strip())
-        return ParsedStream(final_text=text, is_complete=bool(text))
+        if text:
+            return [
+                AgentEvent(type=AgentEventType.TEXT_DELTA, payload={"text": text}),
+                AgentEvent(type=AgentEventType.DONE, payload={}),
+            ]
+        return []

@@ -2,6 +2,21 @@ import json
 import os
 
 from skillhub_eval.execution.adapters.cursor_agent import CursorAgentAdapter, _emit_cursor_text_delta
+from skillhub_eval.execution.events import AgentEventType
+from skillhub_eval.execution.exec_result_builder import parsed_stream_from_events
+
+
+def _assert_equivalent_to_event_builder(adapter: CursorAgentAdapter, lines: list[str]) -> None:
+    parsed = adapter.parse_stream(lines)
+    from_events = parsed_stream_from_events(adapter.normalize_events(lines))
+
+    assert from_events.final_text == parsed.final_text
+    assert from_events.tool_results == parsed.tool_results
+    assert from_events.usage == parsed.usage
+    assert from_events.duration_ms == parsed.duration_ms
+    assert from_events.is_complete == parsed.is_complete
+    assert from_events.is_error == parsed.is_error
+    assert from_events.error_text == parsed.error_text
 
 
 def test_cursor_build_args_open_design_shape():
@@ -113,3 +128,62 @@ def test_cursor_parse_stream_failed_shell_tool_call_is_not_evidence():
     ]
     parsed = adapter.parse_stream(lines)
     assert verify_entrypoint_evidence(parsed.tool_results, "scripts/run.py") is False
+
+
+def test_cursor_agent_normalize_events_from_real_tool_call_shape():
+    lines = [
+        json.dumps({
+            "type": "tool_call",
+            "subtype": "completed",
+            "tool_call": {
+                "shellToolCall": {
+                    "args": {"command": "python scripts/run.py"},
+                    "result": {"success": {"exitCode": 0, "stdout": '{"ok": true}\n', "stderr": ""}},
+                }
+            },
+        }),
+        json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": '```json\n{"ok": true}\n```',
+            "usage": {"input_tokens": 1},
+            "duration_ms": 42,
+        }),
+    ]
+
+    events = CursorAgentAdapter().normalize_events(lines)
+
+    assert any(
+        e.type == AgentEventType.TOOL_RESULT and e.payload.command == "python scripts/run.py"
+        for e in events
+    )
+    assert any(e.type == AgentEventType.DONE for e in events)
+
+
+def test_cursor_agent_normalize_events_matches_parse_stream_result_text_source_of_truth():
+    adapter = CursorAgentAdapter()
+    lines = [
+        json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "partial"}]}}),
+        json.dumps({
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "terminal result",
+            "usage": {"input_tokens": 2},
+            "duration_ms": 8,
+        }),
+    ]
+
+    _assert_equivalent_to_event_builder(adapter, lines)
+
+
+def test_cursor_agent_normalize_events_matches_parse_stream_partial_dedup_without_result_text():
+    adapter = CursorAgentAdapter()
+    lines = [
+        json.dumps({"type": "text", "text": "hel"}),
+        json.dumps({"type": "text", "text": "hello"}),
+        json.dumps({"type": "result", "duration_ms": 9}),
+    ]
+
+    _assert_equivalent_to_event_builder(adapter, lines)

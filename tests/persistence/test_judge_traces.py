@@ -47,7 +47,7 @@ def test_init_db_migration_to_v7_creates_judge_traces(tmp_path):
         ).fetchone()[0]
 
     assert "judge_traces" in tables
-    assert version == 10
+    assert version == SqliteRepository.SCHEMA_VERSION
     assert "UNIQUE" in table_sql
 
 

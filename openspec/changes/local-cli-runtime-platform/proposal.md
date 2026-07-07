@@ -12,7 +12,7 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
 - Replace the current adapter-centric execution path with a runtime contract covering binary resolution, version probe, auth/config signal, model discovery, prompt transport, skill injection strategy, stream/event format, tool capabilities, and preflight behavior.
 - Add a unified `AgentEvent` normalization layer so the evaluation path no longer consumes raw Cursor/Trae/Codex/Claude/Antigravity stream-json shapes directly.
 - Add a mandatory preflight suite: formal local evaluation can only run with a runtime/model whose preflight has passed.
-- Cache preflight results for 24 hours, invalidated by changes to agent id, model id, CLI path, CLI version, runtime definition fingerprint, or SkillHub version.
+- Persist preflight results in the existing SkillHub SQLite database for 24 hours, invalidated by changes to agent id, model id, skill fingerprint, CLI path, CLI version, runtime definition fingerprint, or SkillHub version.
 - Add explicit one-click switching to another preflight-passed runtime after a runtime failure. The system will not automatically switch agents.
 - Add skill injection strategies inspired by open-design: native skill loading where supported, file-placed workflow where useful, and prompt injection as the universal fallback.
 - Replace coarse failure states such as `run_incomplete` with product-readable runtime failure reasons: not installed, not invocable, auth missing/expired, model unavailable, prompt too large, tool permission insufficient, entrypoint not called, CLI crashed, process timeout, completion event missing, parser unsupported, output leak, and preflight expired/missing.
@@ -41,6 +41,8 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
   - `skillhub_eval/execution/stream_parser.py`
   - `skillhub_eval/execution/adapters/*`
   - new modules for runtime definitions, normalized events, preflight, skill injection, and runtime readiness cache.
+- Persistence:
+  - `skillhub_eval/persistence/sqlite.py` adds a `runtime_preflight_cache` table in the existing `settings.eval_db_path` database (`data/skillhub_eval.db` by default), with schema migration via `PRAGMA user_version`.
 - Core engine:
   - `skillhub_eval/core/execution_source.py`
   - `skillhub_eval/core/engine.py`
@@ -57,6 +59,17 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
   - `docs/runbooks/local-agent-exec-validation.md`
   - `.project_memory/active/SPRINT_phase3-eval-system.md`
   - `RECORD.md` update proposal after implementation decisions are finalized.
+
+## Acceptance Criteria
+
+- OpenSpec artifacts and the implementation plan are complete and aligned.
+- `Codex`, `Cursor Agent`, `Trae`, `Claude`, and `Antigravity` are present in the runtime catalog with runtime definitions, readiness metadata, prompt transport, skill injection fallback, event normalization coverage, and user-facing repair hints.
+- The default test suite does not require installed local CLIs, logged-in accounts, network/model access, or quota.
+- Formal local evaluation routes through the runtime platform after all five adapter equivalence tests pass.
+- Mandatory skill-specific runtime preflight is enforced before formal local evaluation, persisted in SQLite, and invalidated by runtime/model/skill/path/version/fingerprint changes.
+- The UI shows runtime readiness/preflight status and supports explicit one-click switching to a verified runtime without automatic fallback.
+- Existing scoring, R1-R8 rules, thresholds, expert review, report aggregation, and attribution semantics remain unchanged.
+- Live runtime E2E validation remains explicit opt-in through `RUN_LOCAL_AGENT=1` or an equivalent environment gate.
 
 ## Non-Goals
 

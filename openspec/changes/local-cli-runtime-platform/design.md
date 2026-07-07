@@ -16,7 +16,7 @@ Open-design's local runtime layer is a useful reference because it treats CLIs a
 - Make local CLI execution a reusable platform inside SkillHub, not a set of per-agent patches.
 - Support `Codex`, `Cursor Agent`, `Trae`, `Claude`, and `Antigravity` under the same runtime contract.
 - Require a successful runtime preflight before formal local evaluation.
-- Cache preflight results for 24 hours, invalidating on runtime/model/path/version/SkillHub changes.
+- Persist preflight results in the existing SQLite database for 24 hours, invalidating on runtime/model/skill/path/version/SkillHub changes.
 - Normalize raw CLI streams into a common `AgentEvent` model before building `ExecResult`.
 - Make failure reasons specific, durable, and actionable.
 - Allow explicit one-click switching to another preflight-passed runtime after failure, without automatic switching.
@@ -62,29 +62,29 @@ Formal local evaluation requires preflight readiness. If preflight is missing, e
 
 ### Preflight
 
-Preflight uses `testskills/exec-fixture-minimal` or an equivalent small built-in fixture to prove:
+Preflight has two layers. A standard fixture such as `testskills/exec-fixture-minimal` is still used by runtime tests and live E2E checks to prove the generic runtime path. The formal-evaluation gate, however, is skill-specific: it runs a safe, minimal preflight probe for the current skill bundle and binds the cache to that skill fingerprint. It does not run formal eval cases and does not score.
 
 - the runtime can start in SkillHub's workspace mode
-- skill instructions are visible to the agent
-- the agent can invoke the entrypoint with a relative path from the working directory
-- tool call evidence is captured
+- the current skill instructions are visible to the agent
+- for script-entrypoint skills, the agent can invoke a safe preflight entrypoint/probe with a relative path from the working directory
+- tool call evidence is captured when scripts are expected
 - stdout/result text can be parsed
-- `actual_output` matches the fixture expectation
+- the output is sufficient to prove the runtime can execute this skill safely enough to proceed to formal evaluation
 - failure reasons are specific if any step fails
 
 Preflight output includes:
 
 - `status`: `passed`, `failed`, `blocked`, `expired`, `missing`
-- `runtime_id`, `model_id`, `cli_path`, `cli_version`, `skillhub_version`, `runtime_fingerprint`
+- `runtime_id`, `model_id`, `skill_fingerprint`, `cli_path`, `cli_version`, `skillhub_version`, `runtime_fingerprint`
 - `checked_at`, `expires_at`
 - `failure_reason`, `failure_message_zh`, `manual_hint`
 - evidence summary: command observed, completion event observed, artifact/output observed
 
-Cache invalidation occurs when any fingerprint input changes: runtime id, model id, resolved CLI path, CLI version, runtime definition fingerprint, or SkillHub version. Default TTL is 24 hours.
+Preflight results are persisted in SkillHub's existing SQLite database (`settings.eval_db_path`, default `data/skillhub_eval.db`) rather than kept only in process memory. Cache invalidation occurs when any fingerprint input changes: runtime id, model id, skill fingerprint, resolved CLI path, CLI version, runtime definition fingerprint, or SkillHub version. Default TTL is 24 hours. The persistence table is `runtime_preflight_cache`, keyed by runtime/model/skill fingerprint and storing fingerprint, status, CLI path/version, checked/expires timestamps, failure reason, user-facing message, manual hint, and evidence JSON.
 
 ### Unified AgentEvent
 
-Each adapter maps raw CLI output to a common event stream before SkillHub builds `ParsedStream` or `ExecResult`.
+Each adapter maps raw CLI output to a common event stream before SkillHub builds `ParsedStream` or `ExecResult`. Migration is compatibility-first: adapters add `normalize_events()` while preserving their current public `parse_stream()` behavior until fixture tests prove equivalence for all five runtimes.
 
 Event types:
 
@@ -100,7 +100,7 @@ Event types:
 
 `tool_call` and `tool_result` use a flat internal schema with command/tool name, arguments, stdout/stderr, exit code, error flag, and correlation id when available. This is where Cursor's nested `shellToolCall`, Trae's `user/tool_result`, Codex stream events, Claude stream-json, and Antigravity output are normalized.
 
-The generic `stream_parser.py` should become a consumer of normalized `AgentEvent`, not the place where all raw CLI dialects accumulate.
+The generic `stream_parser.py` should become a consumer of normalized `AgentEvent`, not the place where all raw CLI dialects accumulate. This convergence happens after the dual-path tests pass for Cursor Agent, Trae, Codex, Claude, and Antigravity.
 
 ### Skill Injection
 
@@ -112,6 +112,16 @@ SkillHub supports three injection strategies:
 
 The runtime definition declares preferred strategies and fallbacks. The injection layer is responsible for prompt-size checks and for staging only the relevant files. Script-entrypoint skills still execute in an isolated per-case workspace.
 
+### Safe Skill Preflight Probe
+
+The formal-evaluation preflight uses a safe probe selected in this order:
+
+1. A skill-provided preflight case/metadata entry when available.
+2. A minimal happy-path probe generated from entrypoint/schema when it is safe to do so.
+3. A blocking requirement for author-provided preflight material when the skill is high-risk/redline or when no safe probe can be generated.
+
+Preflight always runs in an isolated per-case workspace. It writes only preflight cache/diagnostic events, never a formal report, never a case score, and never judge votes. Formal eval cases are not used as the default preflight input because doing so would duplicate cost and could cause side effects before evaluation begins.
+
 ### Execution Flow
 
 Formal local execution becomes:
@@ -120,7 +130,7 @@ Formal local execution becomes:
 2. Verify preflight cache for the selected runtime/model/fingerprint.
 3. If not passed, block before `case_executing` and surface `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` or a specific readiness reason.
 4. Build per-case workspace.
-5. Inject skill instructions using the runtime's strategy.
+5. Inject skill instructions and safe preflight/formal case context using the runtime's strategy.
 6. Launch runtime with declared prompt transport and workspace rules.
 7. Normalize raw stream to `AgentEvent`.
 8. Build `ExecResult` from normalized events, workspace artifacts, sanitizer checks, and entrypoint evidence.
@@ -173,9 +183,9 @@ V1 includes `Codex`, `Cursor Agent`, `Trae`, `Claude`, and `Antigravity`. Other 
 
 Formal local evaluation cannot start unless the selected runtime/model has a valid preflight pass. This intentionally favors trustworthy reports over convenience.
 
-### D4: Preflight cache is allowed but fingerprinted
+### D4: Preflight cache is SQLite-backed and fingerprinted
 
-Preflight is cached for 24 hours. Cache invalidates if agent/model/path/version/runtime fingerprint/SkillHub version changes.
+Preflight is persisted for 24 hours in the existing SkillHub SQLite database. Cache invalidates if agent/model/skill/path/version/runtime fingerprint/SkillHub version changes. This is intentionally stricter than open-design's daemon-local live model cache because SkillHub uses preflight as a formal-evaluation gate for a specific skill, not only as a generic runtime availability signal.
 
 ### D5: Switching is explicit
 
@@ -185,11 +195,37 @@ The system never automatically switches runtimes after failure. The UI may offer
 
 Runtime platform changes stop at `ExecResult`. Existing judge, aggregation, R1-R8, thresholds, expert review, and report semantics stay intact.
 
+### D7: Preflight uses safe probes, not formal eval cases
+
+Skill-specific preflight must not run the first happy case or all happy cases by default. It runs a safe preflight probe. High-risk/redline skills without safe preflight material are blocked with an author-actionable requirement rather than guessed.
+
+### D8: AgentEvent migration is compatibility-first
+
+Adapters add `normalize_events()` first and keep `parse_stream()` behavior stable. The implementation must include tests comparing existing `parse_stream()` outputs with `parsed_stream_from_events(normalize_events())` before any adapter is switched to AgentEvent-only behavior.
+
+### D9: Raw CLI streams are not committed
+
+Repository fixtures store only small sanitized stream samples under `tests/fixtures/runtime_streams/`. Full raw streams captured from live CLI runs stay in an ignored local capture directory such as `.tmp/raw_runtime_streams/`. A sanitizer converts raw captures into minimal fixtures by removing usernames, absolute paths, tokens, long transcripts, and unrelated model text while preserving event shapes needed by parser tests.
+
+### D10: Runtime defaults are project-level, user state is local
+
+Runtime definitions, capability defaults, prompt transport rules, and fallback injection strategies are versioned with the project. Machine-specific state stays local: resolved CLI paths, auth/readiness probe results, selected runtime/model, one-click switch preference, and preflight cache live in the existing local SQLite/config layer and are not committed.
+
+### D11: Live runtime E2E tests are explicit opt-in
+
+The default test suite uses unit tests, sanitized stream fixtures, fake executors, and SQLite temp databases. It must not require installed CLIs, logged-in accounts, network/model access, or available quota. Live local CLI E2E tests run only when explicitly enabled, for example with `RUN_LOCAL_AGENT=1`, and each missing or unready runtime reports a readable skip reason instead of failing the suite.
+
+### D12: Final delivery switches to the runtime platform after staged validation
+
+This change is delivered as one productized runtime-platform change, not a permanent parallel implementation. During implementation, existing execution behavior remains available while runtime definitions, fingerprints, preflight cache, and AgentEvent normalizers are added and proven by tests. After all required compatibility tests pass, formal local evaluation is routed through the new runtime platform and the mandatory preflight gate is enabled.
+
 ## Risks / Trade-offs
 
 - **Risk: Larger change surface.** Runtime registry, API, UI, tests, and execution source all change. Mitigation: phase implementation by compatibility layers and keep `ExecResult` as the engine boundary.
 - **Risk: Preflight blocks users who just want to run.** Mitigation: show specific fix hints and allow explicit switch to any preflight-passed runtime.
-- **Risk: Real CLI behavior varies by version.** Mitigation: store real stream fixtures and include CLI version in preflight fingerprints.
+- **Risk: Real CLI behavior varies by version.** Mitigation: store sanitized real stream fixtures, keep raw captures local-only, and include CLI version in preflight fingerprints.
+- **Risk: Project config leaks machine assumptions.** Mitigation: keep runtime definitions project-level but persist resolved paths, selected model, readiness, and preflight state only in local user storage.
+- **Risk: Live E2E flakes due to auth, quota, network, or model changes.** Mitigation: keep live runtime tests opt-in and keep the default suite fixture/fake based.
 - **Risk: Native skill loading differs by agent/version.** Mitigation: every runtime must support prompt injection fallback.
 - **Risk: Runtime platform could become broader than needed.** Mitigation: v1 excludes cloud fallback, automatic installation, artifact preview, and multi-agent comparison.
 
@@ -198,18 +234,20 @@ Runtime platform changes stop at `ExecResult`. Existing judge, aggregation, R1-R
 1. Add runtime contract types and adapt existing `AgentDef` data into the new shape without changing behavior.
 2. Add unified `AgentEvent` types and map current Cursor/Trae/Codex/Claude/Antigravity parsers to them.
 3. Build `ExecResult` from normalized events while preserving current report fields.
-4. Add preflight runner and cache, initially using `exec-fixture-minimal`.
-5. Gate formal local evaluation on valid preflight.
-6. Expand scan/test API response to include readiness, preflight, model, auth, and failure taxonomy.
-7. Update UI runtime cards and explicit switch/retry controls.
-8. Add real stream fixture tests and opt-in live runtime E2E tests.
-9. Update runbook and sprint docs.
+4. Add preflight runner and cache, using the current skill bundle for formal-evaluation gating and `exec-fixture-minimal` for runtime regression tests.
+5. Prove adapter equivalence for all five runtimes, then route formal local evaluation through the runtime platform.
+6. Gate formal local evaluation on valid preflight.
+7. Expand scan/test API response to include readiness, preflight, model, auth, and failure taxonomy.
+8. Update UI runtime cards and explicit switch/retry controls.
+9. Add real stream fixture tests and opt-in live runtime E2E tests.
+10. Update runbook and sprint docs.
 
 ## Open Questions
 
 - None blocking. Product decisions resolved before proposal:
   - v1 includes Codex, Cursor Agent, Trae, Claude, Antigravity.
   - preflight is mandatory.
-  - preflight is cached for 24 hours with fingerprint invalidation.
+  - preflight is skill-specific and persisted in SQLite for 24 hours with fingerprint invalidation.
   - runtime switching is explicit only.
   - scoring remains unchanged.
+  - final delivery switches formal local evaluation to the runtime platform after staged compatibility validation.

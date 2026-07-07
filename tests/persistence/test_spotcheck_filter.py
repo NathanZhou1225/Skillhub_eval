@@ -70,7 +70,7 @@ def test_migration_v9_adds_spotcheck_columns(tmp_path):
     with sqlite3.connect(db_path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         cols = {row[1] for row in conn.execute("PRAGMA table_info('evaluation_runs')")}
-    assert version == 10
+    assert version == SqliteRepository.SCHEMA_VERSION
     assert "spot_check_eligible" in cols
     assert "execution_source_used" in cols
 
