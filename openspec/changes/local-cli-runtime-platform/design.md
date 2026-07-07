@@ -64,6 +64,8 @@ Formal local evaluation requires preflight readiness. If preflight is missing, e
 
 Preflight has two layers. A standard fixture such as `testskills/exec-fixture-minimal` is still used by runtime tests and live E2E checks to prove the generic runtime path. The formal-evaluation gate, however, is skill-specific: it runs a safe, minimal preflight probe for the current skill bundle and binds the cache to that skill fingerprint. It does not run formal eval cases and does not score.
 
+In the product UI, this is called **本地执行环境检查** rather than "preflight". Ordinary users should not need to know `safe_preflight`, YAML flags, runtime fingerprints, or cache invalidation rules. Those concepts remain developer-facing diagnostics and runbook terms.
+
 - the runtime can start in SkillHub's workspace mode
 - the current skill instructions are visible to the agent
 - for script-entrypoint skills, the agent can invoke a safe preflight entrypoint/probe with a relative path from the working directory
@@ -122,19 +124,41 @@ The formal-evaluation preflight uses a safe probe selected in this order:
 
 Preflight always runs in an isolated per-case workspace. It writes only preflight cache/diagnostic events, never a formal report, never a case score, and never judge votes. Formal eval cases are not used as the default preflight input because doing so would duplicate cost and could cause side effects before evaluation begins.
 
+The generator is part of the evaluation preparation path, not a manual author workflow. For high-risk skills, SkillHub should auto-create a system check case when it can derive a safe minimal input from existing metadata, generated eval cases, or declared output expectations.
+
+Generation uses a guarded hybrid path:
+
+1. Ask the existing LLM-backed case generation/enrichment capability for a candidate check case using a strict JSON/YAML schema and "environment check only" prompt constraints.
+2. Validate the candidate with deterministic rules: required fields, `type: preflight`, `safe_preflight: true`, no irreversible/real-world action request, no buy/sell/payment/delete/send/publish instruction, disclaimer for high-risk domains, and minimal structured output expectation.
+3. If the LLM is unavailable, times out, returns invalid output, or fails safety validation, fall back to a deterministic template.
+
+The persisted/generated case:
+
+- uses `type: preflight` and `safe_preflight: true` internally
+- is excluded from case completeness counts, score aggregation, report verdicts, and expert review triggers
+- must not ask for real investment, legal, medical, trading, payment, deletion, publication, external-send, or irreversible actions
+- must ask for a minimal structured response, explicit disclaimer where relevant, and no final business recommendation
+- should be persisted in staging so the skill fingerprint and preflight cache remain stable across serve restarts
+- should be shown to technical users only as diagnostic material; ordinary users see "系统已准备本地执行环境检查"
+
+If the generator cannot produce a safe check case, the UI should present an actionable non-technical state: "需要一个不会触发真实业务动作的最小检查问题", with a one-click generate/retry action where possible. It should not tell ordinary users to edit YAML.
+
 ### Execution Flow
 
 Formal local execution becomes:
 
 1. Resolve selected runtime/model from preferences.
-2. Verify preflight cache for the selected runtime/model/fingerprint.
-3. If not passed, block before `case_executing` and surface `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` or a specific readiness reason.
-4. Build per-case workspace.
-5. Inject skill instructions and safe preflight/formal case context using the runtime's strategy.
-6. Launch runtime with declared prompt transport and workspace rules.
-7. Normalize raw stream to `AgentEvent`.
-8. Build `ExecResult` from normalized events, workspace artifacts, sanitizer checks, and entrypoint evidence.
-9. Pass `ExecResult` into the existing judge/report flow.
+2. Ensure the current skill has a safe local execution check case; auto-generate and persist one when possible.
+3. Verify preflight cache for the selected runtime/model/fingerprint.
+4. If the cache is missing/expired and a safe check case exists, run the local execution check automatically before `case_executing`.
+5. If the check passes, continue into formal local evaluation.
+6. If the check fails or no safe check case can be generated, block before `case_executing` and surface a non-technical local execution check status with the specific runtime readiness reason.
+7. Build per-case workspace.
+8. Inject skill instructions and formal case context using the runtime's strategy.
+9. Launch runtime with declared prompt transport and workspace rules.
+10. Normalize raw stream to `AgentEvent`.
+11. Build `ExecResult` from normalized events, workspace artifacts, sanitizer checks, and entrypoint evidence.
+12. Pass `ExecResult` into the existing judge/report flow.
 
 ### Explicit Runtime Switching
 
@@ -218,6 +242,16 @@ The default test suite uses unit tests, sanitized stream fixtures, fake executor
 ### D12: Final delivery switches to the runtime platform after staged validation
 
 This change is delivered as one productized runtime-platform change, not a permanent parallel implementation. During implementation, existing execution behavior remains available while runtime definitions, fingerprints, preflight cache, and AgentEvent normalizers are added and proven by tests. After all required compatibility tests pass, formal local evaluation is routed through the new runtime platform and the mandatory preflight gate is enabled.
+
+### D13: Local execution check is automatic and user-friendly
+
+The selected product behavior is automatic local execution checking. Ordinary users should not be required to understand `preflight`, `safe_preflight`, fingerprints, or YAML. When a skill is high-risk, SkillHub first tries to generate and persist a safe system check case; then it runs that check automatically when formal local evaluation needs it. If generation or execution fails, the UI explains the problem as a local execution environment/check issue and offers the next action. The backend still records precise preflight diagnostics for developers and runbooks.
+
+Rejected alternative: disabling the high-risk preflight gate to reduce friction. That would make formal reports less trustworthy and could reintroduce the original problem where a runtime seems usable from a smoke test but cannot safely execute the actual skill.
+
+### D14: Safe check case generation uses LLM candidate plus rule validation
+
+The selected generation approach is hybrid. A deterministic template alone may be too generic for diverse skills, while a raw LLM output alone is too unpredictable for a high-risk gate. SkillHub therefore asks the existing LLM path for a candidate check case, validates it with deterministic safety/schema rules, and falls back to a fixed template when the candidate is unavailable or unsafe. This improves fit to the current skill without making the gate depend on unchecked model creativity.
 
 ## Risks / Trade-offs
 

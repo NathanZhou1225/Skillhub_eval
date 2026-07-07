@@ -19,6 +19,13 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 - **When** 调用本地 runtime scan API
 - **Then** 每个 runtime SHALL 返回同结构的安装、版本、认证、模型、能力与 preflight 状态
 
+#### Scenario: 连接测试与当前 Skill 检查分开展示
+
+- **Given** 用户查看本地工具 readiness card
+- **When** 某本地工具连接测试通过但当前 Skill 本地执行环境检查未通过
+- **Then** UI SHALL 分开展示“连接测试”和“当前 Skill 检查”两个状态
+- **And** SHALL NOT 使用一个笼统“可用”徽章暗示正式本地评估已经可运行
+
 ### Requirement: 统一 AgentEvent 事件层
 
 系统 SHALL 将各 CLI 的原始输出流先归一化为内部 `AgentEvent` 流，再由统一逻辑合成 `ParsedStream`/`ExecResult`。评估引擎 SHALL NOT 直接消费 Cursor Agent、Trae、Codex、Claude 或 Antigravity 的原始 JSON/event/text 方言。`AgentEvent` SHALL 至少支持 `text_delta`、`thinking`、`tool_call`、`tool_result`、`file_write`、`usage`、`done`、`error`、`raw_unsupported`。工具调用和工具结果 SHALL 被拍平成包含工具名、命令/参数、stdout/stderr、exit code、错误标记、关联 id 的内部结构。
@@ -47,13 +54,16 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 
 当用户选择本地 CLI runtime 作为执行源时，系统 SHALL 在正式本地评估开始前检查所选 runtime/model 是否存在有效的 preflight pass。若 preflight 缺失、失败、过期或因指纹变化失效，系统 SHALL 阻止正式本地评估进入 `case_executing`，并向用户展示可操作诊断与修复/切换路径。系统 SHALL NOT 在未通过 preflight 的情况下直接尝试正式本地评估。
 
+面向普通用户的产品文案 SHALL 将该能力称为“本地执行环境检查”或等价非技术名称。UI SHALL NOT 要求普通用户理解 `safe_preflight`、runtime fingerprint、SQLite cache、YAML 标记或 OpenSpec 术语。开发者日志、runbook 与 diagnostics MAY 继续使用 preflight 术语。
+
 #### Scenario: preflight 缺失时阻止正式评估
 
 - **Given** 用户选择 `execution_source=local` 且 runtime/model 没有有效 preflight pass
 - **When** 用户尝试开始正式本地评估
-- **Then** 系统 SHALL 阻止该正式评估
+- **Then** 系统 SHALL 先尝试运行当前 skill 的本地执行环境检查
+- **And** 若检查无法运行或未通过，系统 SHALL 阻止该正式评估
 - **And** 返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` 或等价可读原因
-- **And** UI SHALL 提供运行 preflight 或显式切换到已验证 runtime 的入口
+- **And** UI SHALL 提供运行/重试本地执行环境检查或显式切换到已验证 runtime 的入口
 
 #### Scenario: preflight 通过后允许正式评估
 
@@ -61,6 +71,25 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 - **When** 用户开始正式本地评估
 - **Then** 系统 SHALL 允许进入 `case_executing`
 - **And** 后续评分 SHALL 沿用现有 judge / R1-R8 / 专家复核逻辑
+
+#### Scenario: 缺失 preflight 但可自动检查时不让用户手工配置
+
+- **Given** 用户选择 `execution_source=local`
+- **And** 当前 skill 尚无有效 preflight pass
+- **And** 系统能为当前 skill 准备安全本地执行环境检查用例
+- **When** 用户开始正式本地评估
+- **Then** 系统 SHALL 自动运行该本地执行环境检查
+- **And** 检查通过后 SHALL 继续正式本地评估
+- **And** 用户不需要手动编辑 eval case、YAML 或 `safe_preflight` 字段
+- **And** UI SHALL 将该过程显示为正式评估前的可见阶段，例如“正在检查本地执行环境”
+
+#### Scenario: 本地执行环境检查失败时不可绕过继续真跑
+
+- **Given** 用户选择本地执行
+- **And** 当前 runtime/model 的本地执行环境检查失败、阻断或过期
+- **When** 用户查看恢复动作
+- **Then** UI SHALL NOT 提供“忽略检查继续本地真跑”或等价绕过入口
+- **And** UI SHALL 提供“重新检查”、“重新生成检查用例”、“改用另一个已检查通过的本地工具”或“使用样例输出评估（非本地真跑）”等恢复动作
 
 ### Requirement: preflight 缓存与指纹失效
 
@@ -98,6 +127,12 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 
 runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe 验证该 runtime 能读取 SkillHub 提供的指令、在正确 workspace 中执行该 skill 的安全 entrypoint/probe（若脚本执行被要求）、产出可解析的实际结果、提供工具执行证据（若脚本执行被要求），并通过 sanitizer 与 entrypoint evidence 校验。仅模型文本回复成功 SHALL NOT 被视为 preflight 通过。系统 MAY 继续保留标准 fixture preflight 作为 runtime 开发/回归测试工具，但正式评估 gate SHALL 使用当前 skill fingerprint 级安全 preflight。
 
+系统 SHALL 优先自动准备安全 preflight probe，而不是要求普通用户手动维护 preflight case。自动生成的 probe SHALL 作为系统检查用例持久化在 staging/bundle 内部，使 skill fingerprint、cache invalidation 与 serve 重启后的行为稳定。该检查用例 SHALL 不参与正式 eval case 完整性门槛、评分、报告 verdict、专家复核触发或 case 数量统计。
+
+自动生成 SHALL 使用混合策略：系统 MAY 调用现有 LLM 能力生成候选检查用例，但候选结果 MUST 经过确定性 schema 与安全规则校验；若 LLM 不可用、超时、输出无法解析或未通过规则校验，系统 SHALL 使用确定性模板兜底。系统 SHALL NOT 将未经规则校验的 LLM 输出直接作为安全检查用例持久化或执行。
+
+系统 SHALL 在写入或重新生成内部检查用例后重新读取 bundle 并重新计算 skill fingerprint。preflight cache SHALL 绑定写盘后的新 fingerprint，而不是生成前的旧 fingerprint。
+
 #### Scenario: 有安全 preflight case 时使用它
 
 - **Given** 当前 skill bundle 提供安全 preflight case 或等价元数据
@@ -105,13 +140,38 @@ runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe �
 - **Then** 系统 SHALL 使用该安全 preflight case
 - **And** SHALL NOT 使用正式 eval case 作为默认 preflight 输入
 
+#### Scenario: 高风险 skill 自动生成系统检查用例
+
+- **Given** 当前 skill 为 high-risk 或 redline 相关 skill
+- **And** bundle 未提供安全 preflight case
+- **And** 系统可从已有 skill 元数据、输出要求或低风险示例中构造不会触发真实业务动作的最小检查输入
+- **When** 系统准备本地执行环境检查
+- **Then** 系统 SHALL 自动生成并持久化一条内部检查用例
+- **And** 该用例 SHALL 标记为 `type: preflight` 与 `safe_preflight: true`
+- **And** 该用例 SHALL 保留在 bundle 的 eval case 列表中供本地执行环境检查使用
+- **But** 该用例 SHALL 从正式 case 数量、题型覆盖、缺口扫描、正式 case 执行、评分、报告与专家复核中排除
+- **And** 系统 SHALL 使用写盘后的 bundle fingerprint 运行并缓存本地执行环境检查
+- **And** UI SHALL 告知用户系统已准备本地执行环境检查，而非要求用户编辑 YAML
+
+#### Scenario: LLM 候选未通过安全校验时使用模板兜底
+
+- **Given** 系统调用 LLM 生成本地执行环境检查候选用例
+- **And** LLM 输出缺少必填字段、包含真实业务动作、买卖/下单/支付/删除/发送/发布等指令，或无法解析为固定 schema
+- **When** 系统准备本地执行环境检查
+- **Then** 系统 SHALL 丢弃该候选
+- **And** SHALL 使用确定性安全模板兜底
+- **And** SHALL 记录开发者诊断信息但不向普通用户暴露 LLM 失败细节
+
 #### Scenario: 高风险 skill 缺少安全 preflight 时阻断
 
 - **Given** 当前 skill 为 high-risk 或 redline 相关 skill
 - **And** bundle 未提供安全 preflight case
+- **And** 系统无法自动生成安全检查用例
 - **When** 用户运行 runtime preflight
 - **Then** 系统 SHALL 阻断 preflight
-- **And** 返回要求作者补充安全 preflight case 的可读原因
+- **And** 返回要求补充最小安全检查问题的可读原因
+- **And** UI SHALL 优先提供“生成检查用例”或“重试环境检查”的产品动作，而不是要求普通用户理解 `safe_preflight`
+- **And** UI SHALL 使用普通用户可理解的中文动作，例如“改用另一个已检查通过的本地工具”和“使用样例输出评估（非本地真跑）”，而不是直接暴露 `runtime` 或 `sample_io`
 
 #### Scenario: 文本 smoke 成功但 entrypoint 未调用不能通过
 

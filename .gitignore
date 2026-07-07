@@ -15,6 +15,7 @@ data/
 !skillhub_eval/data/
 !skillhub_eval/data/**
 .tmp/
+.worktrees/
 
 # IDE 与本地编辑器缓存 (CRITICAL)
 .idea/

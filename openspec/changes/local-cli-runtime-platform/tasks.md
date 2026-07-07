@@ -17,6 +17,8 @@
       Verify: model discovery tests for selected model ok/stale/default/probe unavailable.
 - [x] 2.3 Add runtime-specific diagnosis hooks only where needed, preserving generic readiness for all runtimes.
       Verify: a runtime without custom diagnosis still returns generic readiness.
+- [x] 2.4 Expose current-skill local execution check readiness in scan/runtime readiness responses without requiring users to know preflight terminology.
+      Verify: API tests show missing/passed/failed/expired/check-generatable states with product-readable Chinese messages.
 
 ## 3. Unified AgentEvent Layer
 
@@ -52,6 +54,12 @@
       Verify: engine/API tests for `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` and successful pass-through after preflight.
 - [x] 5.5 Route formal local evaluation through the runtime platform after all five adapter equivalence tests pass.
       Verify: fake-executor integration tests prove the selected runtime is resolved through runtime definitions and existing scoring/report outputs remain unchanged.
+- [x] 5.6 Add automatic safe local-execution-check case generation for high-risk skills using LLM candidate generation, deterministic safety validation, and template fallback.
+      Verify: tests prove generated checks are persisted, fingerprinted, marked `type: preflight` and `safe_preflight: true`, unsafe LLM candidates are rejected, fallback template is used when needed, and checks are excluded from formal case counts/scoring.
+- [x] 5.7 Run missing/expired local execution checks automatically before formal local evaluation when a safe check case exists.
+      Verify: engine/API tests prove formal local evaluation proceeds after auto-check pass and blocks with product-readable diagnostics after auto-check fail.
+- [x] 5.8 Keep high-risk blocking only when no authored or generated safe local execution check exists.
+      Verify: regression test for stock-radar-like high-risk generated cases no longer blocks with `runtime_safe_preflight_required`.
 
 ## 6. Runtime Failure Taxonomy
 
@@ -74,6 +82,10 @@
       Verify: preference endpoint tests assert selected runtime/model changes locally and runtime catalog output remains unchanged.
 - [x] 7.5 Ensure report attribution continues to distinguish requested runtime/model from actual executed runtime/model.
       Verify: existing Q-28 attribution tests plus one new runtime-switch scenario.
+- [x] 7.6 Rename user-facing preflight copy to local execution/environment check copy, keeping preflight only in diagnostics/runbook.
+      Verify: UI text review and `node --check`; blocked reports explain Test vs local execution check vs formal evaluation.
+- [x] 7.7 Add automatic-check progress and retry/generate actions for high-risk skills without exposing YAML or `safe_preflight`.
+      Verify: UI/API tests or manual browser smoke show ordinary users can recover from missing check material without editing files.
 
 ## 8. Real Stream Fixtures and Live E2E
 
@@ -81,7 +93,7 @@
       Verify: parser/event normalizer tests consume fixtures directly.
 - [x] 8.2 Add local-only raw stream capture guidance and sanitizer so `.tmp/raw_runtime_streams/` captures never need to enter Git.
       Verify: sanitizer output removes usernames, absolute paths, tokens, long transcripts, and unrelated prompt text while preserving event shapes.
-- [ ] 8.3 Keep opt-in live runtime E2E tests behind environment flags; add/update tests for all five runtimes where installed.
+- [x] 8.3 Keep opt-in live runtime E2E tests behind environment flags; add/update tests for all five runtimes where installed.
       Verify: default test suite skips live tests; `RUN_LOCAL_AGENT=1` can exercise installed runtimes.
 - [x] 8.4 Run focused regression suites for execution/core/API/UI.
       Verify: `pytest tests/execution tests/core tests/adapters -q`, `node --check skillhub_eval/adapters/ui/static/assets/index.js`.
@@ -94,3 +106,4 @@
 - [x] 9.2 Propose updates to `RECORD.md` and `.project_memory/active/SPRINT_phase3-eval-system.md` after implementation verification.
 - [x] 9.3 Sync accepted requirements into `openspec/specs/skill-execution/spec.md` during archive.
 - [ ] 9.4 Archive OpenSpec change only after tests, live checks, and user acceptance.
+- [x] 9.5 Update user-facing docs/runbook language so non-technical users see "本地执行环境检查" while developers can still diagnose preflight cache/fingerprint details.
