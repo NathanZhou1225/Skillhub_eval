@@ -150,6 +150,17 @@ def test_ui_exposes_chat_local_execution_check_button():
     assert "runLocalExecutionCheck(getSelectedExecAgentForAction" not in client.get("/ui/index.html").text
 
 
+def test_ui_report_card_has_no_env_check_button():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    fn_idx = text.find("function renderExecAttributionCard")
+    assert fn_idx != -1
+    region = text[fn_idx : fn_idx + 1200]
+    assert "运行环境检查" not in region
+    assert "runRuntimePreflightFromDetail" not in region
+
+
 def test_ui_env_check_button_visible_when_path_ready():
     app = create_app()
     client = TestClient(app)

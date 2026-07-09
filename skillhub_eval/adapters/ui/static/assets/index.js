@@ -1376,13 +1376,6 @@ async function testExecAgent(agentId) {
   renderExecAgentCards();
 }
 
-async function runRuntimePreflightFromDetail(encodedPath, encodedRuntime, encodedModel) {
-  await runLocalExecutionCheck(decodeURIComponent(encodedRuntime || ''), {
-    skillPath: decodeURIComponent(encodedPath || ''),
-    modelId: decodeURIComponent(encodedModel || 'default'),
-  });
-}
-
 async function runLocalExecutionCheck(runtimeId, opts = {}) {
   const skillPath = opts.skillPath || getActiveSkillBundlePath();
   const modelId = opts.modelId || (getSelectedExecAgent() === runtimeId ? getSelectedExecModel() : 'default');
@@ -3627,26 +3620,14 @@ function renderExecAttributionCard(d) {
   const report = getReportPayload(d);
   const agentLabel = report.exec_agent_label;
   const requestedAgentLabel = report.exec_requested_agent_label;
-  const skillPath = report.skill_bundle_path || d.skill_bundle_path || '';
-  const runtimeId = report.exec_agent_id || _execPreferences?.exec_agent || '';
-  const modelId = report.exec_model_id || _execPreferences?.exec_model || 'default';
-  const preflightButton = (skillPath && runtimeId)
-    ? `<button type="button"
-        class="ml-2 inline-flex items-center px-2 py-0.5 border border-amber-300 text-amber-800 bg-white hover:bg-amber-100 text-[11px]"
-        onclick="runRuntimePreflightFromDetail('${encodeURIComponent(skillPath)}','${encodeURIComponent(runtimeId)}','${encodeURIComponent(modelId)}')">
-        运行环境检查
-      </button>`
-    : '';
   if (!agentLabel && !requestedAgentLabel) return '';
   if (agentLabel) {
     return `<div class="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
       本地执行：<strong>${escapeHtml(agentLabel)}</strong> / ${escapeHtml(report.exec_model_label || '默认模型')} — 本次已成功执行
-      ${preflightButton}
     </div>`;
   }
   return `<div class="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
     已选择 <strong>${escapeHtml(requestedAgentLabel)}</strong> / ${escapeHtml(report.exec_requested_model_label || '默认模型')}，但本次未成功执行（详见下方失败原因）
-    ${preflightButton}
   </div>`;
 }
 
