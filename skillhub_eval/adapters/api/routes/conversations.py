@@ -92,6 +92,7 @@ class BootstrapResponse(BaseModel):
     status: str
     skill_id: str | None = None
     skill_id_source: str | None = None
+    staging_path: str | None = None
     security_status: str | None = None
     security_findings: list[dict] = []
     propagator_used: bool = False
@@ -825,6 +826,7 @@ async def bootstrap_conversation(
             status="awaiting_skill_id_confirm",
             skill_id=skill_id,
             skill_id_source=source,
+            staging_path=str(staging_path),
         )
 
     if source == "user_message":
@@ -874,6 +876,7 @@ async def bootstrap_conversation(
             status=str(status),
             skill_id=skill_id,
             skill_id_source=source,
+            staging_path=str(staging_path),
             security_status=scan_result.security_status,
             security_findings=scan_result.security_findings,
             propagator_used=False,
@@ -892,6 +895,7 @@ async def bootstrap_conversation(
         status="accepted",
         skill_id=skill_id,
         skill_id_source=source,
+        staging_path=str(staging_path),
         security_status=scan_result.security_status,
         security_findings=scan_result.security_findings,
         propagator_used=propagator_used,

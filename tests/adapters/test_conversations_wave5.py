@@ -146,6 +146,8 @@ def test_bootstrap_auto_identify_requires_confirm(client_with_repo, tmp_path, mo
     assert body["run_id"] is None
     assert body["skill_id"] == "from-skill-md"
     assert body["skill_id_source"] == "skill_md"
+    assert body.get("staging_path")
+    assert conv_id in str(body["staging_path"]).replace("\\", "/")
 
     conv = repo.get_conversation(conv_id)
     assert conv["status"] == "awaiting_skill_id_confirm"
@@ -190,6 +192,8 @@ def test_bootstrap_explicit_skill_id_skips_confirm(
     assert body["run_id"]
     assert body["skill_id"] == "explicit-skill"
     assert body["skill_id_source"] == "explicit_request"
+    assert body.get("staging_path")
+    assert conv_id in str(body["staging_path"]).replace("\\", "/")
 
     messages = repo.get_lui_messages(conv_id)
     assert any("已开始评估" in m["content"] for m in messages)
