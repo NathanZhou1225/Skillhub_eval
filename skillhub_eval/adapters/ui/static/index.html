@@ -161,7 +161,14 @@
       <section class="flex-1 h-full min-h-0 flex flex-col bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden min-w-0">
         <div class="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-2 flex-wrap text-sm shrink-0">
           <code id="chat-conversation-id" class="run-ref text-xs text-gray-500">未选择会话</code>
-          <span id="chat-run-badge" class="badge bg-blue-100 text-blue-700">0/5</span>
+          <span class="flex items-center gap-2">
+            <button id="chat-local-check-btn" type="button" onclick="openExecSettingsFromLocalCheckStatus()"
+              class="hidden text-xs px-2 py-1 border border-gray-300 text-gray-700 bg-white hover:bg-gray-50"
+              title="打开执行设置查看本地执行环境检查（仅诊断，不阻断正式评估）">
+              环境：未检查
+            </button>
+            <span id="chat-run-badge" class="badge bg-blue-100 text-blue-700">0/5</span>
+          </span>
         </div>
         <div id="chat-status-banner" class="hidden px-4 py-2 text-xs shrink-0"></div>
         <div id="chat-messages" class="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
@@ -405,7 +412,7 @@
 <div id="usage-detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onclick="if(event.target===this)closeUsageDetailModal()">
   <div class="bg-white border border-gray-300 shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
-      <h3 class="font-semibold text-gray-900">Token 消耗明细</h3>
+      <h3 class="font-semibold text-gray-900">Token 明细</h3>
       <button type="button" onclick="closeUsageDetailModal()" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
     </div>
     <div id="usage-detail-modal-body" class="text-sm text-gray-700 overflow-x-auto"></div>

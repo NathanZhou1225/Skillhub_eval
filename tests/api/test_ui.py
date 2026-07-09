@@ -142,11 +142,12 @@ def test_ui_exposes_chat_local_execution_check_button():
     client = TestClient(app)
     r, text = _ui_page(client, "/ui/index.html")
     assert "chat-local-check-btn" in text
-    assert "环境检查" in text
-    assert "getSelectedExecAgentForAction" in text
+    assert "环境：" in text or "环境：未检查" in text
+    assert "openExecSettingsDrawer" in text
     assert "updateChatLocalCheckButton" in text
     assert "仅诊断，不阻断正式评估" in text
-    assert "状态刷新失败" in text
+    assert "openExecSettingsFromLocalCheckStatus" in text
+    assert "runLocalExecutionCheck(getSelectedExecAgentForAction" not in client.get("/ui/index.html").text
 
 
 def test_ui_env_check_button_visible_when_path_ready():

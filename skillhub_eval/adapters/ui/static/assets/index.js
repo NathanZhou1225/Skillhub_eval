@@ -1268,6 +1268,7 @@ async function fetchExecScan(silent = false) {
       renderExecAgentCards();
       const reason = document.getElementById('exec-ready-reason');
       if (reason) reason.textContent = getExecReadyReason();
+      updateChatLocalCheckButton();
     }
   }
 }
@@ -2399,16 +2400,33 @@ function updateConfirmButton(_statusObj) { /* chips in rich_report */ }
 
 async function refreshReport(_statusObj) { /* reports in message stream */ }
 
+function getSelectedAgentLocalCheckStatus() {
+  const agentId = (typeof getSelectedExecAgentForAction === 'function' ? getSelectedExecAgentForAction() : null) || getSelectedExecAgent();
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const agent = agents.find((a) => a.id === agentId);
+  return agent?.local_check_status || '';
+}
+
+function openExecSettingsFromLocalCheckStatus() {
+  openExecSettingsDrawer();
+  document.getElementById('exec-local-settings')?.scrollIntoView?.({ block: 'nearest' });
+}
+
 function updateChatLocalCheckButton() {
   const btn = document.getElementById('chat-local-check-btn');
   if (!btn) return;
   const shouldShow = getExecSource() === 'local';
-  const canRun = canRunCurrentLocalExecutionCheck();
   btn.classList.toggle('hidden', !shouldShow);
-  btn.disabled = !canRun;
-  btn.title = canRun
-    ? '运行当前 Skill 的本地执行环境检查（仅诊断，不阻断正式评估）'
-    : '需要选择本地 Agent，并让当前会话具备 Skill Bundle 路径';
+  btn.disabled = false;
+  const status = getSelectedAgentLocalCheckStatus();
+  let label = '环境：未检查';
+  if (!getActiveSkillBundlePath()) label = '环境：未检查';
+  else if (status === 'passed') label = '环境：已通过';
+  else if (status === 'failed' || status === 'blocked') label = '环境：失败';
+  else if (status === 'expired') label = '环境：已过期';
+  else label = '环境：未检查';
+  btn.textContent = label;
+  btn.title = '打开执行设置 · 本地执行环境检查为可选诊断，不阻断正式评估';
 }
 
 async function triggerOpeningIfNeeded(statusObj) {
