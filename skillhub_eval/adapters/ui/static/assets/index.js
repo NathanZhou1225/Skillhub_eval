@@ -1155,20 +1155,30 @@ function renderExecAgentCards() {
       ? 'text-green-700'
       : (/失败|error|未|fail/i.test(testMsg) ? 'text-red-700' : 'text-gray-500');
     const skillPath = getActiveSkillBundlePath();
-    const localCheckLine = agent.local_check_status && agent.local_check_status !== 'not_applicable'
-      ? `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
-           <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(formatLocalCheckStatus(agent))}
-           ${agent.local_check_message_zh ? `<span class="text-indigo-600"> — ${escapeHtml(agent.local_check_message_zh)}</span>` : ''}
-         </div>`
-      : (skillPath
-        ? '<div class="mt-1 text-[11px] text-gray-500">当前 Skill 检查：请在 Bundle 路径有效时重新扫描</div>'
-        : '<div class="mt-1 text-[11px] text-gray-400">填写 Bundle 路径后可查看当前 Skill 检查状态</div>');
-    const checkBtn = (skillPath && detected && agent.can_run_local_check)
-      ? `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-indigo-300 text-indigo-800 hover:bg-indigo-50"
+    const localCheckLine = !skillPath
+      ? '<div class="mt-1 text-[11px] text-gray-400">上传 ZIP 后可检查当前 Skill</div>'
+      : (agent.local_check_status && agent.local_check_status !== 'not_applicable'
+        ? `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
+             <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(formatLocalCheckStatus(agent))}
+             ${agent.local_check_message_zh ? `<span class="text-indigo-600"> — ${escapeHtml(agent.local_check_message_zh)}</span>` : ''}
+           </div>`
+        : '<div class="mt-1 text-[11px] text-gray-500">当前 Skill 检查：尚未检查（可选诊断）</div>');
+
+    let checkBtn = '';
+    if (skillPath && detected) {
+      if (agent.can_run_local_check) {
+        checkBtn = `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-indigo-300 text-indigo-800 hover:bg-indigo-50"
           onclick="event.stopPropagation(); runLocalExecutionCheck('${escapeHtml(agent.id)}')">
           ${agent.local_check_status === 'passed' ? '重新检查' : '运行环境检查'}
-        </button>`
-      : '';
+        </button>`;
+      } else {
+        const blockedHint = escapeHtml(agent.local_check_message_zh || '当前无法自动生成检查用例');
+        checkBtn = `<button type="button" disabled title="${blockedHint}"
+          class="shrink-0 text-xs px-2 py-1 border border-gray-200 text-gray-400 cursor-not-allowed">
+          运行环境检查
+        </button>`;
+      }
+    }
     const switchBtn = (skillPath && agent.can_switch_and_rerun && !checked)
       ? `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 ml-1"
           onclick="event.stopPropagation(); switchToVerifiedRuntime('${escapeHtml(agent.id)}')">

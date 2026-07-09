@@ -149,6 +149,20 @@ def test_ui_exposes_chat_local_execution_check_button():
     assert "状态刷新失败" in text
 
 
+def test_ui_env_check_button_visible_when_path_ready():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "上传 ZIP 后可检查当前 Skill" in text
+    assert "运行环境检查" in text
+    fn_idx = text.find("function renderExecAgentCards")
+    assert fn_idx != -1
+    region = text[fn_idx : fn_idx + 5600]
+    assert "can_run_local_check" in region
+    assert "disabled" in region
+    assert "上传 ZIP 后可检查当前 Skill" in region
+
+
 def test_ui_conversation_polling_is_throttled():
     app = create_app()
     client = TestClient(app)
