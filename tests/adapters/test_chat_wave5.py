@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -95,6 +96,10 @@ def test_chat_multipart_zip_auto_id_requires_confirm(client_with_repo, tmp_path)
     assert resp.status_code == 200
     body = resp.json()
     assert body["bootstrap_status"] == "awaiting_skill_id_confirm"
+    staging = body.get("staging_path")
+    assert staging
+    assert conv_id in str(staging).replace("\\", "/")
+    assert Path(staging).is_dir()
     conv = repo.get_conversation(conv_id)
     assert conv["status"] == "awaiting_skill_id_confirm"
     assert conv["skill_id"] == "zip-skill"
@@ -131,7 +136,10 @@ def test_chat_zip_with_explicit_skill_id_skips_confirm(client_with_repo, tmp_pat
             data={"message": "skill_id: explicit-skill"},
         )
     assert resp.status_code == 200
-    assert resp.json()["bootstrap_status"] == "accepted"
+    body = resp.json()
+    assert body["bootstrap_status"] == "accepted"
+    assert body.get("staging_path")
+    assert conv_id in str(body["staging_path"]).replace("\\", "/")
     conv = repo.get_conversation(conv_id)
     assert conv["skill_id"] == "explicit-skill"
 

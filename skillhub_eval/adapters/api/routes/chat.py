@@ -60,6 +60,7 @@ from skillhub_eval.core.ports import Repository
 from skillhub_eval.core.propagation_plan import build_propagation_plan, format_l0_labels
 from skillhub_eval.core.propagator import CasePropagator, PropagatorResult
 from skillhub_eval.core.schemas import BundleState
+from skillhub_eval.core.schemas.enums import RUNNING_STATUSES
 from skillhub_eval.core.skill_id_resolver import (
     needs_user_confirm,
     parse_user_message_skill_id,
@@ -148,6 +149,7 @@ class ChatResponse(BaseModel):
     gap_zero: bool = False
     bootstrap_status: str | None = None
     activity_phase: str | None = None
+    staging_path: str | None = None
 
 
 class ConfirmCasesRequest(BaseModel):
@@ -1051,6 +1053,7 @@ async def _handle_chat_zip_bootstrap(
             reply=confirm_text,
             intent="explain_only",
             bootstrap_status="awaiting_skill_id_confirm",
+            staging_path=str(staging_path),
         )
 
     if source == "user_message":
@@ -1088,6 +1091,7 @@ async def _handle_chat_zip_bootstrap(
             intent="explain_only",
             new_run_id=None,
             bootstrap_status=str(status),
+            staging_path=str(staging_path),
         )
 
     _append_bootstrap_system(
@@ -1098,6 +1102,7 @@ async def _handle_chat_zip_bootstrap(
         intent="system_action",
         new_run_id=run_id,
         bootstrap_status="accepted",
+        staging_path=str(staging_path),
     )
 
 
@@ -1323,7 +1328,9 @@ async def get_status(
     stage_progress: list[str] = []
     if active_run_id:
         stage_progress = repo.get_stage_progress(str(active_run_id))
-    if staging_path.is_dir() and (staging_path / "SKILL.md").is_file():
+    active_status = str(active_run.get("status") or "") if active_run else ""
+    should_scan_bundle = active_status not in RUNNING_STATUSES
+    if should_scan_bundle and staging_path.is_dir() and (staging_path / "SKILL.md").is_file():
         bundle = ingest_bundle(str(staging_path))
         gap_zero = _compute_gap_zero(staging_path)
         gate = Level0Checker().check_case_gate(bundle)
