@@ -26,6 +26,7 @@ data/
 # .project_memory/
 .codebuddy/
 .workbuddy/
+.cursor/
 
 # 测试用skills
 # testskills/

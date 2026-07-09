@@ -131,7 +131,128 @@ flowchart TD
 
 ---
 
-## 6. 环境检查是什么
+## 6. CLI 穿透技术架构
+
+本地 CLI 真跑的技术核心，是把 SkillHub 的评估引擎和作者本机 CLI Agent 用一个执行接缝连接起来：评估引擎仍按 case 推进，实际产出来源从 `sample_io` 切到 `local_agent`。
+
+```mermaid
+flowchart TD
+    A["EvaluationEngine\ncase_executing"] --> B["RoutingExecutionSource"]
+    B -->|"execution_source != local"| C["SampleIoSource"]
+    B -->|"execution_source = local"| D["LocalAgentSource"]
+    D --> E["PerRunWorkspace\n复制单题工作区"]
+    E --> F["prepare_skill_injection\n生成 harness prompt"]
+    F --> G["Agent Adapter\nCodex / Cursor Agent / Trae"]
+    G --> H["LocalAgentRunner\nsubprocess 启动本地 CLI"]
+    H --> I["stdout 结构化流\nstderr 错误流"]
+    I --> J["normalize_events / ParsedStream"]
+    J --> K["ExecResult\nactual_output / usage / status"]
+    K --> L["DSL + Sanitizer + 双模型评审"]
+```
+
+### 6.1 执行路由
+
+正式评估进入 `case_executing` 后，`EvaluationEngine` 会为每个 case 请求实际产出。路由层先判断执行来源：
+
+| 路由 | 行为 |
+|------|------|
+| `sample_io` | 读取作者提供的样例输出 |
+| `local` | 调用本机 CLI Agent，拿真实执行产出 |
+
+`local` 路径由 `LocalAgentSource` 承接。它先检查执行授权，再读取当前选择的 Agent 和模型，解析出对应 adapter。如果 adapter 不存在、CLI 检测失败、未授权或红线题缺少加固能力，会返回 `ExecResult(status="incomplete")`，而不是继续假装执行成功。
+
+### 6.2 Adapter 如何启动本地 CLI
+
+每个本地 Agent 都有一个 adapter。adapter 负责三件事：
+
+| 职责 | 说明 |
+|------|------|
+| detect | 判断本机能否找到并调用该 CLI |
+| build_args | 生成本次执行需要的命令行参数 |
+| normalize_events | 把该 CLI 的输出事件转成统一事件 |
+
+当前核心差异如下：
+
+| Agent | 启动方式 |
+|------|----------|
+| Codex | `codex exec --json`，指定工作目录、沙盒配置、模型和权限范围 |
+| Cursor Agent | `cursor-agent --print --output-format stream-json`，指定 workspace 和模型 |
+| Trae | `trae-cli -p --output-format stream-json`，通过命令参数传 prompt，并补充必要工具白名单 |
+
+也就是说，SkillHub 不直接调用某个模型 API，而是启动作者本机已经登录、已经配置好的 CLI 进程。模型账号、内网权限、本地配置都继续留在作者机器上。
+
+### 6.3 Prompt 与 Skill 注入
+
+正式执行前，系统会生成一份 harness prompt。它包含：
+
+| 内容 | 目的 |
+|------|------|
+| `skill_id` / `case_id` | 绑定本次执行对象 |
+| `user_intent` / `input_template` | 给 Agent 明确测试题输入 |
+| `SKILL.md` 使用要求 | 要求 Agent 按 Skill 说明执行 |
+| `entrypoint` 要求 | 对有脚本入口的 Skill，要求必须调用入口处理输入 |
+| 结构化返回要求 | 要求结尾返回符合 schema 的结构化结果 |
+
+注入策略按 Agent 能力选择：原生加载优先，其次是把 Skill 文件放在工作区，最后把必要内容放进 prompt。这样可以兼容不同 CLI 的能力差异。
+
+### 6.4 进程执行与超时控制
+
+`LocalAgentRunner` 用 `subprocess` 启动本地 CLI，并把 prompt 通过 stdin 或命令参数传给 CLI。执行时会同时处理三类信号：
+
+| 信号 | 用途 |
+|------|------|
+| stdout | 读取 CLI 的结构化执行事件 |
+| stderr | 保留错误摘要，失败时写入报告 |
+| timeout | 到期后终止进程，避免 case 长时间卡住 |
+
+stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主流程。Windows 下终止进程时使用进程树终止，避免只杀掉 `.cmd` 包装层而留下实际的 `node.exe` 子进程。
+
+### 6.5 输出归一化
+
+不同 CLI 的事件格式不一致。例如 Codex、Cursor Agent、Trae 对文本、工具调用、命令执行结果和完成事件的字段命名都不完全相同。adapter 会先把这些原始事件转成统一事件，再形成 `ParsedStream`：
+
+| 统一字段 | 来源 |
+|----------|------|
+| `final_text` | Agent 最终文本或增量文本 |
+| `tool_results` | 命令、脚本、工具调用结果 |
+| `usage` | CLI 返回的 token / duration 等用量信息 |
+| `is_complete` | 是否收到成功完成事件 |
+| `is_error` / `error_text` | 是否收到错误完成事件或报错 |
+
+只有 `is_complete=true` 且 `is_error=false`，系统才认为本地执行完成。否则该 case 会被标记为 `run_incomplete`。
+
+### 6.6 ExecResult 如何回到评估引擎
+
+`LocalAgentSource` 会把 `ParsedStream` 转成 `ExecResult`：
+
+| ExecResult 字段 | 含义 |
+|-----------------|------|
+| `actual_output` | 给后续 DSL、Sanitizer、双模型评审使用的实际产出 |
+| `source` | `local_agent` 或 `sample_io` |
+| `status` | `ok` 或 `incomplete` |
+| `agent_label` / `model_label` | 真正成功执行时使用的 Agent 和模型 |
+| `usage` | 本地 CLI 返回的用量信息 |
+| `degrade_reason` | 未完成或降级原因 |
+| `stderr_excerpt` | 失败时保留的错误摘要 |
+
+如果 Agent 返回了结构化 JSON，系统优先把它作为 `actual_output`；如果没有结构化 JSON，就用最终文本、工具结果和工作区文件产物合成 `actual_output`。有脚本入口的 Skill 还会额外校验 `tool_results` 中是否能看到入口调用证据。
+
+### 6.7 失败不再静默回退
+
+本地执行失败后，`RoutingExecutionSource` 会把原始失败结果返回给引擎。引擎会记录 `local_agent_failure` 事件，并把失败原因挂到对应 case。
+
+如果所有本地执行 case 都失败，引擎会把整轮评估标为失败，并给出：
+
+| 原因码 | 含义 |
+|--------|------|
+| `LOCAL_EXEC_UNAVAILABLE` | 本地 CLI、授权或基础可用性导致完全无法执行 |
+| `LOCAL_EXEC_ALL_CASES_FAILED` | 已尝试本地执行，但没有任何 case 成功产出 |
+
+唯一保留的样例回退，是红线题遇到 Agent 不支持加固执行配置时的有意降级。这属于明确设计的安全边界，不属于本地执行失败。
+
+---
+
+## 7. 环境检查是什么
 
 环境检查是**体检**，不是**门禁**。
 
@@ -149,7 +270,7 @@ flowchart TD
 
 ---
 
-## 7. 结果如何返回
+## 8. 结果如何返回
 
 本地 Agent 执行时会持续输出事件流。SkillHub 不直接把原始日志丢给评分，而是先整理成稳定的结果结构：
 
@@ -168,7 +289,7 @@ flowchart TD
 
 ---
 
-## 8. 真跑结果如何进入评分
+## 9. 真跑结果如何进入评分
 
 每道题的本地执行结果会形成一条执行结果记录：
 
@@ -196,7 +317,7 @@ flowchart TD
 
 ---
 
-## 9. 失败如何处理
+## 10. 失败如何处理
 
 本地真跑失败不会再静默切回样例，也不会假装已经跑通。
 
@@ -216,7 +337,7 @@ flowchart TD
 
 ---
 
-## 10. 失败原因如何呈现
+## 11. 失败原因如何呈现
 
 系统会把底层失败整理成稳定的产品原因，便于作者、PM 和运营判断下一步。
 
@@ -235,7 +356,7 @@ flowchart TD
 
 ---
 
-## 11. 和样例评估如何配合
+## 12. 和样例评估如何配合
 
 样例评估和本地真跑不是互相替代，而是不同置信度的证据。
 
@@ -247,11 +368,9 @@ flowchart TD
 | 中高风险或权限敏感 | 本地真跑后仍建议专家看报告证据 |
 | 本地环境暂时不可用 | 先用样例评估定位材料问题，修好环境后再真跑 |
 
-PM 可这样对外解释：**样例评估看“写得对不对”，本地真跑看“当前环境跑不跑得出”。**
-
 ---
 
-## 12. 当前边界
+## 13. 当前边界
 
 | 边界 | 说明 |
 |------|------|
@@ -260,16 +379,6 @@ PM 可这样对外解释：**样例评估看“写得对不对”，本地真跑
 | 不承诺复杂 Skill 必然跑通 | 复杂任务可能因模型、工具、路径、超时失败 |
 | 不改变评分标准 | 本地真跑只改变产出来源，不改变三维评分、红线和 R5 规则 |
 | 不把环境检查当最终结论 | 环境检查只说明基础可用性，正式评估仍看真实 case |
-
----
-
-## 13. PM 汇报话术
-
-可以用三句话说明：
-
-1. **SkillHub 不是只看作者写的样例，也支持用作者本机 CLI Agent 真跑测试题。**
-2. **真跑结果进入同一套评分流水线，规则、安全、双模型和专家复核都不变。**
-3. **本地真跑失败会如实记录，不会偷偷退回样例评估冒充跑通。**
 
 ---
 
