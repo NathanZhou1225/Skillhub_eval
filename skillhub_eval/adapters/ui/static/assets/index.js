@@ -864,9 +864,9 @@ const EXEC_READY_REASON_ZH = {
 const LOCAL_CHECK_STATUS_ZH = {
   missing: '尚未检查',
   passed: '已通过',
-  failed: '检查失败',
+  failed: '检查未通过',
   expired: '已过期',
-  blocked: '诊断未通过（可继续正式评估）',
+  blocked: '暂不可检（可继续正式评估）',
   not_applicable: '未选择 Skill',
 };
 
@@ -891,6 +891,21 @@ function formatLocalCheckStatus(agent) {
     ? `（有效至 ${formatScanTime(agent.local_check_expires_at)}）`
     : '';
   return `${label}${expiry}`;
+}
+
+function getRuntimePreflightKey(runtimeId, modelId, skillPath) {
+  return `${runtimeId}:${modelId || 'default'}:${skillPath || ''}`;
+}
+
+function getAgentRuntimePreflightLive(agentId) {
+  const skillPath = getActiveSkillBundlePath();
+  if (!skillPath || !agentId) return null;
+  const modelId = getSelectedExecAgent() === agentId ? getSelectedExecModel() : 'default';
+  return _runtimePreflightStatus[getRuntimePreflightKey(agentId, modelId, skillPath)] || null;
+}
+
+function isAnyLocalExecutionCheckRunning() {
+  return Object.values(_runtimePreflightStatus).some((v) => v && v.status === 'running');
 }
 
 function formatClockTime(dateLike) {
@@ -1033,6 +1048,11 @@ async function switchExecBannerToSample() {
 function openExecSettingsDrawer() {
   document.getElementById('exec-drawer-overlay')?.classList.remove('hidden');
   renderExecDrawer();
+  // Path may already be cached from ZIP upload while scan cache is still
+  // pathless (not_applicable / 「未选择 Skill」). Refresh with skill path.
+  if (getActiveSkillBundlePath()) {
+    fetchExecScan(true);
+  }
 }
 
 function closeExecSettingsDrawer() {
@@ -1155,24 +1175,49 @@ function renderExecAgentCards() {
       ? 'text-green-700'
       : (/失败|error|未|fail/i.test(testMsg) ? 'text-red-700' : 'text-gray-500');
     const skillPath = getActiveSkillBundlePath();
-    const localCheckLine = !skillPath
-      ? '<div class="mt-1 text-[11px] text-gray-400">上传 ZIP 后可检查当前 Skill</div>'
-      : (agent.local_check_status && agent.local_check_status !== 'not_applicable'
-        ? `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
-             <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(formatLocalCheckStatus(agent))}
-             ${agent.local_check_message_zh ? `<span class="text-indigo-600"> — ${escapeHtml(agent.local_check_message_zh)}</span>` : ''}
-           </div>`
-        : '<div class="mt-1 text-[11px] text-gray-500">当前 Skill 检查：尚未检查（可选诊断）</div>');
+    const liveCheck = getAgentRuntimePreflightLive(agent.id);
+    const liveRunning = liveCheck && liveCheck.status === 'running';
+    let localCheckLine;
+    if (!skillPath) {
+      localCheckLine = '<div class="mt-1 text-[11px] text-gray-400">上传 ZIP 后可检查当前 Skill</div>';
+    } else if (liveRunning) {
+      localCheckLine = `<div class="mt-1 text-[11px] text-amber-800 bg-amber-50 border border-amber-100 rounded px-2 py-1">
+           <span class="font-medium">当前 Skill 检查：</span>检查中…（可选诊断，请稍候）
+         </div>`;
+    } else if (liveCheck && (liveCheck.status === 'passed' || liveCheck.status === 'failed' || liveCheck.status === 'blocked')
+      && (!agent.local_check_status || agent.local_check_status === 'missing' || agent.local_check_status === 'not_applicable')) {
+      const liveLabel = LOCAL_CHECK_STATUS_ZH[liveCheck.status] || liveCheck.status;
+      const liveMsg = liveCheck.message_zh ? ` — ${escapeHtml(liveCheck.message_zh)}` : '';
+      localCheckLine = `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
+           <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(liveLabel)}${liveMsg}
+         </div>`;
+    } else if (agent.local_check_status && agent.local_check_status !== 'not_applicable') {
+      localCheckLine = `<div class="mt-1 text-[11px] text-indigo-800 bg-indigo-50 border border-indigo-100 rounded px-2 py-1">
+           <span class="font-medium">当前 Skill 检查：</span>${escapeHtml(formatLocalCheckStatus(agent))}
+           ${agent.local_check_message_zh ? `<span class="text-indigo-600"> — ${escapeHtml(agent.local_check_message_zh)}</span>` : ''}
+         </div>`;
+    } else {
+      localCheckLine = '<div class="mt-1 text-[11px] text-gray-500">当前 Skill 检查：尚未检查（可选诊断）</div>';
+    }
 
     let checkBtn = '';
     if (skillPath && detected) {
-      if (agent.can_run_local_check) {
+      const allowCheck = agent.can_run_local_check
+        || agent.local_check_status === 'not_applicable'
+        || agent.local_check_status === 'missing'
+        || !agent.local_check_status;
+      if (liveRunning) {
+        checkBtn = `<button type="button" disabled
+          class="shrink-0 text-xs px-2 py-1 border border-amber-300 text-amber-800 bg-amber-50 cursor-wait">
+          检查中…
+        </button>`;
+      } else if (allowCheck && agent.local_check_status !== 'blocked') {
         checkBtn = `<button type="button" class="shrink-0 text-xs px-2 py-1 border border-indigo-300 text-indigo-800 hover:bg-indigo-50"
           onclick="event.stopPropagation(); runLocalExecutionCheck('${escapeHtml(agent.id)}')">
           ${agent.local_check_status === 'passed' ? '重新检查' : '运行环境检查'}
         </button>`;
       } else {
-        const blockedHint = escapeHtml(agent.local_check_message_zh || '当前无法自动生成检查用例');
+        const blockedHint = escapeHtml(agent.local_check_message_zh || '当前暂不可检');
         checkBtn = `<button type="button" disabled title="${blockedHint}"
           class="shrink-0 text-xs px-2 py-1 border border-gray-200 text-gray-400 cursor-not-allowed">
           运行环境检查
@@ -1247,6 +1292,12 @@ async function fetchExecScan(silent = false) {
     const qs = skillPath ? `?skill_bundle_path=${encodeURIComponent(skillPath)}` : '';
     const data = await apiFetch(`/api/exec/agents/scan${qs}`);
     if (seq !== _execScanSeq) return _execScanCache;
+    // A pathless scan must not overwrite readiness after ZIP mounted staging_path.
+    const pathNow = getActiveSkillBundlePath();
+    if (!skillPath && pathNow) {
+      fetchExecScan(true);
+      return _execScanCache;
+    }
     _execScanCache = data || { scanned_at: null, agents: [] };
     renderExecBridgeIndicator();
     if (!silent) toast('Agent 扫描完成');
@@ -1383,8 +1434,10 @@ async function runLocalExecutionCheck(runtimeId, opts = {}) {
     toast('缺少环境检查参数', false);
     return null;
   }
-  const key = `${runtimeId}:${modelId}:${skillPath}`;
+  const key = getRuntimePreflightKey(runtimeId, modelId, skillPath);
   _runtimePreflightStatus[key] = { status: 'running' };
+  renderExecAgentCards();
+  updateChatLocalCheckButton();
   try {
     const data = await apiFetch(`/api/exec/runtimes/${encodeURIComponent(runtimeId)}/preflight`, {
       method: 'POST',
@@ -1402,10 +1455,14 @@ async function runLocalExecutionCheck(runtimeId, opts = {}) {
       : '（仅作诊断，不会阻止正式评估；正式结果以 case 实跑为准）';
     toast(`本地执行环境检查：${msg}${suffix}`, data?.status === 'passed');
     await fetchExecScan(true);
+    updateChatLocalCheckButton();
+    renderExecAgentCards();
     return data;
   } catch (e) {
     _runtimePreflightStatus[key] = { status: 'error', failure_reason: e.message };
     toast(`本地执行环境检查失败：${e.message}`, false);
+    updateChatLocalCheckButton();
+    renderExecAgentCards();
     return null;
   }
 }
@@ -2412,11 +2469,20 @@ function updateChatLocalCheckButton() {
   btn.classList.toggle('hidden', !shouldShow);
   btn.disabled = false;
   const status = getSelectedAgentLocalCheckStatus();
+  const selectedId = (typeof getSelectedExecAgentForAction === 'function' ? getSelectedExecAgentForAction() : null) || getSelectedExecAgent();
+  const live = getAgentRuntimePreflightLive(selectedId);
+  const liveStatus = live && live.status !== 'error' ? live.status : '';
+  // Prefer just-finished live result until the next scan catches up.
+  const effective = (liveStatus === 'running' || liveStatus === 'passed' || liveStatus === 'failed' || liveStatus === 'blocked')
+    ? liveStatus
+    : status;
   let label = '环境：未检查';
-  if (!getActiveSkillBundlePath()) label = '环境：未检查';
-  else if (status === 'passed') label = '环境：已通过';
-  else if (status === 'failed' || status === 'blocked') label = '环境：失败';
-  else if (status === 'expired') label = '环境：已过期';
+  if (effective === 'running') label = '环境：检查中…';
+  else if (!getActiveSkillBundlePath()) label = '环境：未检查';
+  else if (effective === 'passed') label = '环境：已通过';
+  else if (effective === 'failed') label = '环境：未通过';
+  else if (effective === 'expired') label = '环境：已过期';
+  else if (effective === 'blocked') label = '环境：暂不可检';
   else label = '环境：未检查';
   btn.textContent = label;
   btn.title = '打开执行设置 · 本地执行环境检查为可选诊断，不阻断正式评估';
@@ -2530,7 +2596,18 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
   if (!text && input) {
     input.value = '';
   }
-  const zipFile = _pendingZipFile;
+  // Internal actions (e.g. 确认继续) must never re-upload a lingering ZIP —
+  // that remounts staging and loops back to awaiting_skill_id_confirm.
+  const attachZip = !!_pendingZipFile && !isInternalUserMessage(payloadText);
+  const zipFile = attachZip ? _pendingZipFile : null;
+  if (_pendingZipFile) {
+    // Clear before any await so a fast follow-up click cannot re-send the ZIP.
+    _pendingZipFile = null;
+    const zipInput = document.getElementById('chat-zip-file');
+    if (zipInput) zipInput.value = '';
+    const zipName = document.getElementById('chat-zip-name');
+    if (zipName) zipName.textContent = '';
+  }
   const demoOn = localStorage.getItem(DEMO_MODE_KEY) === 'true';
   const demoPath = document.getElementById('demo-local-path')?.value.trim() || '';
   if (!payloadText && !zipFile && !(demoOn && demoPath)) return;
@@ -2582,13 +2659,16 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
       updateChatLocalCheckButton();
       renderExecAgentCards();
     }
-    _pendingZipFile = null;
-    document.getElementById('chat-zip-file').value = '';
-    document.getElementById('chat-zip-name').textContent = '';
     msgEl.textContent = '';
     if (!silent) toast('已发送');
     await pollConversation({ force: true, forceMessages: true });
   } catch (e) {
+    // Restore ZIP only if this send was the upload attempt and it failed.
+    if (zipFile && !_pendingZipFile) {
+      _pendingZipFile = zipFile;
+      const zipName = document.getElementById('chat-zip-name');
+      if (zipName) zipName.textContent = zipFile.name || '';
+    }
     _optimisticPending = false;
     _optimisticPendingLabel = '';
     msgEl.textContent = '';

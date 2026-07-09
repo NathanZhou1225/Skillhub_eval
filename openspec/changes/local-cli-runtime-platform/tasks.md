@@ -94,6 +94,7 @@
       Verify: UI/API tests or manual browser smoke show ordinary users can run diagnostics without editing files and can still start formal evaluation when diagnostics fail.
 - [x] 7.8 Add chat-surface environment-check entry and long-run live progress performance guardrails.
       Verify: UI exposes a current-conversation "环境检查" action for local mode, local-agent live progress is capped/scrollable with last-refresh feedback, conversation polling is in-flight guarded, full messages/session list refreshes are throttled, and active-run status polling does not re-ingest large bundles.
+      Implementation note (2026-07-09): header is a B3 status pill (未检查/检查中/已通过/未通过) that opens Exec Settings; primary check action lives on Agent cards after ZIP `staging_path` is ready; report-card button removed.
 
 ## 8. Real Stream Fixtures and Live E2E
 

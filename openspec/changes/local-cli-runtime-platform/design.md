@@ -246,6 +246,8 @@ This change is delivered as one productized runtime-platform change, not a perma
 
 The selected product behavior is optional local execution checking. Ordinary users should not be required to understand `preflight`, `safe_preflight`, fingerprints, or YAML. When a user clicks "本地执行环境检查", SkillHub can generate and persist a safe system check case, run that check, and show passed/failed diagnostics. If generation or execution fails, the UI explains the problem as a warning and offers retry/switch actions, but formal local evaluation can still proceed and will be judged by real case execution. The backend still records precise preflight diagnostics for developers and runbooks.
 
+UI timing (2026-07-09): ZIP/bootstrap success responses return `staging_path` so Exec Settings can offer the check immediately after upload (before补题). The chat header shows 未检查 / 检查中 / 已通过 / 未通过 and opens Exec Settings without POSTing preflight. Unchecked readiness is `missing`, never presented as failure. See `docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md`.
+
 Revision note: the earlier mandatory-gate decision is reversed for P0 after stock-radar tests produced false blockers (`runtime_preflight_tool_budget_exceeded`) while real formal cases had not been attempted. The current risk is better handled by case-level failure semantics than by a synthetic gate.
 
 ### D14: Safe check case generation uses deterministic lightweight templates

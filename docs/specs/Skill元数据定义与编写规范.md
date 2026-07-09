@@ -1,10 +1,10 @@
 # Skill 元数据定义与编写规范
 
 > 版本：v0.5  
-> 状态：阶段一协议正文（§9 导读；§6.4 断言语法；§14.6 risk 锁定；§8/§14 引用 1.3 Architecture Contract）  
-> 目标：作为 SkillHub 评估与上架的**尺子**；创作侧低门槛，入库前由 Agent 识别缺口并交互式补齐。  
+> 状态：当前包结构与字段规范（已对齐样例评估 / 本地 CLI Agent 真跑）
+> 目标：作为 SkillHub 评估的**尺子**；创作侧低门槛，评估前由系统识别缺口并交互式补齐。
 > 主载体：`SKILL.md`。OpenAPI / MCP / 可视化 Workflow 后续作为兼容层讨论。  
-> **阶段边界**：阶段一以文档与流程定义为主；完整 Agent 评估体系的工程搭建留待阶段二。  
+> **当前边界**：本文定义提交包、字段和测试题结构；评分阈值以 [`评估指标与准入标准.md`](评估指标与准入标准.md) 为准。
 > **面向开发者的编写说明**（原则、反模式、最小作者包）见 [`docs/guides/Skill编写指南.md`](../guides/Skill编写指南.md)，本文档不重复该部分内容。
 
 ---
@@ -13,9 +13,9 @@
 
 本规范用于定义内部 Skill 在 SkillHub MVP 中的提交、评估、准入与抽检方式。第一版服务 **混合最小版评估 Agent demo**：
 
-- 有执行脚本的 Skill：优先进入沙盒执行，产出真实 I/O。
+- 有执行入口的 Skill：可选择本地 CLI Agent 真跑，产出真实 I/O。
 - 无执行脚本的 Skill：使用 `sample_io` 和 `eval_cases` 模拟执行，验证元数据与输出契约。
-- 评审基座：先按 **DeepSeek + WorkBuddy** 交叉评审设计。
+- 评审基座：按 **DeepSeek + Gemini** 交叉评审设计。
 - 评审结论：自动评审给出 `pass` / `warn` / `fail`，并保留人工抽检入口。
 
 本规范重点解决三个问题：
@@ -26,7 +26,7 @@
 | Skill 质量参差不齐 | 强制输入/输出契约、测试用例、评审 Agent 评分 |
 | 自动评审不可追溯 | 统一评审输出、模型投票、transcript、人工抽检表 |
 
-### 1.1 规范分层：创作 / 评估 / 上架
+### 1.1 规范分层：创作 / 评估
 
 本规范**不是**要求所有员工在日常设计 Skill 时一次性写满全部字段，而是按三层适用：
 
@@ -34,9 +34,8 @@
 |------|----------|----------|------|
 | **创作规范** | 员工日常编写、自用 Skill | 低门槛 | 只需满足「最小作者包」（见 §1.2） |
 | **评估规范** | 提交 SkillHub 进入评估链路 | 完整对照 | 评估 Agent 按本规范打分、归因、给出 `pass/warn/fail` |
-| **上架规范** | 正式入库 / 对外可见 | 严格 | 达到「可评估包」+ 准入结论（含人工抽检规则） |
 
-**主策略：评估尺子 + 入库前补齐。** 标准在平台侧收敛；缺口由「Agent 识别缺失 → 交互式补全 → 人确认」解决，而非静默自动写入正式元数据。
+**主策略：评估尺子 + 评估前补齐。** 标准在平台侧收敛；缺口由「系统识别缺失 → 交互式补全 → 人确认」解决，而非静默自动写入正式元数据。
 
 ### 1.2 最小作者包 vs 可评估包
 
@@ -53,7 +52,7 @@
 
 即 §2 定义的完整目录结构：`SKILL.md`（含 frontmatter）+ `eval_cases` + `sample_io`（+ 可选 `scripts`）。
 
-两者之间的缺口，在**入库前补齐流水线**中处理（流程见 §14）。
+两者之间的缺口，在**评估前补齐流水线**中处理（流程见 §14）。
 
 ### 1.3 存量 Skill 与降级评估
 
@@ -62,9 +61,9 @@
 1. **先做一次降级评估**：在元数据不完整时仍可运行评估流程，但结论上限为 **`warn`**，不得直接 **`pass`**。
 2. **输出缺口清单**：明确缺哪些字段、哪些用例、哪些需人确认。
 3. **交互式补齐**：作者或运营按清单补全可评估包。
-4. **再次完整评估**：补齐后按完整规范重新评估，方可进入 `pass` 与上架。
+4. **再次完整评估**：补齐后按完整规范重新评估，方可进入 `pass`。
 
-降级评估的目的：快速摸底质量与缺口，而非降低长期上架标准。
+降级评估的目的：快速摸底质量与缺口，而非降低正式评估标准。
 
 ---
 
@@ -96,9 +95,9 @@ skill-name/
 | `eval_cases/` | 是 | 评估用例，至少包含 happy path；高风险 Skill 必须包含拒绝/对抗用例 |
 | `sample_io/` | 是 | 无法真实执行时的模拟输入输出；也是人工抽检证据 |
 | `references/` | 否 | 术语、业务规则、示例等渐进式上下文 |
-| `scripts/` | 否 | 沙盒执行脚本；有脚本则进入 Level 2 执行 |
-| `entrypoint` | has_scripts 时**必填** | 真实执行入口路径（如 `scripts/run.py` 或 `scripts/run_diagnosis_pipeline.sh`）；W8 本地执行桥用于校验 tool_result 证据 |
-| `execution_source` | 否 | 执行来源：`local`（本地 agent 真跑）或 `sample_io`（作者样例）；缺省跟随环境变量 `EXEC_SOURCE` |
+| `scripts/` | 否 | 可执行脚本或辅助脚本；有明确入口时可用于本地真跑 |
+| `entrypoint` | has_scripts 时**必填** | 真实执行入口路径（如 `scripts/run.py` 或 `scripts/run_diagnosis_pipeline.sh`）；本地执行用于校验工具结果证据 |
+| `execution_source` | 否 | 执行来源：`local`（本地 Agent 真跑）或 `sample_io`（作者样例） |
 
 第一版 demo 不要求所有 Skill 都可真实执行，但要求所有 Skill 都可被评估 Agent 读取、打分和归因。
 
@@ -333,19 +332,19 @@ error_handling:
 
 ## 7. 可执行性分级
 
-第一版 demo 使用 Level 0-2，Level 3 作为后续上架监控目标。
+当前评估主要使用 Level 0-2。
 
 | Level | 名称 | 判定 |
 |-------|------|------|
 | Level 0 | 静态协议检查 | 只校验 `SKILL.md`、schema、用例完整性 |
 | Level 1 | 样例 I/O 模拟 | 使用 `sample_io` 评估输出是否符合 `returns_schema` |
-| Level 2 | 沙盒执行 | 运行 `scripts/run.*` 或等效入口，生成真实 I/O |
-| Level 3 | 上架后运行时监控 | 上架后监控 IRR、失败率、评分漂移（与 §11 上架后健康检查互补） |
+| Level 2 | 本地 CLI Agent 真跑 | 调用本机 Agent 执行测试题，生成真实 I/O |
+| Level 3 | 运行时监控 | 不参与当前首次评估 |
 
 准入建议：
 
 - 低风险 Skill：Level 1 可进入 `warn` 或试用态。
-- 中高风险 Skill：至少 Level 2 通过后再进入 `pass`。
+- 中高风险 Skill：建议提供 Level 2 本地真跑证据；未达成时需人工关注执行置信度。
 - 任意风险 Skill：Level 0 失败则直接 `fail`。
 
 ---
@@ -360,7 +359,7 @@ error_handling:
 1. Level 0 静态检查 → 失败则 FAIL  
 2. **risk_level 锁定**（§14.6）→ 用例数量校验  
 3. Level 1/2 执行 case，代码断言（§6.4）  
-4. DeepSeek / WorkBuddy 独立三维评分  
+4. DeepSeek / Gemini 独立三维评分
 5. 聚合 `score_total`（§6.4）或 R5 置 null  
 6. 完整度 Checklist + cap  
 7. 联合决策表 → `review_status`  
@@ -386,7 +385,7 @@ error_handling:
 
 ## 10. 评审输出规范
 
-评估 Agent 必须输出结构化 JSON，便于 SkillHub Portal 展示和后续上架后健康检查（Golden Case 固化）。
+评估 Agent 必须输出结构化 JSON，便于报告展示、追踪和人工复核。
 
 ```json
 {
@@ -441,9 +440,9 @@ error_handling:
 }
 ```
 
-### 10.1 Portal 最小字段
+### 10.1 报告最小字段
 
-即使前端后置，评审输出需预留 Portal 卡片字段：
+评审输出需预留报告卡片字段：
 
 | 字段 | 用途 |
 |------|------|
@@ -451,7 +450,7 @@ error_handling:
 | `score_total` | 综合评分 |
 | `risk_level` | 风险等级 |
 | `category` | 场景分类 |
-| `usage_count` | **非评估阶段写入**；上架后由运行时统计累加，Capability Eval 时填 **0** 或省略 |
+| `usage_count` | 非当前评估字段，Capability Eval 时填 **0** 或省略 |
 | `last_evaluated_at` | 最近评估时间 |
 | `feedback.summary` | 卡片上的简短说明 |
 
@@ -466,7 +465,7 @@ error_handling:
 出现任一情况必须进入人工抽检：
 
 - `review_status = warn`。
-- DeepSeek 与 WorkBuddy 总分差异 `>= 10`。
+- DeepSeek 与 Gemini 总分差异 `>= 10`。
 - 任一模型给出 `fail`，另一模型给出 `pass`。
 - `risk_level = high`。
 - 拒绝/越权用例失败。
@@ -497,7 +496,7 @@ error_handling:
 
 | 结论 | 含义 | 后续动作 |
 |------|------|----------|
-| `pass` | 满足当前准入标准 | 可进入 SkillHub 入库或试用区 |
+| `pass` | 满足当前准入标准 | 可作为当前质量判断依据 |
 | `warn` | 可用但存在风险或分歧 | 人工抽检或作者修订 |
 | `fail` | 不满足质量底线 | 驳回，按 feedback 修复后重提 |
 
@@ -510,18 +509,11 @@ error_handling:
 
 ---
 
-## 13. 与后续阶段的关系
-
-| 阶段 | 本规范提供的基础 | 阶段一 / 二边界 |
-|------|------------------|-----------------|
-| **阶段一（当前）** | 编写规范 + **评估标准 v1.0** + **评估流程（§14）** | 1.2 已完成；1.3 定工作流与 Prompt 骨架 |
-| 阶段二：闭环验证 | 评估包、样例 I/O、case schema、评审输出 JSON | **完整 Agent 评估体系的设计与搭建**（规范化 Agent、评审 Agent、交互补全 UI/PoC） |
-| 阶段三：Portal | 卡片状态字段、评分、风险等级、分类 | 独立 SkillHub Portal；可承载交互式补全 |
-| 阶段四：立项 Demo | 风控拦截案例、提效闭环案例、可追溯评审证据 | 基于阶段二跑通样本 |
+## 13. 规范维护关注点
 
 本规范后续应随样本 Skill 评测结果迭代，尤其是：
 
-- DeepSeek / WorkBuddy 分歧阈值。
+- DeepSeek / Gemini 分歧阈值。
 - 三维权重 40 / 30 / 30 是否需要调整。
 - 不同风险等级的最小测试用例数量。
 - `SKILL.md` 与 OpenAPI / MCP 的兼容字段。
@@ -529,15 +521,15 @@ error_handling:
 
 ---
 
-## 14. 评估流程说明（阶段一 · 文档版）
+## 14. 评估流程说明
 
-> 本节描述**目标流程**，供阶段一 1.2 / 1.3 与阶段二工程实现对齐。阶段一不实现完整 Agent，仅固化流程与接口约定。
+> 本节描述当前评估链路的协议视角。产品口径见 [`Skill评估系统全景说明.md`](../guides/Skill评估系统全景说明.md)。
 
 ### 14.1 总览
 
 ```mermaid
 flowchart TD
-  submit["作者提交最小包或存量 Skill"] --> ingest["入库解析"]
+  submit["作者提交最小包或存量 Skill"] --> ingest["解析包"]
   ingest --> gapScan["缺口扫描 Level 0"]
   gapScan --> riskLock["risk_level 锁定\n自报→规则→Agent复核"]
   riskLock --> caseCheck{"用例数满足\n锁定等级?"}
@@ -545,25 +537,25 @@ flowchart TD
   caseCheck -->|是| normAgent["规范化 Agent（若需）"]
   normAgent --> interactive["交互式补全"]
   interactive --> evalBundle["可评估包 ready"]
-  evalBundle --> caseRun["Level 1/2：样例或沙盒执行"]
-  caseRun --> reviewAgent["评审 Agent：DeepSeek + WorkBuddy"]
+  evalBundle --> caseRun["Level 1/2：样例或本地真跑"]
+  caseRun --> reviewAgent["评审 Agent：DeepSeek + Gemini"]
   reviewAgent --> aggregate["聚合评分 + 完整度 + 分歧检测"]
   aggregate --> decision{"准入结论"}
-  decision --> pass["pass：可上架"]
+  decision --> pass["pass：当前质量达标"]
   decision --> warn["warn：人工抽检 / 继续补齐"]
   decision --> fail["fail：驳回修复"]
 ```
 
 ### 14.2 角色分工
 
-| 角色 | 职责 | 阶段一交付物 | 阶段二实现 |
-|------|------|--------------|------------|
-| **规范化 Agent** | 缺口扫描、字段草案、`eval_cases` 建议 | Prompt 骨架 + `gaps.json` 字段定义 | 可运行服务 / 脚本 |
-| **交互补全** | 向作者追问高价值问题、确认草案 | 问题清单 + 确认状态机 | Portal 表单或对话 UI |
-| **评审 Agent** | 三维打分、模型交叉、输出 JSON | 评分 rubric + 输出 Schema | DeepSeek + WorkBuddy 调用链 |
-| **人工抽检** | 校准模型、处理 warn / 分歧 / 高风险 | 抽检表字段（§11.2） | 运营工作流 |
+| 角色 | 职责 |
+|------|------|
+| **规范化 Agent** | 缺口扫描、字段草案、`eval_cases` 建议 |
+| **交互补全** | 向作者追问高价值问题、确认草案 |
+| **评审 Agent** | 三维打分、模型交叉、输出 JSON |
+| **人工抽检** | 校准模型、处理 warn / 分歧 / 高风险 |
 
-**原则**：规范化 Agent 产出为 **`draft`**；推断出的 `returns_schema`、权限边界等**须人确认**后方可用于 **`pass`** 判定。阶段二实现以 1.3 Architecture Contract 的 `bundle_state`、`evaluation_mode`、A/B/C/D 编排模式为准；人工抽检不得绕过 `confirmed` 状态直接 PASS。
+**原则**：规范化 Agent 产出为 **`draft`**；推断出的 `returns_schema`、权限边界等**须人确认**后方可用于 **`pass`** 判定。人工抽检不得绕过 `confirmed` 状态直接 PASS。
 
 ### 14.3 缺口扫描与交互补全
 
@@ -625,4 +617,4 @@ flowchart TD
 | **1.2** | [`评估指标与准入标准.md`](评估指标与准入标准.md) | v1.2；§9 为导读 |
 | **1.3** | §14、§8、[`评审Agent工作流与Prompt骨架.md`](评审Agent工作流与Prompt骨架.md) | v0.2：Architecture Contract、Prompt、Schema、编排、`reason_code` |
 
-阶段二再展开：API 设计、Agent 编排、DeepSeek/WorkBuddy 接入、交互 UI、样本库跑通与校准（见 `RECORD.md` 阶段二）。
+实现细节以当前代码和 `RECORD.md` 记录为准；本文只保留协议口径。

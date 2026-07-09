@@ -927,17 +927,21 @@ async def _handle_skill_id_confirm_chat(
             return ChatResponse(reply=reply, intent="explain_only", bootstrap_status="failed")
         if propagation_deferred:
             status = defer_status or (repo.get_conversation(conv_id) or {}).get("status")
+            staging = Path(settings.staging_root) / conv_id
             return ChatResponse(
                 reply="评估材料补充计划已就绪，请查看下方卡片并选择补全方式。",
                 intent="explain_only",
                 new_run_id=None,
                 bootstrap_status=str(status),
+                staging_path=str(staging) if staging.is_dir() else None,
             )
+        staging = Path(settings.staging_root) / conv_id
         return ChatResponse(
             reply=f"已开始评估 Skill `{skill_id}`。",
             intent="system_action",
             new_run_id=run_id,
             bootstrap_status="accepted",
+            staging_path=str(staging) if staging.is_dir() else None,
         )
 
     corrected = _parse_skill_id_correction(message)
@@ -1122,7 +1126,14 @@ async def chat(
     if message.strip() and not _is_internal_user_message(message):
         repo.append_lui_message(conv_id, role="user", content=message)
 
-    if bundle_zip is not None:
+    conv = repo.get_conversation(conv_id) or {}
+    # While awaiting skill-id confirm, never remount ZIP — a lingering attachment
+    # would re-enter awaiting_skill_id_confirm and loop the confirm card.
+    awaiting_skill_confirm = conv.get("status") == "awaiting_skill_id_confirm"
+    confirm_action = (
+        is_confirm_message(message) or message.strip() == _ACTION_CONFIRM_SKILL
+    )
+    if bundle_zip is not None and not (awaiting_skill_confirm and confirm_action):
         zip_resp = await _handle_chat_zip_bootstrap(
             conv_id, message, bundle_zip, repo, ds, gemini, background_tasks
         )

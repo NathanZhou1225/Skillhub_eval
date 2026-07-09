@@ -75,10 +75,19 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 
 #### Scenario: 用户手动运行本地执行环境检查
 
-- **Given** 用户在执行设置或当前 Skill 检查区域点击“本地执行环境检查”
+- **Given** 用户在执行设置 Agent 卡点击“运行环境检查 / 本地执行环境检查”（主入口；对话顶栏仅展示未检查/检查中/已通过/未通过状态并打开执行设置，不直接 POST）
 - **When** 系统运行 runtime preflight API
 - **Then** 系统 SHALL 运行或复用诊断检查、写入 preflight cache，并返回 passed/failed/blocked 诊断
+- **And** 无历史检查结果时 UI SHALL 展示为未检查（`missing`），不得把未跑过标成失败或“需要生成检查用例”
+- **And** 检查进行中 UI MAY 展示过程态（检查中）；结束后结果 SHALL 保留在执行设置与顶栏，不只依赖 toast
 - **And** failed/blocked 结果 SHALL 以 warning/diagnostic 方式呈现，说明“仍可继续正式评估，以 case 实跑结果为准”
+
+#### Scenario: ZIP 挂载后即可做环境检查
+
+- **Given** 用户已成功上传 ZIP 或 bootstrap，且响应含 `staging_path`
+- **When** 用户打开执行设置且本地 Agent 已 detected
+- **Then** UI SHALL 在补题完成前即可对当前 Skill 发起本地执行环境检查
+- **And** 评估详情卡 SHALL NOT 再提供独立的环境检查按钮（入口统一回执行设置）
 
 #### Scenario: 本地执行失败由正式 case 结果兜底
 

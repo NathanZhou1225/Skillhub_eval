@@ -105,6 +105,30 @@ def test_chat_multipart_zip_auto_id_requires_confirm(client_with_repo, tmp_path)
     assert conv["skill_id"] == "zip-skill"
 
 
+def test_chat_confirm_ignores_lingering_zip_attachment(client_with_repo, tmp_path):
+    """Confirm must not remount ZIP and loop awaiting_skill_id_confirm."""
+    client, repo = client_with_repo
+    with patch("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging")):
+        conv_id = client.post("/conversations/new").json()["conversation_id"]
+        client.post(
+            f"/conversations/{conv_id}/chat",
+            files={"bundle_zip": ("bundle.zip", _zip_bytes(), "application/zip")},
+            data={"message": ""},
+        )
+        assert repo.get_conversation(conv_id)["status"] == "awaiting_skill_id_confirm"
+        # Simulate UI bug: confirm action still attached as multipart with ZIP
+        resp = client.post(
+            f"/conversations/{conv_id}/chat",
+            files={"bundle_zip": ("bundle.zip", _zip_bytes(), "application/zip")},
+            data={"message": "__ACTION_CONFIRM_SKILL__"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["bootstrap_status"] != "awaiting_skill_id_confirm"
+    assert body["bootstrap_status"] in {"accepted", "awaiting_propagation_dialogue", "awaiting_propagation_clarify", "awaiting_propagation_confirm", "awaiting_propagation_scene_choice"}
+    assert repo.get_conversation(conv_id)["status"] != "awaiting_skill_id_confirm"
+
+
 def test_chat_confirm_after_auto_id_starts_eval(client_with_repo, tmp_path):
     client, repo = client_with_repo
     with patch("skillhub_eval.settings.settings.staging_root", str(tmp_path / "staging")):

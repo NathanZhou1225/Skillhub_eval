@@ -309,8 +309,10 @@
 </main>
 
 <!-- C02 ExecBridge drawer -->
-<div id="exec-drawer-overlay" class="hidden fixed inset-0 z-40 bg-black/20" onclick="if(event.target===this)closeExecSettingsDrawer()">
-  <aside class="absolute right-0 top-0 h-full w-[420px] bg-white border-l-2 border-gray-900 shadow-xl p-5 overflow-y-auto">
+<!-- pointer-events-none on overlay so chat chips (确认继续) stay clickable while drawer is open -->
+<div id="exec-drawer-overlay" class="hidden fixed inset-0 z-40 pointer-events-none">
+  <aside class="pointer-events-auto absolute right-0 top-0 h-full w-[420px] bg-white border-l-2 border-gray-900 shadow-xl p-5 overflow-y-auto"
+    onclick="event.stopPropagation()">
     <div class="flex items-center justify-between">
       <h3 class="font-semibold text-gray-900">执行设置</h3>
       <button type="button" onclick="closeExecSettingsDrawer()" class="text-gray-400 hover:text-gray-700 text-lg leading-none">&times;</button>

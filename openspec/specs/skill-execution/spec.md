@@ -228,7 +228,7 @@ runtime definition SHALL 随代码版本化；resolved CLI path、用户选择�
 
 ### Requirement: runtime preflight 作为可选本地执行环境诊断
 
-当用户选择本地 CLI runtime 时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`，且 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。runtime preflight SHALL 作为用户可手动触发的“本地执行环境检查”诊断能力保留。高风险 bundle 缺少安全 preflight case 时，手动诊断 API MAY 使用确定性轻量模板自动生成 `runtime_preflight_01`（`type: preflight`），不得默认调用 LLM 生成检查题；preflight 执行 SHALL 使用专用轻量 harness，只允许读取/确认 Skill 与必要文件/入口可见性，不得按正式业务流程取数、诊断或运行完整 pipeline；该 case SHALL 不计入正式 case 数量与 judge 评分。
+当用户选择本地 CLI runtime 时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`，且 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。runtime preflight SHALL 作为用户可手动触发的“本地执行环境检查”诊断能力保留。主入口为执行设置 Agent 卡；ZIP/bootstrap 成功响应 SHALL 返回 `staging_path`，使 UI 在补题完成前即可发起检查。对话顶栏在 `exec_source=local` 时 MAY 展示未检查/检查中/已通过/未通过状态并打开执行设置，SHALL NOT 在顶栏直接 POST preflight。无历史结果时 UI SHALL 展示为未检查，不得把未跑过标成失败。高风险 bundle 缺少安全 preflight case 时，手动诊断 API MAY 使用确定性轻量模板自动生成 `runtime_preflight_01`（`type: preflight`），不得默认调用 LLM 生成检查题；preflight 执行 SHALL 使用专用轻量 harness，只允许读取/确认 Skill 与必要文件/入口可见性，不得按正式业务流程取数、诊断或运行完整 pipeline；该 case SHALL 不计入正式 case 数量与 judge 评分。
 
 缓存 SHALL 在 SQLite 中保存 24 小时，并在 runtime id、model id、skill fingerprint、CLI path/version 或 SkillHub version 变化时失效。缓存状态仅用于诊断/UI 展示，不作为正式本地评估硬门禁。
 

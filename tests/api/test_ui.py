@@ -154,6 +154,55 @@ def test_ui_local_agent_case_progress_helpers():
     assert "max-h-56 overflow-y-auto" in text
 
 
+def test_ui_confirm_action_does_not_reattach_zip():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "attachZip" in text
+    assert "isInternalUserMessage(payloadText)" in text
+    fn_idx = text.find("async function sendConversationMessage")
+    assert fn_idx != -1
+    region = text[fn_idx : fn_idx + 2500]
+    assert "attachZip" in region
+    assert "!isInternalUserMessage(payloadText)" in region
+
+
+def test_ui_open_exec_settings_rescans_with_staging_path():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    fn_idx = text.find("function openExecSettingsDrawer")
+    assert fn_idx != -1
+    region = text[fn_idx : fn_idx + 500]
+    assert "getActiveSkillBundlePath" in region
+    assert "fetchExecScan(true)" in region
+
+
+def test_ui_exec_drawer_does_not_block_chat_clicks():
+    """Overlay must not steal clicks from chat chips like 确认继续."""
+    app = create_app()
+    client = TestClient(app)
+    html = client.get("/ui/index.html").text
+    assert 'id="exec-drawer-overlay"' in html
+    assert "pointer-events-none" in html
+    assert "pointer-events-auto" in html
+
+
+def test_ui_local_check_shows_running_state():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "getAgentRuntimePreflightLive" in text
+    assert "检查中…" in text
+    assert "环境：检查中" in text
+    fn_idx = text.find("async function runLocalExecutionCheck")
+    assert fn_idx != -1
+    region = text[fn_idx : fn_idx + 1200]
+    assert "status: 'running'" in region
+    assert "renderExecAgentCards()" in region
+    assert "updateChatLocalCheckButton()" in region
+
+
 def test_ui_exposes_chat_local_execution_check_button():
     app = create_app()
     client = TestClient(app)
@@ -186,10 +235,11 @@ def test_ui_env_check_button_visible_when_path_ready():
     assert "运行环境检查" in text
     fn_idx = text.find("function renderExecAgentCards")
     assert fn_idx != -1
-    region = text[fn_idx : fn_idx + 5600]
+    region = text[fn_idx : fn_idx + 7500]
     assert "can_run_local_check" in region
     assert "disabled" in region
     assert "上传 ZIP 后可检查当前 Skill" in region
+    assert "检查中…" in region
 
 
 def test_ui_conversation_polling_is_throttled():

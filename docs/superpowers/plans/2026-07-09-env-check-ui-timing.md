@@ -1,6 +1,6 @@
 # Env-Check UI Timing Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** After ZIP/bootstrap mounts a Skill, the Chat UI immediately knows `staging_path`, shows「运行环境检查」in Exec Settings, and turns the header into a status pill that opens Exec Settings — without blocking formal eval.
 
@@ -9,6 +9,8 @@
 **Tech Stack:** FastAPI + Pydantic, Vanilla JS Chat UI (`index.js` / `index.html`), pytest + TestClient UI contract tests.
 
 **Spec:** `docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md`
+
+**Status:** Implemented (2026-07-09) — plan tasks complete; user confirmed in browser. Hotfixes after plan: confirm-ZIP ignore, readiness `missing` semantics, progress UI, drawer pointer-events. Design Status=Implemented (beyond original Approved).
 
 ---
 
@@ -34,7 +36,7 @@
 - Modify: `skillhub_eval/adapters/api/routes/chat.py`
 - Test: `tests/adapters/test_chat_wave5.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `tests/adapters/test_chat_wave5.py`, extend the existing ZIP upload test (the one that asserts `bootstrap_status == "awaiting_skill_id_confirm"`) so the body also asserts staging path:
 
@@ -57,7 +59,7 @@ Also add / extend the explicit-skill-id ZIP test similarly:
     assert conv_id in str(body["staging_path"]).replace("\\", "/")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```powershell
 pytest tests/adapters/test_chat_wave5.py::test_chat_zip_upload_awaits_skill_id_confirm -v
@@ -67,7 +69,7 @@ pytest tests/adapters/test_chat_wave5.py::test_chat_zip_upload_awaits_skill_id_c
 
 Expected: FAIL — `staging_path` missing / `None`.
 
-- [ ] **Step 3: Minimal implementation**
+- [x] **Step 3: Minimal implementation**
 
 In `skillhub_eval/adapters/api/routes/chat.py`:
 
@@ -102,7 +104,7 @@ Example for the confirm-awaiting return:
 
 Apply the same `staging_path=str(staging_path)` to the other success returns in that function (deferred / accepted / explicit start).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```powershell
 pytest tests/adapters/test_chat_wave5.py -q
@@ -110,7 +112,7 @@ pytest tests/adapters/test_chat_wave5.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skillhub_eval/adapters/api/routes/chat.py tests/adapters/test_chat_wave5.py
@@ -125,7 +127,7 @@ git commit -m "feat(api): return staging_path on chat ZIP bootstrap success"
 - Modify: `skillhub_eval/adapters/api/routes/conversations.py`
 - Test: `tests/adapters/test_conversations_wave5.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 In `tests/adapters/test_conversations_wave5.py`, pick an existing successful bootstrap test (e.g. `test_bootstrap_auto_identify_requires_confirm` or explicit skill_id). After `assert resp.status_code == 202`, add:
 
@@ -137,7 +139,7 @@ In `tests/adapters/test_conversations_wave5.py`, pick an existing successful boo
 
 (Use the local `conv_id` / `conversation_id` variable name from that test.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```powershell
 pytest tests/adapters/test_conversations_wave5.py::test_bootstrap_auto_identify_requires_confirm -v
@@ -145,7 +147,7 @@ pytest tests/adapters/test_conversations_wave5.py::test_bootstrap_auto_identify_
 
 Expected: FAIL — missing `staging_path`.
 
-- [ ] **Step 3: Minimal implementation**
+- [x] **Step 3: Minimal implementation**
 
 In `conversations.py`:
 
@@ -166,7 +168,7 @@ class BootstrapResponse(BaseModel):
 
 In `bootstrap_conversation`, every successful return after `_mount_staging_for_bootstrap` (including `awaiting_skill_id_confirm`, deferred, accepted) must include `staging_path=str(staging_path)`.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```powershell
 pytest tests/adapters/test_conversations_wave5.py -q
@@ -174,7 +176,7 @@ pytest tests/adapters/test_conversations_wave5.py -q
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skillhub_eval/adapters/api/routes/conversations.py tests/adapters/test_conversations_wave5.py
@@ -189,7 +191,7 @@ git commit -m "feat(api): return staging_path on conversation bootstrap success"
 - Modify: `skillhub_eval/adapters/ui/static/assets/index.js`
 - Test: `tests/api/test_ui.py`
 
-- [ ] **Step 1: Write the failing UI contract test**
+- [x] **Step 1: Write the failing UI contract test**
 
 Add to `tests/api/test_ui.py`:
 
@@ -213,7 +215,7 @@ def test_ui_caches_staging_path_from_bootstrap():
     )
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```powershell
 pytest tests/api/test_ui.py::test_ui_caches_staging_path_from_bootstrap -v
@@ -221,7 +223,7 @@ pytest tests/api/test_ui.py::test_ui_caches_staging_path_from_bootstrap -v
 
 Expected: FAIL — symbols missing.
 
-- [ ] **Step 3: Implement cache helpers + path priority**
+- [x] **Step 3: Implement cache helpers + path priority**
 
 Near other module-level state in `index.js` (around `_activeConversationId`):
 
@@ -271,7 +273,7 @@ In `sendConversationMessage`, after a successful `apiFetch` that returns `chatRe
 
 When switching conversations (`selectConversation` / equivalent that sets `_activeConversationId`), call `updateChatLocalCheckButton()` and `renderExecAgentCards()` so the new session’s cached path applies. Do **not** clear other conversations’ cache entries on switch.
 
-- [ ] **Step 4: Run UI contract test**
+- [x] **Step 4: Run UI contract test**
 
 ```powershell
 pytest tests/api/test_ui.py::test_ui_caches_staging_path_from_bootstrap -v
@@ -279,7 +281,7 @@ pytest tests/api/test_ui.py::test_ui_caches_staging_path_from_bootstrap -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skillhub_eval/adapters/ui/static/assets/index.js tests/api/test_ui.py
@@ -299,7 +301,7 @@ Spec rules:
 - If `can_run_local_check === false`, show **disabled** button + short reason (or「重置轻量检查」if that path already exists) — **do not hide** the button when path is ready.
 - Status line: with path → never silent blank; without path →「上传 ZIP 后可检查当前 Skill」.
 
-- [ ] **Step 1: Write failing contract assertions**
+- [x] **Step 1: Write failing contract assertions**
 
 ```python
 def test_ui_env_check_button_visible_when_path_ready():
@@ -318,7 +320,7 @@ def test_ui_env_check_button_visible_when_path_ready():
     assert "上传 ZIP 后可检查当前 Skill" in region
 ```
 
-- [ ] **Step 2: Run to verify fail / then implement**
+- [x] **Step 2: Run to verify fail / then implement**
 
 Replace the `localCheckLine` / `checkBtn` block in `renderExecAgentCards` roughly with:
 
@@ -352,7 +354,7 @@ Replace the `localCheckLine` / `checkBtn` block in `renderExecAgentCards` roughl
 
 Keep existing「重置轻量检查」elsewhere if already present; do not remove it.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```powershell
 pytest tests/api/test_ui.py::test_ui_env_check_button_visible_when_path_ready -v
@@ -360,7 +362,7 @@ pytest tests/api/test_ui.py::test_ui_env_check_button_visible_when_path_ready -v
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skillhub_eval/adapters/ui/static/assets/index.js tests/api/test_ui.py
@@ -376,7 +378,7 @@ git commit -m "fix(ui): keep env-check button visible when staging path is ready
 - Modify: `skillhub_eval/adapters/ui/static/assets/index.js`
 - Test: `tests/api/test_ui.py`
 
-- [ ] **Step 1: Update failing contract for header**
+- [x] **Step 1: Update failing contract for header**
 
 Replace / rewrite `test_ui_exposes_chat_local_execution_check_button` to match B3:
 
@@ -400,7 +402,7 @@ def test_ui_exposes_chat_local_execution_check_button():
 
 Adjust assertions to whatever helper name you introduce; keep them exact.
 
-- [ ] **Step 2: Change HTML control**
+- [x] **Step 2: Change HTML control**
 
 In `index.html`, replace the header button with a status control:
 
@@ -412,7 +414,7 @@ In `index.html`, replace the header button with a status control:
             </button>
 ```
 
-- [ ] **Step 3: Implement JS**
+- [x] **Step 3: Implement JS**
 
 ```javascript
 function getSelectedAgentLocalCheckStatus() {
@@ -449,7 +451,7 @@ Remove any header path that calls `runLocalExecutionCheck(...)` directly.
 
 Call `updateChatLocalCheckButton()` after `fetchExecScan` / `runLocalExecutionCheck` success so the pill updates.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```powershell
 pytest tests/api/test_ui.py::test_ui_exposes_chat_local_execution_check_button -v
@@ -457,7 +459,7 @@ pytest tests/api/test_ui.py::test_ui_exposes_chat_local_execution_check_button -
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add skillhub_eval/adapters/ui/static/index.html skillhub_eval/adapters/ui/static/assets/index.js tests/api/test_ui.py
@@ -472,7 +474,7 @@ git commit -m "feat(ui): header env status pill opens exec settings"
 - Modify: `skillhub_eval/adapters/ui/static/assets/index.js` (`renderExecAttributionCard`)
 - Test: `tests/api/test_ui.py`
 
-- [ ] **Step 1: Write contract test**
+- [x] **Step 1: Write contract test**
 
 ```python
 def test_ui_report_card_has_no_env_check_button():
@@ -486,7 +488,7 @@ def test_ui_report_card_has_no_env_check_button():
     assert "runRuntimePreflightFromDetail" not in region
 ```
 
-- [ ] **Step 2: Implement**
+- [x] **Step 2: Implement**
 
 Simplify `renderExecAttributionCard` — keep attribution copy, drop `preflightButton` entirely:
 
@@ -509,7 +511,7 @@ function renderExecAttributionCard(d) {
 
 If `runRuntimePreflightFromDetail` becomes unused, leave the function in place only if other callers exist; otherwise remove dead helper in the same commit (grep first).
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```powershell
 pytest tests/api/test_ui.py::test_ui_report_card_has_no_env_check_button -v
@@ -517,7 +519,7 @@ pytest tests/api/test_ui.py::test_ui_report_card_has_no_env_check_button -v
 
 Expected: PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add skillhub_eval/adapters/ui/static/assets/index.js tests/api/test_ui.py
@@ -530,22 +532,22 @@ git commit -m "fix(ui): remove env-check button from report attribution card"
 
 **Files:**
 - Modify: `docs/runbooks/local-agent-exec-validation.md`
-- Modify: `docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md` (Status → Approved)
+- Modify: `docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md` (Status → Implemented)
 - Verify: pytest suites above + encoding check
 
-- [ ] **Step 1: Patch runbook**
+- [x] **Step 1: Patch runbook**
 
 In the section「What「连接测试」means vs environment check」, replace the chat-header paragraph with:
 
 ```markdown
-UI: Exec Settings Agent cards are the primary entry for **本地执行环境检查**. After a successful ZIP upload / bootstrap, the API returns `staging_path`; the Chat UI caches it and can run the check immediately (no need to wait for补题). The chat header shows an **环境：未检查 / 已通过 / 失败** status pill when `exec_source=local`; clicking it opens Exec Settings and does **not** POST preflight. A green connection test must not imply formal local evaluation readiness. A failed environment check is a warning only — formal local eval may still proceed and is judged by real case execution.
+UI: Exec Settings Agent cards are the primary entry for **本地执行环境检查**. After a successful ZIP upload / bootstrap, the API returns `staging_path`; the Chat UI caches it and can run the check immediately (no need to wait for补题). The chat header shows an **环境：未检查 / 检查中… / 已通过 / 未通过** status pill when `exec_source=local`; clicking it opens Exec Settings and does **not** POST preflight. A green connection test must not imply formal local evaluation readiness. A failed environment check is a warning only — formal local eval may still proceed and is judged by real case execution.
 ```
 
-- [ ] **Step 2: Mark design Approved**
+- [x] **Step 2: Mark design Approved**
 
-In the design doc header: `Status: Approved`.
+In the design doc header: `Status: Implemented` (user-confirmed).
 
-- [ ] **Step 3: Full verification**
+- [x] **Step 3: Full verification**
 
 ```powershell
 pytest tests/adapters/test_chat_wave5.py tests/adapters/test_conversations_wave5.py tests/api/test_ui.py -q
@@ -554,15 +556,15 @@ python scripts/check_doc_encoding.py docs/runbooks/local-agent-exec-validation.m
 
 Expected: all green; encoding OK.
 
-- [ ] **Step 4: Manual smoke (serve already on :8000 — restart after code change)**
+- [x] **Step 4: Manual smoke (serve already on :8000 — restart after code change)**
 
 1. New conversation → upload a Skill ZIP.
 2. Open Exec Settings → local source → detected Agent shows「运行环境检查」**before**补题 finishes.
 3. Header shows「环境：未检查」; click opens drawer; does not toast a preflight run by itself.
-4. Run check → toast diagnostic only; start formal eval still reaches `case_executing` even if check failed.
+4. Run check → card/header show 检查中… then 已通过/未通过; start formal eval still reaches `case_executing` even if check failed.
 5. Report attribution card has no「运行环境检查」button.
 
-- [ ] **Step 5: Commit docs**
+- [x] **Step 5: Commit docs**
 
 ```bash
 git add docs/runbooks/local-agent-exec-validation.md docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md docs/superpowers/plans/2026-07-09-env-check-ui-timing.md

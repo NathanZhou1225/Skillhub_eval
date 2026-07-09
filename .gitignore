@@ -23,9 +23,9 @@ data/
 .DS_Store
 
 # AI 编程助手与本地 Agent 记忆 (CRITICAL - 绝对不能传)
-.project_memory/
+# .project_memory/
 .codebuddy/
 .workbuddy/
 
 # 测试用skills
-testskills/
+# testskills/

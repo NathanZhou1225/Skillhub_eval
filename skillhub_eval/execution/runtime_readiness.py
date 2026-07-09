@@ -12,15 +12,14 @@ from skillhub_eval.execution.models import discover_models, is_model_verified_li
 from skillhub_eval.execution.preflight_cache import _parse_iso_datetime
 from skillhub_eval.execution.preflight_runner import PreflightRunner
 from skillhub_eval.execution.runtime_defs import get_runtime_def
-from skillhub_eval.execution.safe_preflight_case import build_safe_preflight_case
 from skillhub_eval.persistence.sqlite import SqliteRepository
 
 LOCAL_CHECK_MESSAGES_ZH: dict[str, str] = {
-    "missing": "尚未检查",
+    "missing": "尚未检查（点「运行环境检查」即可自动诊断）",
     "passed": "已通过",
-    "failed": "检查失败",
-    "expired": "已过期",
-    "blocked": "需要生成检查用例或修复环境",
+    "failed": "检查未通过（仅诊断，可继续正式评估）",
+    "expired": "已过期，可重新检查",
+    "blocked": "暂不可检（可继续正式评估）",
     "not_applicable": "未选择 Skill",
 }
 
@@ -116,37 +115,38 @@ def _local_check_state(
     if latest:
         expires_at = _parse_iso_datetime(latest.get("expires_at"))
         now = datetime.now(UTC)
-        if latest.get("status") != "passed":
-            status = "failed"
-        elif expires_at is not None and expires_at <= now:
-            status = "expired"
-        elif latest.get("fingerprint") != context["fingerprint"]:
-            status = "expired"
+        raw = str(latest.get("status") or "")
+        if raw == "passed":
+            if expires_at is not None and expires_at <= now:
+                status = "expired"
+            elif latest.get("fingerprint") != context["fingerprint"]:
+                status = "expired"
+            else:
+                status = "passed"
+        elif raw == "blocked":
+            status = "blocked"
         else:
-            status = "missing"
+            status = "failed"
         return {
             "local_check_status": status,
             "local_check_checked_at": latest.get("checked_at"),
             "local_check_expires_at": latest.get("expires_at"),
-            "local_check_message_zh": LOCAL_CHECK_MESSAGES_ZH.get(status, LOCAL_CHECK_MESSAGES_ZH["missing"]),
+            "local_check_message_zh": LOCAL_CHECK_MESSAGES_ZH.get(
+                status, LOCAL_CHECK_MESSAGES_ZH["missing"]
+            ),
             "can_run_local_check": True,
-            "can_switch_and_rerun": False,
+            "can_switch_and_rerun": status == "passed",
         }
 
-    can_generate = build_safe_preflight_case(
-        context["bundle"],
-        locked_risk_level=locked_risk_level,
-    ) is not None or any(
-        c.get("safe_preflight") or c.get("type") == "preflight"
-        for c in context["bundle"].get("eval_cases") or []
-    )
-    status = "missing" if can_generate else "blocked"
+    # No prior check: always "missing" (not blocked). Clicking preflight will
+    # auto-generate a lightweight case for high-risk, or use happy_path /
+    # synthetic input for low-risk — users should not be told to "generate cases".
     return {
-        "local_check_status": status,
+        "local_check_status": "missing",
         "local_check_checked_at": None,
         "local_check_expires_at": None,
-        "local_check_message_zh": LOCAL_CHECK_MESSAGES_ZH[status],
-        "can_run_local_check": can_generate,
+        "local_check_message_zh": LOCAL_CHECK_MESSAGES_ZH["missing"],
+        "can_run_local_check": True,
         "can_switch_and_rerun": False,
     }
 

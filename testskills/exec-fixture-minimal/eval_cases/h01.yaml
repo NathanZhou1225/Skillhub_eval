@@ -1,0 +1,6 @@
+id: h01
+type: happy_path
+user_intent: Run the skill entrypoint and return structured success output.
+expected_output_assertions:
+  - response.status == 'success'
+  - response.ok == true

@@ -1,9 +1,9 @@
 # 本地执行环境检查 UI 时机与入口设计
 
 > Date: 2026-07-09  
-> Status: Approved  
+> Status: Implemented (2026-07-09) — 用户实机确认可用  
 > Plan: `docs/superpowers/plans/2026-07-09-env-check-ui-timing.md`  
-> Scope: 可选诊断（preflight）在 Chat UI 中的出现时机、主入口位置、路径就绪机制  
+> Scope: 可选诊断（preflight）在 Chat UI 中的出现时机、主入口位置、路径就绪机制、过程态反馈  
 > Out of scope: 恢复 preflight 硬门禁、首 case canary、正式评估前强制弹窗、改动评分语义
 
 ## Goal
@@ -31,10 +31,13 @@
 |------|------|------|
 | 时机 | ZIP 上传成功后立刻可点 | 不等补题、不依赖正式评估前后 |
 | 主入口 | 执行设置 · Agent 卡 | 与「连接测试」并列；按 Agent 分别诊断 |
-| 顶栏 | 状态提示（B3） | 显示未检查 / 已通过 / 失败；点击打开执行设置，不直接跑 preflight |
+| 顶栏 | 状态提示（B3） | 显示未检查 / 检查中 / 已通过 / 未通过；点击打开执行设置，不直接跑 preflight |
 | 路径就绪 | ZIP/bootstrap 响应带回 `staging_path`（P2） | 前端按 `conversation_id` 缓存，并立刻 `fetchExecScan` |
 | 报告卡 | 移除「运行环境检查」按钮（R2） | 复盘时回执行设置；减少入口 |
 | 产品语义 | 可选诊断 | 失败仅 toast/warning，不阻断补题或正式评估 |
+| 未检查口径 | 一律 `missing`，可点检查 | 禁止把未跑过标成「失败」或「需要生成检查用例」；点检查时自动生成/跑诊断 |
+| 过程态 | 卡片 + 顶栏同步 | 点击后「检查中…」；结束后结果留在卡/顶栏，不只 toast |
+| 抽屉交互 | overlay 不挡聊天 | 执行设置打开时仍可点「确认继续」等聊天芯片 |
 
 ## Target Interaction
 
@@ -43,11 +46,11 @@
    系统：响应含 `staging_path` → 前端缓存 → `refreshExecScan`。
 
 2. **点「运行环境检查」**  
-   用户看到：toast「通过 / 失败（仅诊断，不阻止正式评估）」。  
-   系统：`POST /api/exec/runtimes/{id}/preflight`；写 cache；更新顶栏状态。
+   用户看到：卡片与顶栏立刻变为「检查中…」；结束后变为「已通过 / 未通过」并保留；toast 作补充。  
+   系统：`POST /api/exec/runtimes/{id}/preflight`；写 cache；`fetchExecScan`；更新顶栏状态。
 
 3. **顶栏**  
-   用户看到：环境状态 pill（未检查 / 已通过 / 失败）。  
+   用户看到：环境状态 pill（未检查 / 检查中 / 已通过 / 未通过）。  
    系统：点击打开执行设置抽屉，不在顶栏直接 POST preflight。
 
 4. **正式评估**  
@@ -66,8 +69,10 @@
 ### 对话顶栏（B3）
 
 - 将现有可点击「环境检查」改为状态提示（例如「环境：未检查」）。
+- 过程中显示「环境：检查中…」；结束后「已通过 / 未通过」（勿用「失败」表示未检查）。
 - 点击 → 打开执行设置，聚焦本地执行区。
 - 仅在 `exec_source=local` 时显示该状态区。
+- 执行设置抽屉打开时，overlay **不得**挡住聊天区芯片（如「确认继续」）。
 
 ### 评估详情卡
 
@@ -105,7 +110,9 @@
 ## Success Criteria
 
 - 新对话上传 ZIP 成功后，无需等补题完成，打开执行设置即可对 detected Agent 点击「运行环境检查」
-- 顶栏显示环境状态，点击进入执行设置，不直接跑检查
+- 顶栏显示环境状态，点击进入执行设置，不直接跑检查；未检查不显示为「失败」
+- 点击检查后卡片与顶栏有「检查中…」过程态，结束后结果持久显示
+- 开着执行设置时仍可点击聊天区「确认继续」
 - 评估详情卡不再出现环境检查按钮
 - 环境检查失败不阻止正式评估进入 `case_executing`
 - 连接测试与环境检查在 UI 上仍可区分
@@ -114,7 +121,14 @@
 
 - P1：`GET /conversations/{id}/status` 始终返回 `staging_path`，刷新页面后仍稳
 - 正式评估前弱提醒（非强制）是否需要
-- `can_run_local_check` 与「高风险缺模板」blocked 态的按钮文案细化
+- 高风险缺 authored 模板时「重置轻量检查」入口的发现性
+
+## Implementation notes (landed 2026-07-09)
+
+- Confirm loop: internal actions / `awaiting_skill_id_confirm` ignore lingering ZIP attachments.
+- Readiness: no prior result → `missing` + `can_run_local_check=true` (not `blocked`).
+- Live progress: `_runtimePreflightStatus` drives card + header while request in flight.
+- Drawer: `#exec-drawer-overlay` uses `pointer-events-none`; aside uses `pointer-events-auto`.
 
 ## Visual Companion
 
