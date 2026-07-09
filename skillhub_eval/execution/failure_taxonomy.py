@@ -19,6 +19,8 @@ LOCAL_RUNTIME_FAILURE_CODES: dict[str, str] = {
     "runtime_run_incomplete": "LOCAL_RUNTIME_RUN_INCOMPLETE",
     "runtime_parser_missing": "LOCAL_RUNTIME_PARSER_MISSING",
     "runtime_missing_entrypoint_evidence": "LOCAL_RUNTIME_MISSING_ENTRYPOINT_EVIDENCE",
+    "runtime_tool_failures_exceeded": "LOCAL_RUNTIME_TOOL_FAILURES_EXCEEDED",
+    "runtime_preflight_tool_budget_exceeded": "LOCAL_RUNTIME_PREFLIGHT_TOOL_BUDGET_EXCEEDED",
 }
 
 LOCAL_RUNTIME_FAILURE_LABELS_ZH: dict[str, str] = {
@@ -33,8 +35,10 @@ LOCAL_RUNTIME_FAILURE_LABELS_ZH: dict[str, str] = {
     "LOCAL_RUNTIME_MISSING_ENTRYPOINT_EVIDENCE": "未观察到入口脚本执行证据。",
     "LOCAL_RUNTIME_OUTPUT_LEAK": "本地产出疑似包含敏感信息，已拦截。",
     "LOCAL_RUNTIME_HARDENED_PROFILE_UNAVAILABLE": "该 runtime 不支持红线题所需强化模式。",
-    "LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED": "高风险 skill 缺少安全 preflight 用例。",
+    "LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED": "高风险 skill 缺少安全检查用例（仅诊断，不阻止正式评估）。",
     "LOCAL_RUNTIME_ADAPTER_UNAVAILABLE": "该 runtime 暂无可用 adapter。",
+    "LOCAL_RUNTIME_TOOL_FAILURES_EXCEEDED": "本地执行在多次工具调用失败后已提前终止。",
+    "LOCAL_RUNTIME_PREFLIGHT_TOOL_BUDGET_EXCEEDED": "本地 preflight 工具调用超出环境检查预算，已提前终止。",
     "LOCAL_RUNTIME_UNKNOWN": "未知本地 runtime 失败。",
 }
 

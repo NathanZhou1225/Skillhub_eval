@@ -24,6 +24,7 @@ class RunOutcome(BaseModel):
     duration_ms: int | None = None
     stderr_text: str | None = None
     workspace_artifacts: list[dict] = Field(default_factory=list)
+    early_abort_reason: str | None = None
 
 
 class ExecResult(BaseModel):

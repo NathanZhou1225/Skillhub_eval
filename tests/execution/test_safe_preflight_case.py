@@ -14,6 +14,7 @@ from skillhub_eval.core.schemas import BundleState
 from skillhub_eval.execution.safe_preflight_case import (
     build_safe_preflight_case,
     ensure_safe_preflight_case,
+    ensure_safe_preflight_case_with_provider,
     fallback_safe_preflight_case,
     formal_eval_cases,
     validate_safe_preflight_candidate,
@@ -112,28 +113,92 @@ def test_invalid_llm_candidate_falls_back_to_template(tmp_path):
     root = _high_risk_bundle_root(tmp_path)
     bundle = ingest_bundle(str(root))
 
-    def bad_generator(_bundle):
-        return {"user_intent": "missing fields"}
-
-    case = build_safe_preflight_case(bundle, candidate_generator=bad_generator)
+    case = build_safe_preflight_case(bundle)
     assert case is not None
     assert case["origin"] == "runtime_platform_template"
     assert case["id"] == "runtime_preflight_01"
 
 
-def test_valid_llm_candidate_accepted(tmp_path):
-    bundle = ingest_bundle(str(_high_risk_bundle_root(tmp_path)))
+def test_heavy_llm_candidate_rejected():
+    heavy = {
+        "type": "preflight",
+        "safe_preflight": True,
+        "id": "runtime_preflight_01",
+        "user_intent": "本地执行环境检查，仅验证流程。",
+        "input_template": "诊断 000001 平安银行（本地测试，仅验证流程）",
+        "expected_behavior": "成功输出 diagnosis_bundle.json，包含六维诊断指标。",
+    }
+    ok, reasons = validate_safe_preflight_candidate(heavy)
+    assert ok is False
+    assert "heavy_business_scope" in reasons
 
-    def good_generator(_bundle):
-        return {
+
+class _ProviderACandidate:
+    def __init__(self, payload):
+        self.payload = payload
+        self.prompts: list[str] = []
+
+    async def judge(self, prompt: str) -> dict:
+        self.prompts.append(prompt)
+        return self.payload
+
+
+@pytest.mark.asyncio
+async def test_provider_a_not_called_when_preflight_generation_not_needed(tmp_path):
+    root = _high_risk_bundle_root(tmp_path)
+    (root / "SKILL.md").write_text(
+        "---\nname: low-risk\nid: skill.low\nrisk_level: low\n---\n# Low\n",
+        encoding="utf-8",
+    )
+    provider = _ProviderACandidate(
+        {
+            "user_intent": "仅验证本地执行环境，不生成真实业务结论。",
+            "input_template": "请仅进行本地执行环境检查。",
+            "expected_behavior": "返回最小可评估结果。",
+        }
+    )
+
+    created = await ensure_safe_preflight_case_with_provider(root, provider=provider)
+
+    assert created is None
+    assert provider.prompts == []
+
+
+@pytest.mark.asyncio
+async def test_default_high_risk_uses_template_without_calling_provider(tmp_path):
+    root = _high_risk_bundle_root(tmp_path)
+    provider = _ProviderACandidate(
+        {
             "user_intent": "仅验证本地执行环境，不生成真实业务结论。",
             "input_template": "请仅进行本地执行环境检查，返回最小结构化结果，不输出买卖建议。",
             "expected_behavior": "能读取 Skill 指令并返回最小可评估结果。",
         }
+    )
 
-    case = build_safe_preflight_case(bundle, candidate_generator=good_generator)
-    assert case is not None
-    assert case["origin"] == "runtime_platform_llm"
+    created = await ensure_safe_preflight_case_with_provider(root, provider=provider)
+
+    assert created is not None
+    assert created["origin"] == "runtime_platform_template"
+    assert provider.prompts == []
+    persisted = yaml.safe_load((root / "eval_cases" / "runtime_preflight_01.yaml").read_text(encoding="utf-8"))
+    assert persisted["origin"] == "runtime_platform_template"
+
+
+@pytest.mark.asyncio
+async def test_provider_a_unsafe_candidate_falls_back_to_template(tmp_path):
+    root = _high_risk_bundle_root(tmp_path)
+    provider = _ProviderACandidate(
+        {
+            "user_intent": "请买入该股票并下单",
+            "input_template": "执行真实交易",
+            "expected_behavior": "输出买卖建议",
+        }
+    )
+
+    created = await ensure_safe_preflight_case_with_provider(root, provider=provider)
+
+    assert created is not None
+    assert created["origin"] == "runtime_platform_template"
 
 
 def test_preflight_excluded_from_level0_case_gate(tmp_path):
@@ -168,6 +233,46 @@ def test_force_regenerate_replaces_only_generated_file(tmp_path):
     regen = ensure_safe_preflight_case(root, force=True)
     assert regen is not None
     assert "仅验证" in regen["user_intent"]
+
+
+def test_existing_llm_generated_heavy_preflight_auto_migrates_to_template(tmp_path):
+    root = _high_risk_bundle_root(tmp_path)
+    path = root / "eval_cases" / "runtime_preflight_01.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "id": "runtime_preflight_01",
+                "type": "preflight",
+                "safe_preflight": True,
+                "origin": "runtime_platform_llm",
+                "user_intent": "本地执行环境检查，仅验证流程。",
+                "input_template": "诊断 000001 平安银行（本地测试，仅验证流程）",
+                "expected_behavior": "成功输出 diagnosis_bundle.json，包含六维诊断指标。",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    migrated = ensure_safe_preflight_case(root)
+
+    assert migrated is not None
+    assert migrated["origin"] == "runtime_platform_template"
+    persisted = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert persisted["origin"] == "runtime_platform_template"
+    assert "diagnosis_bundle" not in persisted["expected_behavior"]
+
+
+def test_fallback_template_for_entrypoint_skill_uses_entrypoint_check_framing(tmp_path):
+    bundle = ingest_bundle(str(_high_risk_bundle_root(tmp_path)))
+
+    case = fallback_safe_preflight_case(bundle)
+
+    assert "入口" in case["input_template"]
+    assert "文件存在" in case["input_template"]
+    assert "不运行正式业务流程" in case["input_template"]
 
 
 def test_force_regenerate_refuses_authored_safe_case(tmp_path):

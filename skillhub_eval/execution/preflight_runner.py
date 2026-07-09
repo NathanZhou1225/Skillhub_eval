@@ -18,9 +18,11 @@ from skillhub_eval.execution.runner import LocalAgentRunner
 from skillhub_eval.execution.runtime_defs import RuntimeDef, get_runtime_def
 from skillhub_eval.execution.runtime_fingerprint import runtime_fingerprint, skill_fingerprint
 from skillhub_eval.execution.skill_injection import SkillInjectionError, prepare_skill_injection
+from skillhub_eval.execution.stream_abort import PREFLIGHT_ABORT_MESSAGES_ZH, preflight_abort_check
 from skillhub_eval.execution.transport.base import run_via_transport
 from skillhub_eval.execution.workspace import PerRunWorkspace
 from skillhub_eval.persistence.sqlite import SqliteRepository
+from skillhub_eval.settings import settings
 
 PreflightStatus = Literal["passed", "failed", "blocked"]
 
@@ -73,14 +75,17 @@ class PreflightRunner:
         workspace: PerRunWorkspace | None = None,
         version_probe: VersionProbe | None = None,
         ttl: timedelta = timedelta(hours=24),
-        timeout_s: float = 300.0,
+        timeout_s: float | None = None,
     ):
         self.repo = repo
         self.runner = runner or LocalAgentRunner()
         self.workspace = workspace or PerRunWorkspace()
         self.version_probe = version_probe or _cli_version
         self.ttl = ttl
-        self.timeout_s = timeout_s
+        self.timeout_s = float(
+            timeout_s if timeout_s is not None else settings.runtime_preflight_timeout_s
+        )
+        self._abort_check = preflight_abort_check()
 
     def check_cached(
         self,
@@ -207,6 +212,7 @@ class PreflightRunner:
                 timeout_s=self.timeout_s,
                 hardened=False,
                 runner=self.runner,
+                abort_check=self._abort_check,
             )
         finally:
             self.workspace.release(run_dir)
@@ -225,6 +231,8 @@ class PreflightRunner:
             evidence["is_complete"] = parsed.is_complete
             evidence["is_error"] = parsed.is_error
             evidence["tool_result_count"] = len(parsed.tool_results)
+        if outcome.early_abort_reason:
+            evidence["early_abort_reason"] = outcome.early_abort_reason
 
         failure = _runtime_failure(bundle, runtime, outcome, self.runner)
         if failure:
@@ -315,8 +323,8 @@ class PreflightRunner:
         if _requires_explicit_safe_preflight(bundle, locked_risk_level):
             return {
                 "failure_reason": "runtime_safe_preflight_required",
-                "message_zh": "高风险 skill 缺少显式安全 preflight 用例，正式本地执行前已阻止。",
-                "manual_hint": "请添加 safe_preflight/preflight 用例，或将一个低风险 happy_path 用例标记 safe_preflight: true。",
+                "message_zh": "高风险 skill 缺少显式安全检查用例，本地执行环境检查无法完成（仅诊断，不阻止正式评估）。",
+                "manual_hint": "可点击「重置轻量检查」由平台生成轻量模板，或添加 authored safe_preflight/preflight 用例后再重试诊断。",
             }
         return None
 
@@ -355,6 +363,15 @@ def _requires_explicit_safe_preflight(bundle: dict, locked_risk_level: str | Non
 
 
 def _runtime_failure(bundle: dict, runtime: RuntimeDef, outcome, runner: LocalAgentRunner) -> dict | None:
+    if outcome.early_abort_reason:
+        return {
+            "failure_reason": outcome.early_abort_reason,
+            "message_zh": PREFLIGHT_ABORT_MESSAGES_ZH.get(
+                outcome.early_abort_reason,
+                f"{runtime.label} preflight 已提前终止。",
+            ),
+            "manual_hint": outcome.stderr_text,
+        }
     if not runner.is_run_complete(outcome):
         return {
             "failure_reason": "runtime_run_incomplete",

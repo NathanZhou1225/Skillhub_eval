@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # Adapter framework (W8.7)
     model_discovery_timeout_s: float = Field(
-        default=6.0,
+        default=20.0,
         validation_alias=AliasChoices("MODEL_DISCOVERY_TIMEOUT_S", "SKILLHUB_MODEL_DISCOVERY_TIMEOUT_S"),
     )
     agent_detect_cache_ttl_s: int = Field(
@@ -97,6 +97,36 @@ class Settings(BaseSettings):
             "LOCAL_AGENT_CASE_TIMEOUT_HIGH_S",
             "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_HIGH",
             "SKILLHUB_LOCAL_AGENT_CASE_TIMEOUT_HIGH_S",
+        ),
+    )
+
+    # Runtime preflight (local execution environment check) — separate from formal case timeouts
+    runtime_preflight_timeout_s: float = Field(
+        default=120.0,
+        validation_alias=AliasChoices(
+            "RUNTIME_PREFLIGHT_TIMEOUT_S",
+            "SKILLHUB_RUNTIME_PREFLIGHT_TIMEOUT_S",
+        ),
+    )
+    runtime_preflight_max_failed_tools: int = Field(
+        default=5,
+        validation_alias=AliasChoices(
+            "RUNTIME_PREFLIGHT_MAX_FAILED_TOOLS",
+            "SKILLHUB_RUNTIME_PREFLIGHT_MAX_FAILED_TOOLS",
+        ),
+    )
+    runtime_preflight_max_consecutive_failures: int = Field(
+        default=3,
+        validation_alias=AliasChoices(
+            "RUNTIME_PREFLIGHT_MAX_CONSECUTIVE_FAILURES",
+            "SKILLHUB_RUNTIME_PREFLIGHT_MAX_CONSECUTIVE_FAILURES",
+        ),
+    )
+    runtime_preflight_max_total_tools: int = Field(
+        default=12,
+        validation_alias=AliasChoices(
+            "RUNTIME_PREFLIGHT_MAX_TOTAL_TOOLS",
+            "SKILLHUB_RUNTIME_PREFLIGHT_MAX_TOTAL_TOOLS",
         ),
     )
 

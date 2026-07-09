@@ -262,3 +262,32 @@ def test_get_status_reports_gap_zero_correctly(client_with_repo):
     body_gap = resp_gap.json()
     assert body_gap["gap_zero"] is False
     assert body_gap["case_gate_passed"] is False
+
+
+def test_get_status_skips_bundle_scan_while_run_is_active(client_with_repo, monkeypatch):
+    client, repo, tmp_path = client_with_repo
+    bundle = _build_bundle(tmp_path / "bundle", n_cases=3)
+    conv_id = repo.create_conversation("demo.skill", "local_ref")
+    run_id = repo.create_run(
+        skill_id="demo.skill",
+        skill_bundle_path=str(bundle),
+        bundle_state="draft_enriched",
+        evaluation_mode="degraded",
+        conversation_id=conv_id,
+    )
+    repo.update_status(run_id, RunStatus.case_executing.value)
+    repo.append_lui_message(conv_id, role="user", content="hello")
+
+    def fail_ingest(_path: str):
+        raise AssertionError("status polling must not rescan bundles while a run is active")
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.chat.ingest_bundle", fail_ingest)
+
+    resp = client.get(f"/conversations/{conv_id}/status")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["run_status"] == RunStatus.case_executing.value
+    assert body["lui_messages_count"] == 1
+    assert body["gap_zero"] is False
+    assert body["case_gate_passed"] is False

@@ -50,71 +50,68 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 - **Then** 系统 SHALL 用 tool id 关联命令与结果
 - **And** 产出统一 `tool_result` 事件供 entrypoint evidence 校验使用
 
-### Requirement: 正式本地评估必须通过 runtime preflight
+### Requirement: runtime preflight 作为可选本地执行环境诊断
 
-当用户选择本地 CLI runtime 作为执行源时，系统 SHALL 在正式本地评估开始前检查所选 runtime/model 是否存在有效的 preflight pass。若 preflight 缺失、失败、过期或因指纹变化失效，系统 SHALL 阻止正式本地评估进入 `case_executing`，并向用户展示可操作诊断与修复/切换路径。系统 SHALL NOT 在未通过 preflight 的情况下直接尝试正式本地评估。
+当用户选择本地 CLI runtime 作为执行源时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`。runtime preflight SHALL 作为用户可手动触发的本地执行环境诊断能力保留；正式本地评估的可信边界 SHALL 由真实 eval case 执行结果、case 级失败不评分、全部本地执行失败整轮失败、事件日志和报告归因共同承担。系统 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。
 
 面向普通用户的产品文案 SHALL 将该能力称为“本地执行环境检查”或等价非技术名称。UI SHALL NOT 要求普通用户理解 `safe_preflight`、runtime fingerprint、SQLite cache、YAML 标记或 OpenSpec 术语。开发者日志、runbook 与 diagnostics MAY 继续使用 preflight 术语。
 
-#### Scenario: preflight 缺失时阻止正式评估
+#### Scenario: preflight 缺失时仍允许正式评估
 
 - **Given** 用户选择 `execution_source=local` 且 runtime/model 没有有效 preflight pass
 - **When** 用户尝试开始正式本地评估
-- **Then** 系统 SHALL 先尝试运行当前 skill 的本地执行环境检查
-- **And** 若检查无法运行或未通过，系统 SHALL 阻止该正式评估
-- **And** 返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` 或等价可读原因
-- **And** UI SHALL 提供运行/重试本地执行环境检查或显式切换到已验证 runtime 的入口
+- **Then** 系统 SHALL 直接进入正式 eval case 执行路径
+- **And** SHALL NOT 返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` 作为整轮阻断原因
+- **And** UI MAY 提供手动运行本地执行环境检查或显式切换 runtime 的入口
 
-#### Scenario: preflight 通过后允许正式评估
+#### Scenario: preflight 失败时不生成正式评估失败
 
-- **Given** 所选 runtime/model 存在有效 preflight pass
+- **Given** 用户已手动运行本地执行环境检查
+- **And** 该检查结果为 failed、blocked 或 expired
 - **When** 用户开始正式本地评估
-- **Then** 系统 SHALL 允许进入 `case_executing`
-- **And** 后续评分 SHALL 沿用现有 judge / R1-R8 / 专家复核逻辑
+- **Then** 系统 SHALL 仍允许进入 `case_executing`
+- **And** SHALL NOT 因该检查结果创建 `status=failed` 的正式评估报告
+- **And** 正式评分 SHALL 仅消费真实 eval case 中 `status=ok` 且存在 `actual_output` 的 case
 
-#### Scenario: 缺失 preflight 但可自动检查时不让用户手工配置
+#### Scenario: 用户手动运行本地执行环境检查
 
-- **Given** 用户选择 `execution_source=local`
-- **And** 当前 skill 尚无有效 preflight pass
-- **And** 系统能为当前 skill 准备安全本地执行环境检查用例
-- **When** 用户开始正式本地评估
-- **Then** 系统 SHALL 自动运行该本地执行环境检查
-- **And** 检查通过后 SHALL 继续正式本地评估
-- **And** 用户不需要手动编辑 eval case、YAML 或 `safe_preflight` 字段
-- **And** UI SHALL 将该过程显示为正式评估前的可见阶段，例如“正在检查本地执行环境”
+- **Given** 用户在执行设置或当前 Skill 检查区域点击“本地执行环境检查”
+- **When** 系统运行 runtime preflight API
+- **Then** 系统 SHALL 运行或复用诊断检查、写入 preflight cache，并返回 passed/failed/blocked 诊断
+- **And** failed/blocked 结果 SHALL 以 warning/diagnostic 方式呈现，说明“仍可继续正式评估，以 case 实跑结果为准”
 
-#### Scenario: 本地执行环境检查失败时不可绕过继续真跑
+#### Scenario: 本地执行失败由正式 case 结果兜底
 
 - **Given** 用户选择本地执行
-- **And** 当前 runtime/model 的本地执行环境检查失败、阻断或过期
-- **When** 用户查看恢复动作
-- **Then** UI SHALL NOT 提供“忽略检查继续本地真跑”或等价绕过入口
-- **And** UI SHALL 提供“重新检查”、“重新生成检查用例”、“改用另一个已检查通过的本地工具”或“使用样例输出评估（非本地真跑）”等恢复动作
+- **And** 正式 eval case 本地执行失败
+- **When** 引擎进入 judge 与 report 阶段
+- **Then** 失败 case SHALL 不进入 DeepSeek/Gemini judge、`model_votes`、provider 均值、R5 分歧检测或 `score_total` 计算
+- **And** 若全部本地 case 均执行失败，整轮 SHALL 以本地执行失败原因终止
 
 ### Requirement: preflight 缓存与指纹失效
 
-系统 SHALL 在现有 SkillHub SQLite 数据库中持久化 runtime preflight pass 结果 24 小时（默认数据库为 `settings.eval_db_path`，即 `data/skillhub_eval.db`）。正式评估 gate 使用的 preflight SHALL 绑定当前 skill fingerprint，并至少绑定 runtime id、model id、skill fingerprint、resolved CLI path、CLI version、runtime definition fingerprint、SkillHub version。任一绑定输入变化时，系统 SHALL 将旧 preflight 视为失效并要求重新运行。过期或失效的 preflight SHALL 不允许正式本地评估。
+系统 SHALL 在现有 SkillHub SQLite 数据库中持久化 runtime preflight pass/fail 诊断结果 24 小时（默认数据库为 `settings.eval_db_path`，即 `data/skillhub_eval.db`）。preflight 诊断结果 SHALL 绑定当前 skill fingerprint，并至少绑定 runtime id、model id、skill fingerprint、resolved CLI path、CLI version、runtime definition fingerprint、SkillHub version。任一绑定输入变化时，系统 SHALL 将旧 preflight 视为失效并提示可重新运行诊断。过期或失效的 preflight SHALL NOT 阻止正式本地评估。
 
 #### Scenario: 同一 skill 指纹 24 小时内复用 preflight
 
 - **Given** 某 runtime/model/skill fingerprint 在 24 小时内通过 preflight
 - **And** runtime id、model id、skill fingerprint、CLI path、CLI version、runtime fingerprint、SkillHub version 均未变化
-- **When** 用户再次选择该 runtime/model 进行正式本地评估
-- **Then** 系统 SHALL 复用该 preflight pass
+- **When** 用户再次查看或手动运行本地执行环境检查
+- **Then** 系统 SHALL 复用该 preflight pass 作为诊断状态
 
 #### Scenario: skill 内容变化导致 preflight 失效
 
 - **Given** 某 runtime/model 曾对某 skill fingerprint 通过 preflight
 - **When** 该 skill 的 `SKILL.md`、entrypoint、eval case 或相关 bundle 内容变化导致 skill fingerprint 改变
-- **Then** 系统 SHALL 将旧 preflight 标记为失效
-- **And** 要求对新 skill fingerprint 重新运行 preflight 后才能正式评估
+- **Then** 系统 SHALL 将旧 preflight 标记为失效或过期诊断
+- **And** MAY 提示用户对新 skill fingerprint 重新运行本地执行环境检查
 
 #### Scenario: CLI version 变化导致 preflight 失效
 
 - **Given** 某 runtime/model 曾通过 preflight
 - **When** 该 runtime 的 CLI version 发生变化
-- **Then** 系统 SHALL 将旧 preflight 标记为失效
-- **And** 要求重新运行 preflight 后才能正式评估
+- **Then** 系统 SHALL 将旧 preflight 标记为失效或过期诊断
+- **And** MAY 提示用户重新运行本地执行环境检查
 
 #### Scenario: serve 重启后仍可复用有效 preflight
 
@@ -125,11 +122,11 @@ runtime definition、能力默认值、prompt transport 与 skill injection 策�
 
 ### Requirement: runtime preflight 证明真实 skill 执行能力
 
-runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe 验证该 runtime 能读取 SkillHub 提供的指令、在正确 workspace 中执行该 skill 的安全 entrypoint/probe（若脚本执行被要求）、产出可解析的实际结果、提供工具执行证据（若脚本执行被要求），并通过 sanitizer 与 entrypoint evidence 校验。仅模型文本回复成功 SHALL NOT 被视为 preflight 通过。系统 MAY 继续保留标准 fixture preflight 作为 runtime 开发/回归测试工具，但正式评估 gate SHALL 使用当前 skill fingerprint 级安全 preflight。
+runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe 验证该 runtime 能读取 SkillHub 提供的指令、在正确 workspace 中执行该 skill 的安全 entrypoint/probe（若脚本执行被要求）、产出可解析的实际结果、提供工具执行证据（若脚本执行被要求），并通过 sanitizer 与 entrypoint evidence 校验。仅模型文本回复成功 SHALL NOT 被视为 preflight 通过。系统 MAY 继续保留标准 fixture preflight 作为 runtime 开发/回归测试工具；产品中的“本地执行环境检查” SHALL 使用当前 skill fingerprint 级安全 preflight 作为诊断。
 
-系统 SHALL 优先自动准备安全 preflight probe，而不是要求普通用户手动维护 preflight case。自动生成的 probe SHALL 作为系统检查用例持久化在 staging/bundle 内部，使 skill fingerprint、cache invalidation 与 serve 重启后的行为稳定。该检查用例 SHALL 不参与正式 eval case 完整性门槛、评分、报告 verdict、专家复核触发或 case 数量统计。
+系统 SHALL 在用户手动运行本地执行环境检查时优先自动准备安全 preflight probe，而不是要求普通用户手动维护 preflight case。自动生成的 probe SHALL 作为系统检查用例持久化在 staging/bundle 内部，使 skill fingerprint、cache invalidation 与 serve 重启后的行为稳定。该检查用例 SHALL 不参与正式 eval case 完整性门槛、评分、报告 verdict、专家复核触发或 case 数量统计。
 
-自动生成 SHALL 使用混合策略：系统 MAY 调用现有 LLM 能力生成候选检查用例，但候选结果 MUST 经过确定性 schema 与安全规则校验；若 LLM 不可用、超时、输出无法解析或未通过规则校验，系统 SHALL 使用确定性模板兜底。系统 SHALL NOT 将未经规则校验的 LLM 输出直接作为安全检查用例持久化或执行。
+自动生成 SHALL 使用确定性轻量模板，不得默认调用 LLM 生成检查题。该模板 SHALL 验证本地 runtime 能读取当前 Skill、进入正确 workspace、返回最小结构化结果；若 Skill 声明脚本入口，模板 SHALL 明确要求只做入口文件/工具链的无副作用检查，不得运行正式业务流程。执行该检查用例时，系统 SHALL 使用 preflight 专用轻量 harness，避免复用正式 case harness 中“按 Skill 完成业务任务”的指令。旧的系统生成 LLM 检查题（例如 `origin: runtime_platform_llm`）或未通过安全/轻量校验的系统生成检查题 SHALL 自动重置为确定性模板。
 
 系统 SHALL 在写入或重新生成内部检查用例后重新读取 bundle 并重新计算 skill fingerprint。preflight cache SHALL 绑定写盘后的新 fingerprint，而不是生成前的旧 fingerprint。
 
@@ -153,24 +150,23 @@ runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe �
 - **And** 系统 SHALL 使用写盘后的 bundle fingerprint 运行并缓存本地执行环境检查
 - **And** UI SHALL 告知用户系统已准备本地执行环境检查，而非要求用户编辑 YAML
 
-#### Scenario: LLM 候选未通过安全校验时使用模板兜底
+#### Scenario: 旧重型系统检查题自动重置为轻量模板
 
-- **Given** 系统调用 LLM 生成本地执行环境检查候选用例
-- **And** LLM 输出缺少必填字段、包含真实业务动作、买卖/下单/支付/删除/发送/发布等指令，或无法解析为固定 schema
+- **Given** staging 中已有系统生成的 `runtime_preflight_01.yaml`
+- **And** 该用例来源为 `runtime_platform_llm`，或内容像正式业务题而非轻量环境检查
 - **When** 系统准备本地执行环境检查
-- **Then** 系统 SHALL 丢弃该候选
-- **And** SHALL 使用确定性安全模板兜底
-- **And** SHALL 记录开发者诊断信息但不向普通用户暴露 LLM 失败细节
+- **Then** 系统 SHALL 自动替换为确定性轻量模板
+- **And** 不要求用户手动删除 YAML 或理解 `safe_preflight`
 
-#### Scenario: 高风险 skill 缺少安全 preflight 时阻断
+#### Scenario: 高风险 skill 缺少安全 preflight 时诊断阻断
 
 - **Given** 当前 skill 为 high-risk 或 redline 相关 skill
 - **And** bundle 未提供安全 preflight case
-- **And** 系统无法自动生成安全检查用例
-- **When** 用户运行 runtime preflight
-- **Then** 系统 SHALL 阻断 preflight
-- **And** 返回要求补充最小安全检查问题的可读原因
-- **And** UI SHALL 优先提供“生成检查用例”或“重试环境检查”的产品动作，而不是要求普通用户理解 `safe_preflight`
+- **And** 系统无法准备轻量检查用例
+- **When** 用户手动运行 runtime preflight（本地执行环境检查）
+- **Then** 系统 SHALL 将该次诊断标记为 blocked / `runtime_safe_preflight_required`
+- **And** 返回可读诊断原因与「重置轻量检查」或「重试环境检查」动作
+- **And** SHALL NOT 因此阻止用户开始正式本地评估
 - **And** UI SHALL 使用普通用户可理解的中文动作，例如“改用另一个已检查通过的本地工具”和“使用样例输出评估（非本地真跑）”，而不是直接暴露 `runtime` 或 `sample_io`
 
 #### Scenario: 文本 smoke 成功但 entrypoint 未调用不能通过
@@ -251,11 +247,19 @@ runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe �
 
 ### Requirement: 执行来源传输分派
 
-`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派执行。现有 `stream_format` 分派 SHALL 被保留为 runtime launch/normalization 的一部分，但正式执行 SHALL 先经过 runtime readiness 与 preflight 校验。`ExecResult` 仍为评估引擎边界，judge prompt 与评分聚合 SHALL 根据 `ExecResult.source`/`actual_output` 沿用现有逻辑。
+`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派执行。现有 `stream_format` 分派 SHALL 被保留为 runtime launch/normalization 的一部分；正式执行 SHALL 使用 runtime readiness 与真实 case 执行结果兜底，SHALL NOT 要求 skill-specific preflight pass。`ExecResult` 仍为评估引擎边界；judge prompt 与评分聚合 SHALL 仅消费 `status=ok` 且存在 `actual_output` 的正式 case。未完成 case SHALL 保留执行诊断与 per-case 状态，但 SHALL NOT 进入 DeepSeek/Gemini judge、`model_votes`、provider 均值、R5 分歧检测或 `score_total` 计算。
 
-#### Scenario: 评分逻辑不因 runtime platform 改变
+#### Scenario: 成功产出才进入评分
 
-- **Given** 某 runtime 已通过 preflight 并成功产生 `ExecResult(source=local_agent, status=ok)`
+- **Given** 某 runtime 在正式 case 执行中成功产生 `ExecResult(source=local_agent, status=ok)`
 - **When** 引擎进入 judge 与 report 阶段
 - **Then** 系统 SHALL 使用现有 dual-model judge、R1-R8、阈值与专家复核流程
-- **And** 不因 runtime 平台引入新的评分规则
+- **And** 仅对存在 `actual_output` 的正式 case 评分
+- **And** SHALL NOT 以 skill-specific preflight 是否通过作为进入评分的前置条件
+
+#### Scenario: 未完成 case 只显示执行诊断
+
+- **Given** 某 runtime case 执行失败且未产出 `actual_output`
+- **When** 引擎进入 judge 与 report 阶段
+- **Then** 该 case SHALL NOT 被送入 DeepSeek/Gemini judge
+- **And** 报告 per-case 行 SHALL 显示执行失败状态与原因，模型分数为空

@@ -35,10 +35,12 @@ def summarize_stage_timings(events: list[dict]) -> dict:
 
     slow_cases = sorted(case_judges, key=lambda x: x["ms"], reverse=True)[:5]
     model_ms = next((p["ms"] for p in phases if p["stage"] == "model_judging"), None)
+    case_exec_ms = next((p["ms"] for p in phases if p["stage"] == "case_executing"), None)
     return {
         "phases": phases,
         "case_judges": case_judges,
         "slow_cases": slow_cases,
         "total_phase_ms": sum(p["ms"] for p in phases),
         "model_judging_ms": model_ms,
+        "case_executing_ms": case_exec_ms,
     }

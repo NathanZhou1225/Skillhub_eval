@@ -16,7 +16,7 @@ REDACTED_PATH = "/REDACTED/path"
 REDACTED_USER = "REDACTED_USER"
 REDACTED_TOKEN = "REDACTED_TOKEN"
 
-_WIN_ABS = re.compile(r"[A-Za-z]:\\[^\s\"']+")
+_WIN_ABS = re.compile(r"[A-Za-z]:\\(?:[^\\/:*?\"<>|\r\n]+\\)*[^\\/:*?\"<>|\r\n]*")
 _UNIX_ABS = re.compile(r"(?<![\w./])(?:/Users|/home|/tmp|/var)[^\s\"']+")
 _TOKEN_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_-]{8,}"),

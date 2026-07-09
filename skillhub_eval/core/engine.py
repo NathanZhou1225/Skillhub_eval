@@ -119,6 +119,9 @@ class EvaluationEngine:
         with self._case_exec_lock:
             if case_id in self._case_exec_results:
                 return self._case_exec_results[case_id]
+        started = time.monotonic()
+        if self._uses_local_execution(bundle or self._current_bundle):
+            self._log_local_agent_case_started(case_id, case)
         result = self._execution_source.get_actual_output(
             bundle_path,
             case_id,
@@ -127,9 +130,46 @@ class EvaluationEngine:
         )
         if result.source == "local_agent" and result.status != "ok":
             self._log_local_agent_failure(case_id, result)
+            self._log_local_agent_case_finished(case_id, result, started)
+        elif result.source == "local_agent":
+            self._log_local_agent_case_finished(case_id, result, started)
         with self._case_exec_lock:
             self._case_exec_results[case_id] = result
         return result
+
+    def _log_local_agent_case_started(self, case_id: str, case: dict | None) -> None:
+        run_id = getattr(self, "_current_run_id", None)
+        if not run_id:
+            return
+        self.repo.log_event(run_id, "local_agent_case_started", {
+            "case_id": case_id,
+            "case_type": (case or {}).get("type"),
+        })
+
+    def _log_local_agent_case_finished(
+        self,
+        case_id: str,
+        result: ExecResult,
+        started: float,
+    ) -> None:
+        run_id = getattr(self, "_current_run_id", None)
+        if not run_id:
+            return
+        event_name = (
+            "local_agent_case_succeeded"
+            if result.status == "ok"
+            else "local_agent_case_failed"
+        )
+        payload = {
+            "case_id": case_id,
+            "status": result.status,
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "degrade_reason": result.degrade_reason,
+            "stderr_excerpt": result.stderr_excerpt,
+            "agent_label": result.agent_label,
+            "model_label": result.model_label,
+        }
+        self.repo.log_event(run_id, event_name, payload)
 
     def _log_local_agent_failure(self, case_id: str, result: ExecResult) -> None:
         """Persist the real failure reason so it survives even though the
@@ -505,25 +545,6 @@ class EvaluationEngine:
             gaps_json = self._build_gaps_snapshot(run_id, bundle, bundle_state)
             repo.save_gaps(run_id, gaps_json)
 
-        if self._requires_runtime_preflight(bundle):
-            preflight = self._ensure_valid_runtime_preflight(
-                run_id,
-                skill_bundle_path,
-                locked_risk_level=risk_locked.value,
-            )
-            if preflight is None:
-                self._save_fail(
-                    run_id,
-                    bundle,
-                    bundle_state,
-                    evaluation_mode,
-                    ["LOCAL_RUNTIME_PREFLIGHT_REQUIRED"],
-                    [self._runtime_preflight_required_evidence(skill_bundle_path, risk_locked.value)],
-                )
-                return
-            bundle = ingest_bundle(skill_bundle_path)
-            self._current_bundle = bundle
-
         # ── Phase 3: CaseExec (local agent or sample_io per ExecutionSource) ───
         t_case_exec = time.monotonic()
         repo.update_status(run_id, RunStatus.case_executing.value)
@@ -682,12 +703,13 @@ class EvaluationEngine:
             uses_local_execution=self._uses_local_execution(bundle),
         )
 
+        judge_cases = self._judgeable_cases(cases, bundle)
         case_vote_lists = await asyncio.gather(
             *[
                 self._judge_case(
                     run_id, case, bundle, bundle_state, evaluation_mode,
                 )
-                for case in cases
+                for case in judge_cases
             ]
         )
         all_votes: list[dict] = []
@@ -703,7 +725,7 @@ class EvaluationEngine:
             await self._synthesize_divergences(run_id, all_votes)
             self._log_stage_timing(run_id, "divergence_synthesis", t_div)
 
-        if cases and not all_votes:
+        if judge_cases and not all_votes:
             provider_errors = self.repo.get_provider_errors(run_id)
             self._save_provider_failure(
                 run_id,
@@ -877,6 +899,7 @@ class EvaluationEngine:
         return resolve_execution_source_name(bundle) == "local"
 
     def _requires_runtime_preflight(self, bundle: dict) -> bool:
+        """Legacy helper retained for tests/diagnostics; formal eval no longer gates on this."""
         from skillhub_eval.core.execution_source import resolve_execution_source_name
 
         return (
@@ -884,15 +907,16 @@ class EvaluationEngine:
             and resolve_execution_source_name(bundle) == "local"
         )
 
-    def _ensure_valid_runtime_preflight(
+    async def _ensure_valid_runtime_preflight(
         self,
         run_id: str,
         skill_bundle_path: str,
         *,
         locked_risk_level: str | None = None,
     ) -> dict | None:
+        """Legacy auto-preflight path. Formal eval must not call this; use the manual preflight API."""
         from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
-        from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case
+        from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case_with_provider
 
         runner = self._preflight_runner()
         runtime_id = get_exec_agent()
@@ -907,13 +931,15 @@ class EvaluationEngine:
         if cached is not None and cached.get("status") == "passed":
             return cached
 
-        ensure_safe_preflight_case(
+        await ensure_safe_preflight_case_with_provider(
             skill_bundle_path,
+            provider=self.ds,
             locked_risk_level=locked_risk_level,
         )
 
         maybe_append_local_execution_check_notice(self.repo, run_id)
-        result = runner.run(
+        result = await asyncio.to_thread(
+            runner.run,
             skill_bundle_path,
             runtime_id=runtime_id,
             model_id=model_id,
@@ -951,6 +977,7 @@ class EvaluationEngine:
         skill_bundle_path: str,
         locked_risk_level: str | None,
     ) -> dict:
+        """Legacy evidence builder for old hard-gate reports; formal eval no longer emits this reason."""
         from skillhub_eval.execution.failure_taxonomy import runtime_failure_code
         from skillhub_eval.execution.preferences import get_exec_agent, get_exec_model
         from skillhub_eval.execution.preflight_runner import PreflightRunner
@@ -959,7 +986,7 @@ class EvaluationEngine:
         model_id = get_exec_model()
         evidence = {
             "field": "local_runtime_preflight",
-            "detail": "本地执行环境检查未通过或尚未完成，正式本地评估已阻止。",
+            "detail": "本地执行环境检查未通过或尚未完成（诊断信息；正式评估以真实 case 执行为准）。",
             "runtime_id": runtime_id,
             "model_id": model_id,
             "locked_risk_level": locked_risk_level,
@@ -990,6 +1017,23 @@ class EvaluationEngine:
         from skillhub_eval.execution.preflight_runner import PreflightRunner
 
         return PreflightRunner(repo=self.repo)
+
+    def _judgeable_cases(self, cases: list[dict], bundle: dict) -> list[dict]:
+        """Local-agent failed cases have no actual output, so they are not
+        valid inputs for semantic judging or total-score aggregation."""
+        if not self._uses_local_execution(bundle):
+            return cases
+        result: list[dict] = []
+        for case in cases:
+            case_id = case.get("id", "")
+            exec_result = self._case_exec_results.get(case_id)
+            if (
+                exec_result
+                and exec_result.status == "ok"
+                and exec_result.actual_output is not None
+            ):
+                result.append(case)
+        return result
 
     def _run_case_exec_phase(
         self,

@@ -50,16 +50,21 @@
       Verify: persistence, restart survival, cache hit, expiry, and invalidation tests.
 - [x] 5.3 Add API endpoint/action to run runtime preflight for a selected runtime/model.
       Verify: API tests for pass/fail/expired/missing states.
-- [x] 5.4 Gate formal local evaluation on valid preflight for the selected runtime/model.
-      Verify: engine/API tests for `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` and successful pass-through after preflight.
+- [x] 5.4 Keep runtime preflight as optional diagnostics, not a formal local evaluation gate.
+      Verify: engine tests prove missing/failed/expired preflight does not produce `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` or block `case_executing`; manual preflight API tests still pass.
 - [x] 5.5 Route formal local evaluation through the runtime platform after all five adapter equivalence tests pass.
       Verify: fake-executor integration tests prove the selected runtime is resolved through runtime definitions and existing scoring/report outputs remain unchanged.
-- [x] 5.6 Add automatic safe local-execution-check case generation for high-risk skills using LLM candidate generation, deterministic safety validation, and template fallback.
-      Verify: tests prove generated checks are persisted, fingerprinted, marked `type: preflight` and `safe_preflight: true`, unsafe LLM candidates are rejected, fallback template is used when needed, and checks are excluded from formal case counts/scoring.
-- [x] 5.7 Run missing/expired local execution checks automatically before formal local evaluation when a safe check case exists.
-      Verify: engine/API tests prove formal local evaluation proceeds after auto-check pass and blocks with product-readable diagnostics after auto-check fail.
-- [x] 5.8 Keep high-risk blocking only when no authored or generated safe local execution check exists.
-      Verify: regression test for stock-radar-like high-risk generated cases no longer blocks with `runtime_safe_preflight_required`.
+- [x] 5.6 Add automatic safe local-execution-check case generation for high-risk skills using deterministic lightweight templates and safety validation.
+      Verify: tests prove generated checks are persisted, fingerprinted, marked `type: preflight` and `safe_preflight: true`, old heavy/LLM generated checks are migrated to the template, and checks are excluded from formal case counts/scoring.
+      Implementation note: Provider A / LLM generation is not used for the default product path; authored safe preflight cases remain compatible.
+- [x] 5.7 Do not automatically run skill-specific local execution checks when the user starts formal local evaluation.
+      Verify: engine tests prove formal local evaluation enters real case execution without invoking `_ensure_valid_runtime_preflight`.
+- [x] 5.8 Keep generated local execution check cases available only for manual diagnostics.
+      Verify: API tests prove `regenerate_check_case=true` still writes the deterministic lightweight template and does not affect formal case counts/scoring.
+- [x] 5.9 Use a dedicated lightweight harness prompt for preflight cases instead of the formal skill-execution prompt.
+      Verify: harness prompt tests prove `type: preflight` / `safe_preflight: true` cases do not instruct the local agent to run the formal skill workflow, while entrypoint bundles only ask for visibility/file evidence.
+- [ ] 5.10 Deferred P1: add first-case canary to stop later cases after process-level local runtime failures.
+      Verify: future tests distinguish process/runtime failures from successful execution with poor business output; not part of P0.
 
 ## 6. Runtime Failure Taxonomy
 
@@ -74,18 +79,21 @@
 
 - [x] 7.1 Replace/upgrade current exec agent cards with runtime readiness cards showing install/auth/model/capability/preflight status.
       Verify: `node --check` and targeted UI contract tests if available.
-- [x] 7.2 Add "run preflight" action and display cached preflight time/expiry/fingerprint status.
+- [x] 7.2 Add optional "本地执行环境检查" action and display cached diagnostic time/expiry/fingerprint status without blocking formal evaluation.
       Verify: API interaction tests and manual browser smoke if server is run.
 - [x] 7.3 Add explicit "switch to this verified runtime and rerun" action for runtimes with passed preflight.
       Verify: UI/API tests confirm no automatic switching and correct preference update only after user action.
+      Implementation note: switching preserves the verified runtime+model pair instead of forcing `default`.
 - [x] 7.4 Ensure explicit one-click switch updates only local user preferences, not project runtime definitions.
       Verify: preference endpoint tests assert selected runtime/model changes locally and runtime catalog output remains unchanged.
 - [x] 7.5 Ensure report attribution continues to distinguish requested runtime/model from actual executed runtime/model.
       Verify: existing Q-28 attribution tests plus one new runtime-switch scenario.
 - [x] 7.6 Rename user-facing preflight copy to local execution/environment check copy, keeping preflight only in diagnostics/runbook.
       Verify: UI text review and `node --check`; blocked reports explain Test vs local execution check vs formal evaluation.
-- [x] 7.7 Add automatic-check progress and retry/generate actions for high-risk skills without exposing YAML or `safe_preflight`.
-      Verify: UI/API tests or manual browser smoke show ordinary users can recover from missing check material without editing files.
+- [x] 7.7 Add manual-check warning/retry/reset actions for high-risk skills without exposing YAML or `safe_preflight`.
+      Verify: UI/API tests or manual browser smoke show ordinary users can run diagnostics without editing files and can still start formal evaluation when diagnostics fail.
+- [x] 7.8 Add chat-surface environment-check entry and long-run live progress performance guardrails.
+      Verify: UI exposes a current-conversation "环境检查" action for local mode, local-agent live progress is capped/scrollable with last-refresh feedback, conversation polling is in-flight guarded, full messages/session list refreshes are throttled, and active-run status polling does not re-ingest large bundles.
 
 ## 8. Real Stream Fixtures and Live E2E
 
@@ -93,6 +101,7 @@
       Verify: parser/event normalizer tests consume fixtures directly.
 - [x] 8.2 Add local-only raw stream capture guidance and sanitizer so `.tmp/raw_runtime_streams/` captures never need to enter Git.
       Verify: sanitizer output removes usernames, absolute paths, tokens, long transcripts, and unrelated prompt text while preserving event shapes.
+      Implementation note: sanitizer covers Windows absolute paths containing spaces and non-ASCII segments.
 - [x] 8.3 Keep opt-in live runtime E2E tests behind environment flags; add/update tests for all five runtimes where installed.
       Verify: default test suite skips live tests; `RUN_LOCAL_AGENT=1` can exercise installed runtimes.
 - [x] 8.4 Run focused regression suites for execution/core/API/UI.

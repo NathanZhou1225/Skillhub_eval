@@ -12,9 +12,11 @@
 
 ---
 
-## Current Status (2026-07-07)
+**Current Status (2026-07-07)**
 
 This plan guided the implementation, while `openspec/changes/local-cli-runtime-platform/tasks.md` is the current task-tracking source of truth.
+
+**Revision (2026-07-08 / P0):** Skill-specific preflight is no longer a formal local-evaluation hard gate. Formal eval proceeds without auto-running preflight and without `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` blocking. Preflight remains an optional manual diagnostic ("本地执行环境检查"). See OpenSpec delta / design D3 revision and `docs/superpowers/plans/2026-07-07-local-cli-runtime-productization.md` Task 2. Historical steps below that still say "formal gate" or "block on missing preflight" are superseded by that revision.
 
 Completed platform foundation:
 
@@ -22,7 +24,7 @@ Completed platform foundation:
 - Normalized `AgentEvent` path for all five adapters, with `ExecResult` built from normalized events.
 - Runtime fingerprinting and SQLite-backed `runtime_preflight_cache` with 24-hour TTL and invalidation.
 - Skill injection strategies with prompt fallback and argv prompt-size guard.
-- Preflight runner, API action, cached status, and formal local-evaluation gate.
+- Preflight runner, API action, cached status (now optional diagnostic; not a formal-evaluation gate).
 - Runtime failure taxonomy persisted through events/report rows and surfaced in basic UI labels.
 - Basic report-detail preflight action and Q-28 requested-vs-actual runtime attribution preserved.
 

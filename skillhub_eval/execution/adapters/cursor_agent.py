@@ -30,13 +30,19 @@ def _normalize_tool_call_event(event: dict) -> dict | None:
     args = payload.get("args") or {}
     result = payload.get("result") or {}
     success = result.get("success") if isinstance(result, dict) else None
+    exit_code = (success or {}).get("exitCode") if success else None
     is_error = not isinstance(success, dict)
+    if not is_error and exit_code is not None:
+        try:
+            is_error = int(exit_code) != 0
+        except (TypeError, ValueError):
+            pass
     return {
         "tool": tool_name,
         "command": args.get("command"),
         "stdout": (success or {}).get("stdout"),
         "stderr": (success or {}).get("stderr"),
-        "exit_code": (success or {}).get("exitCode") if success else None,
+        "exit_code": exit_code,
         "is_error": is_error,
     }
 

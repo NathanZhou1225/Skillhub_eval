@@ -2876,16 +2876,60 @@ function _bucketUsageRows(rows) {
   return buckets;
 }
 
+function _formatDurationSeconds(ms) {
+  if (!Number.isFinite(Number(ms))) return null;
+  return `${(Math.max(0, Number(ms)) / 1000).toFixed(1)}s`;
+}
+
+function _phaseMs(timing, stage) {
+  if (!timing) return null;
+  const direct = timing[`${stage}_ms`];
+  if (Number.isFinite(Number(direct))) return Number(direct);
+  const phases = Array.isArray(timing.phases) ? timing.phases : [];
+  const hit = phases.find((p) => p && p.stage === stage);
+  return hit && Number.isFinite(Number(hit.ms)) ? Number(hit.ms) : null;
+}
+
+function _renderTimingChips(reportLike) {
+  const timing = getTimingSummary(reportLike || {});
+  if (!timing || !timing.total_phase_ms) return '';
+  const report = getReportPayload(reportLike || {});
+  const execSource = reportLike?.execution_source_used || report.execution_source_used || '';
+  const isLocal = execSource === 'local_agent' || execSource === 'local';
+  const usage = report?.usage_summary || reportLike?.usage_summary;
+  const hasLocalTokens = Array.isArray(usage?.by_stage)
+    && usage.by_stage.some((r) => r && r.stage === 'local_agent' && Number(r.total_tokens || 0) > 0);
+  const caseChipLabel = (isLocal || hasLocalTokens) ? '本地 Agent' : 'Case 执行';
+  const totalLabel = _formatDurationSeconds(timing.total_phase_ms);
+  const caseExecLabel = _formatDurationSeconds(_phaseMs(timing, 'case_executing'));
+  const judgeLabel = _formatDurationSeconds(
+    Number.isFinite(Number(timing.model_judging_ms))
+      ? timing.model_judging_ms
+      : _phaseMs(timing, 'model_judging'),
+  );
+  const chip = (label, value, emphasize = false) => value
+    ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 ${emphasize ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-gray-50 border border-gray-200 text-gray-700'} rounded">${escapeHtml(label)} <strong class="font-mono">${value}</strong></span>`
+    : '';
+  return `
+    <div class="px-3 pb-3 flex flex-wrap items-center gap-2 text-xs border-t border-gray-100 pt-2">
+      ${chip('总耗时', totalLabel, true)}
+      ${chip(caseChipLabel, caseExecLabel)}
+      ${chip('双模型评测', judgeLabel)}
+    </div>`;
+}
+
 /** D6: compact by default (总计 + 3 buckets), full per-stage table on demand via a modal. */
 function renderUsageSummary(reportLike) {
   const report = getReportPayload(reportLike || {});
   const summary = report?.usage_summary || reportLike?.usage_summary;
-  if (!summary || !summary.totals) return '';
-  const rows = Array.isArray(summary.by_stage) ? summary.by_stage : [];
-  const total = Number(summary.totals.total_tokens || 0);
-  const prompt = Number(summary.totals.prompt_tokens || 0);
-  const completion = Number(summary.totals.completion_tokens || 0);
-  const partial = summary.partial ? '<span class="text-amber-700 ml-2">部分调用未返回 usage</span>' : '';
+  const timingHtml = _renderTimingChips(reportLike);
+  if ((!summary || !summary.totals) && !timingHtml) return '';
+
+  const rows = Array.isArray(summary?.by_stage) ? summary.by_stage : [];
+  const total = Number(summary?.totals?.total_tokens || 0);
+  const prompt = Number(summary?.totals?.prompt_tokens || 0);
+  const completion = Number(summary?.totals?.completion_tokens || 0);
+  const partial = summary?.partial ? '<span class="text-amber-700 ml-2">部分调用未返回 usage</span>' : '';
   const buckets = _bucketUsageRows(rows);
 
   const id = `u${++_usageDetailSeq}`;
@@ -2895,20 +2939,29 @@ function renderUsageSummary(reportLike) {
     ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-50 border border-gray-200 rounded text-gray-700">${escapeHtml(b.label)} <strong class="font-mono">${b.total_tokens}</strong></span>`
     : '';
 
-  return `
-    <section class="mt-4 border border-gray-200 bg-white rounded">
-      <div class="px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
-        <h4 class="text-sm font-semibold text-gray-900">Token 消耗</h4>
-        <button type="button" onclick="openUsageDetailModal('${id}')" class="text-xs text-blue-600 hover:underline">查看明细 →</button>
-      </div>
-      <div class="px-3 pb-3 flex flex-wrap items-center gap-2 text-xs">
+  const tokenRow = summary?.totals
+    ? `<div class="px-3 pb-3 flex flex-wrap items-center gap-2 text-xs">
         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 border border-blue-200 rounded text-blue-800">总计 <strong class="font-mono">${total}</strong>（输入 ${prompt} / 输出 ${completion}）</span>
         ${bucketChip(buckets.providerA)}
         ${bucketChip(buckets.providerB)}
         ${bucketChip(buckets.local)}
         ${bucketChip(buckets.other)}
         ${partial}
+      </div>`
+    : '';
+
+  const detailBtn = summary?.totals
+    ? `<button type="button" onclick="openUsageDetailModal('${id}')" class="text-xs text-blue-600 hover:underline">查看明细 →</button>`
+    : '';
+
+  return `
+    <section class="mt-4 border border-gray-200 bg-white rounded">
+      <div class="px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+        <h4 class="text-sm font-semibold text-gray-900">Token 与耗时</h4>
+        ${detailBtn}
       </div>
+      ${tokenRow}
+      ${timingHtml}
     </section>`;
 }
 

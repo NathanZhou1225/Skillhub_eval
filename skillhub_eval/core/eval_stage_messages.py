@@ -70,6 +70,6 @@ def maybe_append_local_execution_check_notice(repo: Repository, run_id: str) -> 
         role="agent",
         content=LOCAL_EXECUTION_CHECK_MESSAGE,
         run_id=run_id,
-        message_type="readiness_result",
+        message_type="local_execution_check",
         payload_json={"phase": "local_execution_check"},
     )

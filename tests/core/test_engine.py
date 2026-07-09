@@ -195,6 +195,69 @@ def make_engine(tmp_path, ds_provider=None, wb_provider=None):
 
 # ─── tests ────────────────────────────────────────────────────────────────────
 
+def test_resolve_exec_logs_local_agent_case_lifecycle(tmp_path):
+    from skillhub_eval.core.schemas.report import ExecResult
+
+    engine, repo = make_engine(tmp_path)
+    run_id = repo.create_run(
+        skill_id="skill.test",
+        skill_bundle_path="/tmp/x",
+        bundle_state="confirmed",
+        evaluation_mode="capability_full",
+    )
+    engine._current_run_id = run_id
+    engine._current_bundle = {"skill_id": "skill.test"}
+    engine._execution_source = FakeExecutionSource({
+        "case_00": ExecResult(
+            actual_output={"ok": True},
+            source="local_agent",
+            status="ok",
+            level="level_1",
+            agent_label="Trae",
+            model_label="DeepSeek-V4-Pro",
+        ),
+        "case_01": ExecResult(
+            source="local_agent",
+            status="incomplete",
+            degrade_reason="run_incomplete",
+            stderr_excerpt="failed to call agent",
+        ),
+    })
+
+    engine._resolve_exec_for_case(
+        "/tmp/x",
+        "case_00",
+        case={"id": "case_00", "type": "happy_path"},
+        bundle={"skill_id": "skill.test"},
+    )
+    engine._resolve_exec_for_case(
+        "/tmp/x",
+        "case_01",
+        case={"id": "case_01", "type": "edge"},
+        bundle={"skill_id": "skill.test"},
+    )
+
+    events = repo.list_events(run_id)
+    names = [event["event_name"] for event in events]
+    assert names == [
+        "local_agent_case_started",
+        "local_agent_case_succeeded",
+        "local_agent_case_started",
+        "local_agent_failure",
+        "local_agent_case_failed",
+    ]
+    success = events[1]["payload"]
+    assert success["case_id"] == "case_00"
+    assert success["status"] == "ok"
+    assert success["agent_label"] == "Trae"
+    assert success["model_label"] == "DeepSeek-V4-Pro"
+    assert success["duration_ms"] >= 0
+    failure = events[-1]["payload"]
+    assert failure["case_id"] == "case_01"
+    assert failure["degrade_reason"] == "run_incomplete"
+    assert failure["stderr_excerpt"] == "failed to call agent"
+
+
 @pytest.mark.asyncio
 async def test_confirmed_full_run_produces_report(tmp_path):
     """Full pipeline: confirmed + capability_full → completed with review_status."""
@@ -1226,7 +1289,9 @@ async def test_local_exec_partial_failure_does_not_block_run(tmp_path):
         ),
         "case_02": ok_result,
     })
-    engine, repo = make_engine(tmp_path)
+    ds = CallCountProvider()
+    gm = CallCountProvider()
+    engine, repo = make_engine(tmp_path, ds_provider=ds, wb_provider=gm)
     engine._execution_source_override = fake_source
 
     run_id = repo.create_run(
@@ -1250,6 +1315,13 @@ async def test_local_exec_partial_failure_does_not_block_run(tmp_path):
     assert "LOCAL_EXEC_UNAVAILABLE" not in (report.get("reason_codes") or [])
     assert report["exec_agent_label"] == "Trae"
     assert report["exec_model_label"] == "GLM-5.2"
+    assert {vote["case_id"] for vote in report["model_votes"]} == {"case_00", "case_02"}
+    assert report["score_total"] == 85.0
+
+    rows = {row["case_id"]: row for row in report["provider_summary"]["per_case"]}
+    assert rows["case_01"]["exec_status"] == "incomplete"
+    assert rows["case_01"]["deepseek_score"] is None
+    assert rows["case_01"]["gemini_score"] is None
 
     events = repo.list_events(run_id, event_name="local_agent_failure")
     assert any(e["payload"]["case_id"] == "case_01" for e in events)
@@ -1291,11 +1363,32 @@ async def test_exec_report_fields_never_claim_preference_as_executed(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_local_runtime_preflight_required_blocks_formal_local_eval(tmp_path, monkeypatch):
+async def test_local_runtime_preflight_is_not_auto_gate_for_formal_local_eval(tmp_path, monkeypatch):
+    from skillhub_eval.core.schemas.report import ExecResult
+
     bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
     engine, repo = make_engine(tmp_path)
     monkeypatch.setattr("skillhub_eval.settings.settings.eval_db_path", repo.db_path)
-    monkeypatch.setattr(engine, "_ensure_valid_runtime_preflight", lambda *_a, **_k: None)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("formal local eval should not auto-run runtime preflight")
+
+    monkeypatch.setattr(engine, "_ensure_valid_runtime_preflight", fail_if_called)
+
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="codex",
+                agent_label="Codex",
+                model_id="default",
+                model_label="默认模型",
+            )
+
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
 
     run_id = repo.create_run(
         skill_id="skill.test",
@@ -1311,8 +1404,9 @@ async def test_local_runtime_preflight_required_blocks_formal_local_eval(tmp_pat
     )
 
     report = repo.get_report(run_id)
-    assert report["status"] == "failed"
-    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert report["level_achieved"] == "level_2"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
 
 
 @pytest.mark.asyncio
@@ -1450,8 +1544,9 @@ async def test_engine_gate_accepts_real_sqlite_preflight_cache(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_engine_gate_rejects_expired_real_preflight_cache(tmp_path, monkeypatch):
+async def test_expired_runtime_preflight_cache_does_not_block_formal_local_eval(tmp_path, monkeypatch):
     from datetime import UTC, datetime, timedelta
+    from skillhub_eval.core.schemas.report import ExecResult
     from skillhub_eval.execution.preflight_runner import PreflightRunner
 
     bundle = make_local_exec_bundle(tmp_path / "bundle", n_cases=3)
@@ -1480,6 +1575,9 @@ async def test_engine_gate_rejects_expired_real_preflight_cache(tmp_path, monkey
         )
 
     monkeypatch.setattr(PreflightRunner, "run", fake_run)
+    monkeypatch.setattr(PreflightRunner, "run", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("formal local eval should not auto-run expired preflight")
+    ))
     context = preflight_runner._context(
         bundle, "claude", "default"
     )
@@ -1500,6 +1598,21 @@ async def test_engine_gate_rejects_expired_real_preflight_cache(tmp_path, monkey
         evidence={},
     )
 
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="claude",
+                agent_label="Claude",
+                model_id="default",
+                model_label="默认模型",
+            )
+
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
+
     run_id = repo.create_run(
         skill_id="skill.test",
         skill_bundle_path=bundle,
@@ -1509,14 +1622,15 @@ async def test_engine_gate_rejects_expired_real_preflight_cache(tmp_path, monkey
     await engine.run_async(run_id, bundle, BundleState.confirmed, EvaluationMode.capability_full)
 
     report = repo.get_report(run_id)
-    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
-    evidence = report["evidence"][0]
-    assert evidence["diagnosis"] in {"cache_invalid", "missing_cache"}
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert report["level_achieved"] == "level_2"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
 
 
 @pytest.mark.asyncio
-async def test_engine_gate_rejects_locked_high_without_safe_preflight(tmp_path, monkeypatch):
+async def test_locked_high_without_safe_preflight_does_not_block_formal_local_eval(tmp_path, monkeypatch):
     from datetime import UTC, datetime, timedelta
+    from skillhub_eval.core.schemas.report import ExecResult
     from skillhub_eval.execution.preflight_runner import PreflightRunner
     from skillhub_eval.core.schemas.enums import RiskLevel
 
@@ -1550,6 +1664,9 @@ async def test_engine_gate_rejects_locked_high_without_safe_preflight(tmp_path, 
         )
 
     monkeypatch.setattr(PreflightRunner, "run", fake_run)
+    monkeypatch.setattr(PreflightRunner, "run", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("formal local eval should not auto-run high-risk preflight")
+    ))
     context = preflight_runner._context(
         bundle, "claude", "default"
     )
@@ -1570,6 +1687,21 @@ async def test_engine_gate_rejects_locked_high_without_safe_preflight(tmp_path, 
         evidence={"safe_preflight": False},
     )
 
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="claude",
+                agent_label="Claude",
+                model_id="default",
+                model_label="默认模型",
+            )
+
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
+
     run_id = repo.create_run(
         skill_id="skill.test",
         skill_bundle_path=bundle,
@@ -1579,8 +1711,9 @@ async def test_engine_gate_rejects_locked_high_without_safe_preflight(tmp_path, 
     await engine.run_async(run_id, bundle, BundleState.confirmed, EvaluationMode.capability_full)
 
     report = repo.get_report(run_id)
-    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
-    assert report["evidence"][0]["locked_risk_level"] == "high"
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert report["level_achieved"] == "level_2"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
 
 
 def _make_high_risk_local_bundle(tmp_path) -> str:
@@ -1613,7 +1746,7 @@ def _make_high_risk_local_bundle(tmp_path) -> str:
 
 
 @pytest.mark.asyncio
-async def test_engine_auto_local_execution_check_pass_continues_to_case_exec(tmp_path, monkeypatch):
+async def test_formal_local_eval_does_not_auto_generate_or_run_local_execution_check(tmp_path, monkeypatch):
     from datetime import UTC, datetime, timedelta
     from skillhub_eval.core.schemas.report import ExecResult
     from skillhub_eval.execution.preflight_runner import PreflightResult, PreflightRunner
@@ -1649,6 +1782,9 @@ async def test_engine_auto_local_execution_check_pass_continues_to_case_exec(tmp
 
     monkeypatch.setattr(PreflightRunner, "run", fake_run)
     monkeypatch.setattr(engine, "_preflight_runner", lambda: preflight_runner)
+    monkeypatch.setattr(engine, "_ensure_valid_runtime_preflight", lambda *_a, **_k: (_ for _ in ()).throw(
+        AssertionError("formal local eval should not auto-run local execution check")
+    ))
 
     def fake_case_exec(_bundle_path, cases, _bundle):
         for case in cases:
@@ -1680,13 +1816,14 @@ async def test_engine_auto_local_execution_check_pass_continues_to_case_exec(tmp
 
     report = repo.get_report(run_id)
     assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]
-    assert (tmp_path / "bundle" / "eval_cases" / "runtime_preflight_01.yaml").is_file()
+    assert not (tmp_path / "bundle" / "eval_cases" / "runtime_preflight_01.yaml").is_file()
     assert report["status"] in ("completed", "awaiting_human_review")
 
 
 @pytest.mark.asyncio
-async def test_engine_auto_local_execution_check_fail_blocks_before_case_exec(tmp_path, monkeypatch):
+async def test_failed_manual_preflight_does_not_block_formal_case_exec(tmp_path, monkeypatch):
     from datetime import UTC, datetime
+    from skillhub_eval.core.schemas.report import ExecResult
     from skillhub_eval.execution.preflight_runner import PreflightResult, PreflightRunner
 
     bundle = _make_high_risk_local_bundle(tmp_path)
@@ -1715,10 +1852,20 @@ async def test_engine_auto_local_execution_check_fail_blocks_before_case_exec(tm
     monkeypatch.setattr(PreflightRunner, "run", fake_run)
     monkeypatch.setattr(engine, "_preflight_runner", lambda: preflight_runner)
 
-    def fail_case_exec(*_args, **_kwargs):
-        raise AssertionError("case_executing should not start when auto-check fails")
+    def fake_case_exec(_bundle_path, cases, _bundle):
+        for case in cases:
+            engine._case_exec_results[case["id"]] = ExecResult(
+                actual_output={"ok": True},
+                source="local_agent",
+                status="ok",
+                level="level_2",
+                agent_id="codex",
+                agent_label="Codex",
+                model_id="default",
+                model_label="默认模型",
+            )
 
-    monkeypatch.setattr(engine, "_run_case_exec_phase", fail_case_exec)
+    monkeypatch.setattr(engine, "_run_case_exec_phase", fake_case_exec)
 
     run_id = repo.create_run(
         skill_id="skill.stock-radar",
@@ -1734,6 +1881,6 @@ async def test_engine_auto_local_execution_check_fail_blocks_before_case_exec(tm
     )
 
     report = repo.get_report(run_id)
-    assert report["status"] == "failed"
-    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" in report["reason_codes"]
-    assert "本地执行环境检查" in report["evidence"][0]["detail"]
+    assert report["status"] in ("completed", "awaiting_human_review")
+    assert report["level_achieved"] == "level_2"
+    assert "LOCAL_RUNTIME_PREFLIGHT_REQUIRED" not in report["reason_codes"]

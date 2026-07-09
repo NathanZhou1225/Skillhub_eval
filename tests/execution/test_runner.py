@@ -13,6 +13,42 @@ from skillhub_eval.execution.stream_parser import (
 )
 
 
+class _StreamingFakeProcess:
+    """Popen-like fake that exposes stdout for the streaming reader path."""
+
+    def __init__(self, stdout_lines: list[str], *, returncode: int = 0):
+        self._stdout_lines = [line if line.endswith("\n") else line + "\n" for line in stdout_lines]
+        self._stdout_index = 0
+        self.stdout = self
+        self.stderr = None
+        self.stdin = None
+        self.pid = 424242
+        self.returncode: int | None = None
+        self._target_returncode = returncode
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._stdout_index >= len(self._stdout_lines):
+            self.returncode = self._target_returncode
+            raise StopIteration
+        line = self._stdout_lines[self._stdout_index]
+        self._stdout_index += 1
+        return line
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self):
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        if self.returncode is None:
+            self.returncode = self._target_returncode
+        return self.returncode
+
+
 class _StubAdapter:
     agent_id = "stub"
 
@@ -200,11 +236,67 @@ def test_stream_until_complete_enforces_deadline_even_if_stdin_write_blocks():
     runner = LocalAgentRunner()
     with patch("skillhub_eval.execution.runner._kill_process_tree", side_effect=lambda p: p.kill()) as mock_kill:
         started = time.monotonic()
-        lines, exit_code = runner._stream_until_complete(proc, "prompt", timeout_s=0.2)
+        lines, exit_code, early_abort = runner._stream_until_complete(
+            proc,
+            "prompt",
+            timeout_s=0.2,
+            adapter=_StubAdapter(),
+        )
         elapsed = time.monotonic() - started
     assert elapsed < 5.0
     mock_kill.assert_called_once_with(proc)
     assert lines == []
+    assert early_abort is None
+
+
+def test_runner_aborts_when_abort_check_triggers():
+    lines = [
+        json.dumps({"type": "tool_result", "stdout": "x", "exit_code": 1}),
+        json.dumps({"type": "tool_result", "stdout": "y", "exit_code": 1}),
+        json.dumps({"type": "tool_result", "stdout": "z", "exit_code": 1}),
+    ]
+
+    def fake_spawn(args, **kwargs):
+        return _StreamingFakeProcess([line + "\n" for line in lines])
+
+    from skillhub_eval.execution.stream_abort import PreflightStreamAbortPolicy, preflight_abort_check
+
+    runner = LocalAgentRunner(spawn_fn=fake_spawn)
+    outcome = runner.run(
+        _StubAdapter(),
+        "run skill",
+        cwd="/tmp/work",
+        timeout_s=30.0,
+        abort_check=preflight_abort_check(
+            PreflightStreamAbortPolicy(max_total_tools=99, max_failed_tools=2, max_consecutive_failures=99)
+        ),
+    )
+    assert outcome.early_abort_reason == "runtime_tool_failures_exceeded"
+    assert not runner.is_run_complete(outcome)
+
+
+def test_runner_aborts_on_preflight_tool_budget():
+    lines = [
+        json.dumps({"type": "tool_result", "stdout": "ok", "exit_code": 0})
+        for _ in range(8)
+    ]
+
+    def fake_spawn(args, **kwargs):
+        return _StreamingFakeProcess(lines)
+
+    from skillhub_eval.execution.stream_abort import PreflightStreamAbortPolicy, preflight_abort_check
+
+    runner = LocalAgentRunner(spawn_fn=fake_spawn)
+    outcome = runner.run(
+        _StubAdapter(),
+        "run skill",
+        cwd="/tmp/work",
+        timeout_s=30.0,
+        abort_check=preflight_abort_check(
+            PreflightStreamAbortPolicy(max_total_tools=5, max_failed_tools=99, max_consecutive_failures=99)
+        ),
+    )
+    assert outcome.early_abort_reason == "runtime_preflight_tool_budget_exceeded"
 
 
 def test_kill_process_tree_uses_taskkill_on_windows():

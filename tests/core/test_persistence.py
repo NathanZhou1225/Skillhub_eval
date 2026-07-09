@@ -136,6 +136,38 @@ def test_get_stage_progress(repo):
     ]
 
 
+def test_get_stage_progress_includes_local_agent_case_events(repo):
+    run_id = repo.create_run("s8-local", "/tmp/s8", "confirmed", "capability_full")
+    repo.append_stage(run_id, "case_executing")
+    repo.log_event(run_id, "local_agent_case_started", {"case_id": "c01", "case_type": "happy_path"})
+    repo.log_event(run_id, "local_agent_case_succeeded", {
+        "case_id": "c01",
+        "status": "ok",
+        "duration_ms": 1234,
+    })
+    repo.log_event(run_id, "local_agent_case_failed", {
+        "case_id": "c02",
+        "status": "incomplete",
+        "degrade_reason": "run_incomplete",
+        "stderr_excerpt": "boom",
+    })
+
+    progress = repo.get_stage_progress(run_id)
+
+    assert progress[0] == "case_executing"
+    events = [item for item in progress if isinstance(item, dict)]
+    assert [item["event"] for item in events] == [
+        "local_agent_case_started",
+        "local_agent_case_succeeded",
+        "local_agent_case_failed",
+    ]
+    assert events[0]["case_id"] == "c01"
+    assert events[0]["case_type"] == "happy_path"
+    assert events[0]["created_at"]
+    assert events[1]["duration_ms"] == 1234
+    assert events[2]["stderr_excerpt"] == "boom"
+
+
 def test_get_stage_timings_and_history_summary(repo):
     run_id = repo.create_run("s9", "/tmp/s9", "confirmed", "capability_full")
     repo.log_event(run_id, "stage_timing", {"stage": "level0_checking", "ms": 100})

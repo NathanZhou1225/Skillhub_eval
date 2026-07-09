@@ -4,6 +4,7 @@ import json
 from unittest.mock import Mock
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from skillhub_eval.adapters.api.app import create_app
@@ -251,6 +252,48 @@ def test_scan_selected_model_stale_uses_live_verifier(client: TestClient, monkey
     mock_verify.assert_called_once()
 
 
+def test_scan_reuses_discovered_live_models_for_active_selected_model(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    client.put(
+        "/api/exec/preferences",
+        json={"exec_source": "local", "exec_agent": "cursor-agent", "exec_model": "auto"},
+    )
+    calls: list[str] = []
+
+    def fake_discover(agent, stored_model=None):
+        from skillhub_eval.execution.models import ModelDiscovery
+
+        calls.append(agent.id)
+        if agent.id == "cursor-agent":
+            return ModelDiscovery(
+                models=[
+                    {"id": "default", "label": "默认模型", "source": "live"},
+                    {"id": "auto", "label": "Auto", "source": "live"},
+                ],
+                models_source="live",
+            )
+        return ModelDiscovery(
+            models=[{"id": "default", "label": "默认模型", "source": "fallback"}],
+            models_source="fallback",
+        )
+
+    unexpected_verify = Mock(side_effect=AssertionError("scan should reuse discovered models"))
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.discover_models", fake_discover)
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.is_model_verified_live", unexpected_verify, raising=False)
+    monkeypatch.setattr("skillhub_eval.execution.runtime_readiness.is_model_verified_live", unexpected_verify, raising=False)
+
+    resp = client.get("/api/exec/agents/scan")
+
+    assert resp.status_code == 200
+    cursor = next(a for a in resp.json()["agents"] if a["id"] == "cursor-agent")
+    assert cursor["models_source"] == "live"
+    assert cursor["selected_model_status"] == "ok"
+    assert cursor["model_status"] == "ok"
+    assert calls.count("cursor-agent") == 1
+    unexpected_verify.assert_not_called()
+
+
 def test_agent_smoke_uses_default_model_not_global_prefs(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
@@ -491,6 +534,73 @@ def test_runtime_preflight_runs_when_cache_missing(client: TestClient, tmp_path,
     assert body["evidence"] == {"source": "run"}
 
 
+def test_runtime_preflight_regenerate_uses_template_without_provider(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nid: skill.test\nname: Test\nrisk_level: high\nentrypoint: scripts/run.py\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    scripts = skill / "scripts"
+    scripts.mkdir()
+    (scripts / "run.py").write_text("print('ok')\n", encoding="utf-8")
+    cases = skill / "eval_cases"
+    cases.mkdir()
+    for idx, ctype in enumerate(
+        ["happy_path", "happy_path", "happy_path", "edge", "edge", "refusal", "refusal", "adversarial", "adversarial"]
+    ):
+        (cases / f"c{idx}.yaml").write_text(
+            f"id: c{idx}\ntype: {ctype}\nuser_intent: test\ninput_template: x\nexpected_behavior: y\n",
+            encoding="utf-8",
+        )
+
+    class _FakeResult:
+        def to_cache_row(self):
+            return {
+                "runtime_id": "codex",
+                "model_id": "default",
+                "skill_fingerprint": "skill-fp",
+                "fingerprint": "runtime-fp",
+                "status": "failed",
+                "cached": False,
+                "checked_at": "2026-07-05T00:00:00+00:00",
+                "expires_at": "2026-07-06T00:00:00+00:00",
+                "failure_reason": "runtime_missing_entrypoint_evidence",
+                "message_zh": "missing evidence",
+                "evidence": {},
+            }
+
+    class _FakePreflightRunner:
+        def __init__(self, repo):
+            self.repo = repo
+
+        def check_cached(self, *args, **kwargs):
+            return None
+
+        def run(self, *args, **kwargs):
+            return _FakeResult()
+
+    monkeypatch.setattr("skillhub_eval.adapters.api.routes.exec.PreflightRunner", _FakePreflightRunner)
+
+    resp = client.post(
+        "/api/exec/runtimes/codex/preflight",
+        json={
+            "skill_bundle_path": str(skill),
+            "model": "default",
+            "force": True,
+            "regenerate_check_case": True,
+        },
+    )
+
+    assert resp.status_code == 200
+    generated = yaml.safe_load((cases / "runtime_preflight_01.yaml").read_text(encoding="utf-8"))
+    assert generated["origin"] == "runtime_platform_template"
+
+
 def test_runtime_preflight_rejects_unknown_runtime(client: TestClient, tmp_path):
     skill = tmp_path / "skill"
     skill.mkdir()
@@ -620,6 +730,65 @@ def test_switch_verified_runtime_updates_preferences(client: TestClient, tmp_pat
     assert body["preferences"]["exec_agent"] == "claude"
     after_catalog = [a.id for a in __import__("skillhub_eval.execution.agent_registry", fromlist=["get_agent_catalog"]).get_agent_catalog()]
     assert before_catalog == after_catalog
+
+
+def test_switch_verified_runtime_preserves_verified_model(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch):
+    from datetime import UTC, datetime, timedelta
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nid: skill.test\nname: Test\nrisk_level: low\n---\n# Test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.probe_cli_invocation",
+        lambda _path, _args: "ok",
+    )
+    from skillhub_eval.execution.detection import DetectionResult
+
+    monkeypatch.setattr(
+        "skillhub_eval.execution.runtime_readiness.detect_agent",
+        lambda agent, force=True: DetectionResult(agent.agent_id, True, f"/bin/{agent.agent_id}", "ok"),
+    )
+    monkeypatch.setattr(
+        "skillhub_eval.execution.preflight_runner.detect_agent",
+        lambda agent, force=True: DetectionResult(agent.agent_id, True, f"/bin/{agent.agent_id}", "ok"),
+    )
+
+    from skillhub_eval.execution.preflight_runner import PreflightRunner
+    from skillhub_eval.persistence.sqlite import SqliteRepository
+    from skillhub_eval.settings import settings
+
+    repo = SqliteRepository(settings.eval_db_path)
+    repo.init_db()
+    runner = PreflightRunner(repo=repo, version_probe=lambda _p, _a: None)
+    context = runner._context(str(skill), "trae", "GLM-5.2")
+    now = datetime.now(UTC)
+    repo.upsert_runtime_preflight(
+        runtime_id=context["runtime"].runtime_id,
+        model_id=context["model_id"],
+        skill_fingerprint=context["skill_fingerprint"],
+        fingerprint=context["fingerprint"],
+        status="passed",
+        cli_path=context["cli_path"],
+        cli_version=context["cli_version"],
+        checked_at=now.isoformat(),
+        expires_at=(now + timedelta(hours=1)).isoformat(),
+        failure_reason=None,
+        message_zh="ok",
+        manual_hint=None,
+        evidence={},
+    )
+
+    resp = client.post(
+        "/api/exec/runtimes/switch",
+        json={"runtime_id": "trae", "model": "GLM-5.2", "skill_bundle_path": str(skill)},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["preferences"]["exec_agent"] == "trae"
+    assert resp.json()["preferences"]["exec_model"] == "GLM-5.2"
 
 
 def test_switch_rejects_unverified_runtime(client: TestClient, tmp_path, monkeypatch: pytest.MonkeyPatch):

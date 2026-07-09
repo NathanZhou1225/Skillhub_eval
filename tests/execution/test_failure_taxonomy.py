@@ -14,6 +14,8 @@ def test_runtime_failure_code_maps_preflight_reasons():
     assert runtime_failure_code("runtime_auth_missing") == "LOCAL_RUNTIME_AUTH_MISSING"
     assert runtime_failure_code("runtime_safe_preflight_required") == "LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED"
     assert runtime_failure_code("runtime_parser_missing") == "LOCAL_RUNTIME_PARSER_MISSING"
+    assert runtime_failure_code("runtime_tool_failures_exceeded") == "LOCAL_RUNTIME_TOOL_FAILURES_EXCEEDED"
+    assert runtime_failure_code("runtime_preflight_tool_budget_exceeded") == "LOCAL_RUNTIME_PREFLIGHT_TOOL_BUDGET_EXCEEDED"
 
 
 def test_runtime_failure_label_accepts_reason_or_code():

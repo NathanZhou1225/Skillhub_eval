@@ -41,6 +41,23 @@ def test_sanitizer_removes_sensitive_fields():
     assert len(cleaned) < len(raw)
 
 
+def test_sanitizer_redacts_windows_paths_with_spaces():
+    raw = json.dumps(
+        {
+            "type": "tool_call",
+            "command": r"python C:\Users\alice\OneDrive\Documents\NA Intern\国金\Skillhub\scripts\run.py",
+        },
+        ensure_ascii=False,
+    )
+
+    cleaned = sanitize_line(raw)
+
+    assert "alice" not in cleaned
+    assert "NA Intern" not in cleaned
+    assert "国金" not in cleaned
+    assert REDACTED_PATH in cleaned
+
+
 def test_sanitizer_preserves_event_shape():
     raw = json.dumps({"type": "result", "subtype": "success", "duration_ms": 9})
     cleaned = sanitize_line(raw)

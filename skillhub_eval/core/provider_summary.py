@@ -42,6 +42,10 @@ def build_provider_summary(
         if cid not in seen:
             seen.add(cid)
             case_ids.append(cid)
+    for cid in (exec_results or {}):
+        if cid not in seen:
+            seen.add(cid)
+            case_ids.append(cid)
 
     per_case: list[CaseScoreRow] = []
     for case_id in case_ids:

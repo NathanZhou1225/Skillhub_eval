@@ -231,10 +231,13 @@ class TraeAdapter:
                 )
             if not config.get("models"):
                 return diagnostics.DiagnosisResult(
-                    ok=False,
-                    reason_code="TRAE_MODEL_NOT_CONFIGURED",
-                    message_zh="Trae 配置里缺少 models provider 定义，且暂时无法在线探测确认当前模型是否可用。",
-                    manual_hint="请手动运行 trae-cli models 确认模型是否可用；若使用自定义 provider，请在 trae_cli.yaml 中补充 models: 列表，包含模型名、provider、endpoint/API Key 等信息。",
+                    ok=True,
+                    reason_code=None,
+                    message_zh=(
+                        f"Trae 已配置模型 {configured_model}，但当前 CLI 无法在线枚举模型列表；"
+                        "连接测试通过时可继续使用，正式评估以实际 case 执行为准。"
+                    ),
+                    manual_hint="如需精确校验模型，请手动运行 trae-cli models；自定义 provider 场景可在 trae_cli.yaml 中补充 models: 列表。",
                 )
             return diagnostics.DiagnosisResult(
                 ok=False,

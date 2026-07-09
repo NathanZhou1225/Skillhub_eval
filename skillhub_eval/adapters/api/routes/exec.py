@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import subprocess
 import tempfile
@@ -19,10 +20,10 @@ from skillhub_eval.execution.agent_registry import (
 from skillhub_eval.execution.preflight_runner import PreflightRunner
 from skillhub_eval.execution.runtime_defs import get_runtime_def
 from skillhub_eval.execution.runtime_readiness import build_runtime_readiness
-from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case
+from skillhub_eval.execution.safe_preflight_case import ensure_safe_preflight_case_with_provider
 from skillhub_eval.persistence.sqlite import SqliteRepository
 from skillhub_eval.execution.detection import detect_agent
-from skillhub_eval.execution.models import discover_models, is_model_verified_live
+from skillhub_eval.execution.models import ModelDiscovery, discover_models, is_model_verified_live
 from skillhub_eval.execution.install_hints import get_install_hint
 from skillhub_eval.execution.runner import LocalAgentRunner
 from skillhub_eval.execution.preferences import (
@@ -152,6 +153,23 @@ def _supported_agent_ids() -> set[str]:
     return {agent.id for agent in get_agent_catalog()}
 
 
+def _selected_model_readiness_from_discovery(
+    *,
+    selected_model: str,
+    discovery: ModelDiscovery,
+) -> tuple[str, str] | None:
+    if selected_model == DEFAULT_MODEL_ID:
+        return "default", "使用该 CLI 的默认模型（未在 SkillHub 中显式选择具体模型）。"
+    if discovery.models_source != "live":
+        return None
+    live_ids = {m["id"] for m in discovery.models if m.get("source") == "live"}
+    if selected_model in live_ids:
+        return "ok", "已选模型已通过在线探测确认存在。"
+    return "stale", (
+        f"已选模型 {selected_model} 未出现在最近一次在线探测结果中，可能已失效或输入有误。"
+    )
+
+
 @router.get("/agents/scan", response_model=AgentScanResponse)
 def scan_agents(
     skill_bundle_path: str | None = None,
@@ -174,6 +192,7 @@ def scan_agents(
         diagnosis_hint: str | None = None
         selected_model_status: str | None = None
         selected_model_message: str | None = None
+        selected_model_readiness: tuple[str, str] | None = None
         if det.detected:
             disc = discover_models(agent, stored_model=selected_model)
             models = [
@@ -195,22 +214,28 @@ def scan_agents(
                     diagnosis_hint = diagnosis.manual_hint
 
             if agent.id == active_agent_id:
-                if selected_model == DEFAULT_MODEL_ID:
-                    selected_model_status = "default"
-                    selected_model_message = "使用该 CLI 的默认模型（未在 SkillHub 中显式选择具体模型）。"
-                else:
+                selected_model_readiness = _selected_model_readiness_from_discovery(
+                    selected_model=selected_model,
+                    discovery=disc,
+                )
+                if selected_model_readiness is None:
                     verified, probe_source = is_model_verified_live(agent, selected_model)
                     if probe_source != "live":
-                        selected_model_status = "probe_unavailable"
-                        selected_model_message = "暂时无法在线探测该 Agent 的模型列表，无法确认已选模型是否有效。"
-                    elif verified:
-                        selected_model_status = "ok"
-                        selected_model_message = "已选模型已通过在线探测确认存在。"
-                    else:
-                        selected_model_status = "stale"
-                        selected_model_message = (
-                            f"已选模型 {selected_model} 未出现在最近一次在线探测结果中，可能已失效或输入有误。"
+                        selected_model_readiness = (
+                            "probe_unavailable",
+                            "暂时无法在线探测该 Agent 的模型列表，无法确认已选模型是否有效。",
                         )
+                    elif verified:
+                        selected_model_readiness = (
+                            "ok",
+                            "已选模型已通过在线探测确认存在。",
+                        )
+                    else:
+                        selected_model_readiness = (
+                            "stale",
+                            f"已选模型 {selected_model} 未出现在最近一次在线探测结果中，可能已失效或输入有误。",
+                        )
+                selected_model_status, selected_model_message = selected_model_readiness
         else:
             hint = get_install_hint(agent.id)
             if hint:
@@ -225,6 +250,7 @@ def scan_agents(
             active_agent_id=active_agent_id,
             skill_bundle_path=skill_bundle_path,
             repo=repo if skill_bundle_path else None,
+            model_readiness=selected_model_readiness if agent.id == active_agent_id else None,
         )
         agents.append(
             AgentScanItem(
@@ -328,7 +354,7 @@ def test_agent(agent_id: str, body: AgentTestRequest | None = Body(default=None)
 
 
 @router.post("/runtimes/{runtime_id}/preflight", response_model=RuntimePreflightResponse)
-def run_runtime_preflight(
+async def run_runtime_preflight(
     runtime_id: str,
     body: RuntimePreflightRequest,
     repo: SqliteRepository = Depends(get_repo),
@@ -340,7 +366,10 @@ def run_runtime_preflight(
     runner = PreflightRunner(repo=repo)
     model_id = body.model or DEFAULT_MODEL_ID
     if body.regenerate_check_case:
-        ensure_safe_preflight_case(body.skill_bundle_path, force=True)
+        await ensure_safe_preflight_case_with_provider(
+            body.skill_bundle_path,
+            force=True,
+        )
     if not body.force:
         cached = runner.check_cached(
             body.skill_bundle_path,
@@ -350,8 +379,9 @@ def run_runtime_preflight(
         if cached is not None:
             return RuntimePreflightResponse.model_validate({**cached, "cached": True})
 
-    ensure_safe_preflight_case(body.skill_bundle_path)
-    result = runner.run(
+    await ensure_safe_preflight_case_with_provider(body.skill_bundle_path)
+    result = await asyncio.to_thread(
+        runner.run,
         body.skill_bundle_path,
         runtime_id=runtime.runtime_id,
         model_id=model_id,

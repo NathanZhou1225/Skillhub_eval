@@ -11,8 +11,8 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
 - Introduce a product-grade local CLI runtime platform for `Codex`, `Cursor Agent`, `Trae`, `Claude`, and `Antigravity`.
 - Replace the current adapter-centric execution path with a runtime contract covering binary resolution, version probe, auth/config signal, model discovery, prompt transport, skill injection strategy, stream/event format, tool capabilities, and preflight behavior.
 - Add a unified `AgentEvent` normalization layer so the evaluation path no longer consumes raw Cursor/Trae/Codex/Claude/Antigravity stream-json shapes directly.
-- Add a mandatory preflight suite: formal local evaluation can only run with a runtime/model whose preflight has passed.
-- Productize preflight as an automatic "local execution check": high-risk skills get a system-generated safe check case where possible, users are not asked to understand or edit `safe_preflight` YAML, and formal local evaluation can run the check before blocking.
+- Keep runtime preflight as an optional diagnostic suite: users can run a productized "local execution check" for the current skill/runtime/model, but formal local evaluation is not blocked by missing/failed preflight.
+- Productize preflight as a manual "local execution check": high-risk skills can get a system-generated safe check case where possible, users are not asked to understand or edit `safe_preflight` YAML, and failed checks are shown as warnings rather than formal-evaluation blockers.
 - Persist preflight results in the existing SkillHub SQLite database for 24 hours, invalidated by changes to agent id, model id, skill fingerprint, CLI path, CLI version, runtime definition fingerprint, or SkillHub version.
 - Add explicit one-click switching to another preflight-passed runtime after a runtime failure. The system will not automatically switch agents.
 - Add skill injection strategies inspired by open-design: native skill loading where supported, file-placed workflow where useful, and prompt injection as the universal fallback.
@@ -28,7 +28,7 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
 
 ### Modified Capabilities
 
-- `skill-execution`: formal local execution now requires a valid preflight result for the selected runtime/model, and consumes a normalized runtime execution result rather than raw adapter-specific stream parsing.
+- `skill-execution`: formal local execution consumes a normalized runtime execution result rather than raw adapter-specific stream parsing; preflight remains available as optional diagnostics instead of a hard gate.
 - `exec-bridge-api`: scan/test APIs expand from simple CLI detection into runtime detection, model readiness, preflight status, and explicit switch/retry support.
 
 ## Impact
@@ -67,9 +67,9 @@ This change keeps SkillHub's existing evaluation product logic intact. Local CLI
 - `Codex`, `Cursor Agent`, `Trae`, `Claude`, and `Antigravity` are present in the runtime catalog with runtime definitions, readiness metadata, prompt transport, skill injection fallback, event normalization coverage, and user-facing repair hints.
 - The default test suite does not require installed local CLIs, logged-in accounts, network/model access, or quota.
 - Formal local evaluation routes through the runtime platform after all five adapter equivalence tests pass.
-- Mandatory skill-specific runtime preflight is enforced before formal local evaluation, persisted in SQLite, and invalidated by runtime/model/skill/path/version/fingerprint changes.
-- For high-risk skills, the system automatically creates or selects a safe local execution check case whenever it can do so without running real business-side effects; ordinary users see "本地执行环境检查", not `preflight`/`safe_preflight` implementation details.
-- The UI shows runtime readiness/preflight status and supports explicit one-click switching to a verified runtime without automatic fallback.
+- Skill-specific runtime preflight is available as optional diagnostics, persisted in SQLite, and invalidated by runtime/model/skill/path/version/fingerprint changes, but missing/failed/expired preflight does not block formal local evaluation.
+- For high-risk skills, the **manual** local execution check API can create or select a safe check case (deterministic lightweight template by default) without requiring users to edit `safe_preflight` YAML; ordinary users see "本地执行环境检查", not implementation details. Formal local evaluation does not auto-generate or auto-run this check.
+- The UI shows runtime readiness/preflight diagnostic status and supports explicit one-click switching to a verified runtime without automatic fallback.
 - Existing scoring, R1-R8 rules, thresholds, expert review, report aggregation, and attribution semantics remain unchanged.
 - Live runtime E2E validation remains explicit opt-in through `RUN_LOCAL_AGENT=1` or an equivalent environment gate.
 

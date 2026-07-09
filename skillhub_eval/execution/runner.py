@@ -10,8 +10,11 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol, runtime_checkable
 
-from skillhub_eval.core.schemas.report import RunOutcome
+from skillhub_eval.core.schemas.report import ParsedStream, RunOutcome
 from skillhub_eval.execution.stream_parser import parse_stream_events
+from skillhub_eval.execution.stream_abort import _POST_KILL_WAIT_S
+
+AbortCheck = Callable[[ParsedStream], str | None]
 
 
 def _kill_process_tree(proc: subprocess.Popen) -> None:
@@ -80,6 +83,7 @@ class LocalAgentRunner:
         cwd: str,
         timeout_s: float = 300.0,
         hardened: bool = False,
+        abort_check: AbortCheck | None = None,
     ) -> RunOutcome:
         args = list(adapter.build_args(cwd=cwd, hardened=hardened))
         stdin_prompt = prompt
@@ -97,13 +101,20 @@ class LocalAgentRunner:
             errors="replace",
         )
         stderr_text = ""
+        early_abort_reason: str | None = None
         if getattr(proc, "stdout", None) is None:
             stdout, stderr = proc.communicate(input=stdin_prompt or None, timeout=timeout_s)
             stderr_text = stderr or ""
             lines = stdout.splitlines() if stdout else []
             exit_code = proc.returncode if proc.returncode is not None else proc.wait()
         else:
-            lines, exit_code = self._stream_until_complete(proc, stdin_prompt, timeout_s)
+            lines, exit_code, early_abort_reason = self._stream_until_complete(
+                proc,
+                stdin_prompt,
+                timeout_s,
+                adapter=adapter,
+                abort_check=abort_check,
+            )
             if proc.stderr is not None:
                 try:
                     stderr_text = proc.stderr.read() or ""
@@ -117,6 +128,7 @@ class LocalAgentRunner:
             parsed_stream=parsed,
             duration_ms=parsed.duration_ms,
             stderr_text=stderr_text or None,
+            early_abort_reason=early_abort_reason,
         )
 
     def _stream_until_complete(
@@ -124,7 +136,10 @@ class LocalAgentRunner:
         proc: subprocess.Popen,
         prompt: str,
         timeout_s: float,
-    ) -> tuple[list[str], int]:
+        *,
+        adapter: AgentAdapter,
+        abort_check: AbortCheck | None = None,
+    ) -> tuple[list[str], int, str | None]:
         if proc.stdin:
             def _write_stdin() -> None:
                 try:
@@ -142,6 +157,7 @@ class LocalAgentRunner:
 
         lines: list[str] = []
         line_queue: queue.Queue[str | None] = queue.Queue()
+        early_abort_reason: str | None = None
 
         def _reader() -> None:
             try:
@@ -168,14 +184,26 @@ class LocalAgentRunner:
             if line is None:
                 break
             lines.append(line)
+            if abort_check is not None:
+                parsed = adapter.parse_stream(lines)
+                reason = abort_check(parsed)
+                if reason:
+                    early_abort_reason = reason
+                    break
             if parse_stream_events(lines).is_complete:
                 stream_complete = True
                 break
 
-        if proc.poll() is None:
+        if early_abort_reason is not None and proc.poll() is None:
             _kill_process_tree(proc)
             try:
-                proc.wait(timeout=2)
+                proc.wait(timeout=_POST_KILL_WAIT_S)
+            except subprocess.TimeoutExpired:
+                pass
+        elif proc.poll() is None:
+            _kill_process_tree(proc)
+            try:
+                proc.wait(timeout=_POST_KILL_WAIT_S)
             except subprocess.TimeoutExpired:
                 pass
 
@@ -189,8 +217,17 @@ class LocalAgentRunner:
             if not stream_complete:
                 lines.append(extra)
 
-        exit_code = proc.returncode if proc.returncode is not None else proc.wait()
-        return lines, exit_code
+        exit_code = proc.returncode
+        if exit_code is None:
+            try:
+                exit_code = proc.wait(timeout=_POST_KILL_WAIT_S)
+            except subprocess.TimeoutExpired:
+                _kill_process_tree(proc)
+                try:
+                    exit_code = proc.wait(timeout=_POST_KILL_WAIT_S)
+                except subprocess.TimeoutExpired:
+                    exit_code = -9
+        return lines, int(exit_code or 0), early_abort_reason
 
     def is_run_complete(self, outcome: RunOutcome) -> bool:
         """Stream-json completion is authoritative (Codex may be killed after turn.completed)."""

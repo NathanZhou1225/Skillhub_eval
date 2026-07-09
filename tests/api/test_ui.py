@@ -117,6 +117,23 @@ def test_ui_t6_history_and_timing_helpers():
     assert "stage_timing" in text
 
 
+def test_ui_usage_summary_includes_timing_chips():
+    """Report card shows total / local-agent / dual-judge duration beside tokens."""
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "renderUsageSummary" in text
+    assert "_renderTimingChips" in text
+    assert "_phaseMs" in text
+    assert "Token 与耗时" in text
+    assert "总耗时" in text
+    assert "双模型评测" in text
+    assert "case_executing" in text
+    assert "model_judging_ms" in text
+    assert "本地 Agent" in text
+    assert "timing-chips-2" in text
+
+
 def test_ui_local_agent_case_progress_helpers():
     app = create_app()
     client = TestClient(app)

@@ -19,11 +19,19 @@ def run_via_transport(
     timeout_s: float,
     hardened: bool,
     runner: LocalAgentRunner | None = None,
+    abort_check=None,
 ) -> RunOutcome:
     fmt = getattr(agent, "stream_format", "stream-json")
     if fmt == "stream-json":
         runner = runner or LocalAgentRunner()
-        return runner.run(adapter, prompt, cwd=cwd, timeout_s=timeout_s, hardened=hardened)
+        return runner.run(
+            adapter,
+            prompt,
+            cwd=cwd,
+            timeout_s=timeout_s,
+            hardened=hardened,
+            abort_check=abort_check,
+        )
     if fmt == "acp-json-rpc":
         raise NotImplementedError(
             f"stream_format 'acp-json-rpc' not implemented for {agent.agent_id}; "

@@ -135,7 +135,7 @@
 
 ### Requirement: 本地执行失败阻断而非静默回退
 
-本地 agent 执行失败或超时时，系统 SHALL NOT 自动将该 case（或整轮）静默替换为 `sample_io` 产出并以 `status=ok` 继续评分。系统 SHALL 保留原始失败信号（`degrade_reason`，若可得则含 stderr 摘要）并将该 case（或整轮，若 `execution_source=local` 且本机无可用 agent）标记为阻断/未完成，不计入 pass。本条 SHALL 取代已归档 change `2026-06-18-local-agent-exec-bridge` 中「执行降级与回退」要求所述的自动降级为 `sample_io` 的行为——该行为在真机试用中被证实会掩盖本地 agent 从未真正执行成功的事实，且不可追溯失败原因。
+本地 agent 执行失败或超时时，系统 SHALL NOT 自动将该 case（或整轮）静默替换为 `sample_io` 产出并以 `status=ok` 继续评分。系统 SHALL 保留原始失败信号（`degrade_reason`，若可得则含 stderr 摘要）并将该 case（或整轮，若 `execution_source=local` 且本机无可用 agent）标记为阻断/未完成，不计入 pass。未成功产出 `actual_output` 的 case SHALL NOT 进入 DeepSeek/Gemini 语义评审、`model_votes`、provider 均值、R5 分歧检测或 `score_total` 计算；报告 SHALL 保留 per-case 执行状态行并将模型分数置空。本条 SHALL 取代已归档 change `2026-06-18-local-agent-exec-bridge` 中「执行降级与回退」要求所述的自动降级为 `sample_io` 的行为——该行为在真机试用中被证实会掩盖本地 agent 从未真正执行成功的事实，且不可追溯失败原因。
 
 #### Scenario: 单题本地执行失败不再静默换成样例
 
@@ -143,6 +143,7 @@
 - **When** `RoutingExecutionSource` 处理该 case 的执行结果
 - **Then** 系统 SHALL NOT 返回一个 `source=sample_io, status=ok` 的替代 `ExecResult`
 - **And** 该 case 的 `ExecResult` SHALL 保留原始 `status`、`degrade_reason` 与（若可得）stderr 摘要，供报告与 UI 呈现
+- **And** 该 case SHALL NOT 产生 DeepSeek/Gemini judge 结果或 `model_votes`
 
 #### Scenario: 整轮本地不可用不再整轮回退
 
@@ -160,7 +161,7 @@
 
 ### Requirement: 阻断粒度为按 case，不因单题失败牵连整轮
 
-单个 case 的本地执行失败（非红线既定降级）SHALL 仅将该 case 标记为 `incomplete`，不计入 pass，不影响同轮其他 case 的正常执行与评分。仅当满足以下任一条件时，系统 SHALL 将整轮标记为阻断（复用既有 `RunStatus.failed` 收尾路径与其 `reason_codes`/`evidence` 字段）：`execution_source=local` 且预检未检测到可用 agent；或该轮内声明走本地执行的 case 中，没有任何一个成功产出 `source=local_agent, status=ok` 的结果（即全部本地执行均失败，红线既定降级不计入此统计）。
+单个 case 的本地执行失败（非红线既定降级）SHALL 仅将该 case 标记为 `incomplete`，不计入 pass、不评分、不计入总分，不影响同轮其他成功 case 的正常执行与评分。仅当满足以下任一条件时，系统 SHALL 将整轮标记为阻断（复用既有 `RunStatus.failed` 收尾路径与其 `reason_codes`/`evidence` 字段）：`execution_source=local` 且预检未检测到可用 agent；或该轮内声明走本地执行的 case 中，没有任何一个成功产出 `source=local_agent, status=ok` 的结果（即全部本地执行均失败，红线既定降级不计入此统计）。
 
 #### Scenario: 单题失败不牵连整轮
 
@@ -168,6 +169,8 @@
 - **When** 引擎完成 `case_executing` 阶段
 - **Then** 该轮 SHALL NOT 被标记为阻断，整体继续完成并出具报告
 - **And** 失败的那道 case 在报告中标记为 `incomplete`，不计入 pass
+- **And** 失败的那道 case SHALL 不参与 judge、provider 均值、R5 分歧检测或 `score_total` 计算
+- **And** 报告 per-case 行 SHALL 显示 `exec_status=incomplete` 与 `exec_degrade_reason`，且模型分数为空
 
 #### Scenario: 全部本地执行失败判定整轮阻断
 
@@ -177,13 +180,20 @@
 
 ### Requirement: 本地执行失败原因持久化可追溯
 
-本地 agent 执行失败时，系统 SHALL 将失败原因（`degrade_reason` 及可得的 stderr 摘要）以事件形式持久化（例如 `token_usage`/`local_agent_failure` 类事件的 payload），供后续排查，不得在处理过程中被丢弃而无法复原。
+本地 agent 执行失败时，系统 SHALL 将失败原因（`degrade_reason` 及可得的 stderr 摘要）以事件形式持久化（例如 `token_usage`/`local_agent_failure` 类事件的 payload），供后续排查，不得在处理过程中被丢弃而无法复原。系统 SHALL 同时持久化 case 级生命周期事件（开始、成功、失败），并通过 `stage_progress` 暴露给 UI，使进行中的正式本地评估可显示当前 case、已完成数量、耗时与失败摘要。
 
 #### Scenario: 失败原因可在事件日志中查到
 
 - **Given** 一次本地 agent 执行因超时/报错未完成
 - **When** 系统记录该 case 的执行结果
 - **Then** 该失败的 `degrade_reason`（及可得的 stderr 摘要）SHALL 可通过该轮的事件日志查询到，不依赖重新执行复现
+
+#### Scenario: 进行中 case 进度可观测
+
+- **Given** 一轮本地 agent 正式评估正在执行多个 case
+- **When** 引擎启动、完成或失败某个 case
+- **Then** 事件日志 SHALL 记录 `local_agent_case_started`、`local_agent_case_succeeded` 或 `local_agent_case_failed`
+- **And** `stage_progress` SHALL 暴露包含 `case_id`、agent/model、耗时与失败摘要的事件对象，供 UI 渲染「本地 Agent case 进度」
 
 ### Requirement: 报告执行归属诚实性
 
@@ -216,16 +226,16 @@ runtime definition SHALL 随代码版本化；resolved CLI path、用户选择�
 
 系统 SHALL 将各 CLI 原始输出流归一化为内部 `AgentEvent` 流，再由统一逻辑合成 `ParsedStream`/`ExecResult`。完整 live raw stream SHALL 仅保存在 ignored 目录（例如 `.tmp/raw_runtime_streams/`）；仓库内 fixture SHALL 经 sanitizer 脱敏。默认测试套件 SHALL NOT 依赖本机已安装 CLI；live E2E 仅在 `RUN_LOCAL_AGENT=1` 等显式开关下运行。
 
-### Requirement: 正式本地评估必须通过 runtime preflight（本地执行环境检查）
+### Requirement: runtime preflight 作为可选本地执行环境诊断
 
-当用户选择本地 CLI runtime 时，系统 SHALL 在正式本地评估开始前检查所选 runtime/model 是否存在有效的 preflight pass（绑定当前 skill fingerprint）。缺失/失败/过期时 SHALL 阻止进入 `case_executing` 并返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`。高风险 bundle 缺少安全 preflight case 时，系统 MAY 自动生成 `runtime_preflight_01`（`type: preflight`），且该 case SHALL 不计入正式 case 数量与 judge 评分。
+当用户选择本地 CLI runtime 时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`，且 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。runtime preflight SHALL 作为用户可手动触发的“本地执行环境检查”诊断能力保留。高风险 bundle 缺少安全 preflight case 时，手动诊断 API MAY 使用确定性轻量模板自动生成 `runtime_preflight_01`（`type: preflight`），不得默认调用 LLM 生成检查题；preflight 执行 SHALL 使用专用轻量 harness，只允许读取/确认 Skill 与必要文件/入口可见性，不得按正式业务流程取数、诊断或运行完整 pipeline；该 case SHALL 不计入正式 case 数量与 judge 评分。
 
-缓存 SHALL 在 SQLite 中保存 24 小时，并在 runtime id、model id、skill fingerprint、CLI path/version 或 SkillHub version 变化时失效。
+缓存 SHALL 在 SQLite 中保存 24 小时，并在 runtime id、model id、skill fingerprint、CLI path/version 或 SkillHub version 变化时失效。缓存状态仅用于诊断/UI 展示，不作为正式本地评估硬门禁。
 
 ### Requirement: 显式 runtime 切换而非自动 fallback
 
-preflight 未通过或 runtime 失败时，系统 SHALL NOT 自动切换 runtime。UI MAY 展示其他已通过检查的 runtime，并通过 `POST /api/exec/runtimes/switch` 等显式操作更新本地偏好后由用户重新发起评估。
+preflight 未通过或 runtime 失败时，系统 SHALL NOT 自动切换 runtime。UI MAY 展示其他已通过检查的 runtime，并通过 `POST /api/exec/runtimes/switch` 等显式操作更新本地偏好后由用户重新发起评估。显式切换 SHALL 保留已验证的 runtime/model 组合，而非无条件退回默认模型。
 
 ### Requirement: 执行来源传输分派（修订）
 
-`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派；正式执行 SHALL 先经过 runtime readiness 与 preflight 校验。`ExecResult` 仍为评估引擎边界，judge 与评分聚合逻辑不变。
+`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派；正式执行 SHALL 使用 runtime readiness 与真实 case 执行结果兜底，不要求 preflight pass。`ExecResult` 仍为评估引擎边界；正式评分仅消费 `status=ok` 且存在 `actual_output` 的 case，未完成 case 只进入执行诊断与 per-case 状态呈现。

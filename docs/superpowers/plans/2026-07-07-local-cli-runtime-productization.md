@@ -28,10 +28,10 @@
 
 - `skillhub_eval/core/ingest.py`: already parses bundle metadata and eval cases. Use its output contract; avoid broad rewrites.
 - `skillhub_eval/core/ingest.py`: must keep preflight cases available in `eval_cases` for `PreflightRunner`, but exclude them from formal `n_cases` / case-count semantics.
-- `skillhub_eval/core/propagator.py`: generated eval case writer for Propagator-created cases.
 - `skillhub_eval/core/staging_writer.py`: LUI patch writer for author/assistant-created eval cases.
 - `skillhub_eval/core/level0.py`, `skillhub_eval/core/case_sanitizer.py`, `skillhub_eval/core/gaps.py`: formal case completeness and validation boundaries that must exclude `type: preflight`.
 - `skillhub_eval/execution/preflight_runner.py`: select authored/generated check cases and run local execution checks.
+- `skillhub_eval/execution/harness_prompt.py`: use a dedicated lightweight prompt for `type: preflight` / `safe_preflight` cases.
 - `skillhub_eval/core/engine.py`: auto-run local execution check before formal local evaluation blocks.
 - `skillhub_eval/execution/preflight_cache.py`, `skillhub_eval/persistence/sqlite.py`: reuse existing cache table; only extend if readiness summaries require new fields.
 - `skillhub_eval/adapters/api/routes/exec.py`: expose runtime readiness/check status and explicit switch/retry endpoints if not already present.
@@ -46,7 +46,6 @@
 **Files:**
 - Create: `skillhub_eval/execution/safe_preflight_case.py`
 - Modify: `skillhub_eval/core/ingest.py`
-- Modify: `skillhub_eval/core/propagator.py` or existing LLM case generation helper only if a reusable candidate-generation call already exists there
 - Modify: `skillhub_eval/core/staging_writer.py`
 - Modify: `skillhub_eval/core/level0.py`
 - Modify: `skillhub_eval/core/case_sanitizer.py`
@@ -60,9 +59,8 @@
 - Produces: `fallback_safe_preflight_case(bundle: dict) -> dict`
 - Produces: `is_preflight_case(case: dict) -> bool`
 - Consumes: `ingest_bundle(str(bundle_path))`
-- Optionally consumes: existing LLM case generation/provider hooks when available; if unavailable, use fallback template without blocking.
-- Contract: generated case has `id: runtime_preflight_01`, `type: preflight`, `safe_preflight: true`, `origin: runtime_platform`, and is persisted under `eval_cases/` only when no authored safe case exists. LLM candidates are never persisted unless deterministic validation passes.
-- Contract: regeneration must support a force path for product actions like "重新生成检查用例"; force regeneration may replace only the generated `runtime_preflight_01.yaml`, never authored eval cases.
+- Contract: generated case has `id: runtime_preflight_01`, `type: preflight`, `safe_preflight: true`, `origin: runtime_platform_template`, and is persisted under `eval_cases/` only when no authored safe case exists. The default product path uses the deterministic lightweight template and does not call an LLM.
+- Contract: regeneration must support a force path for product actions like "重置轻量检查"; force regeneration may replace only the generated `runtime_preflight_01.yaml`, never authored eval cases.
 
 - [ ] **Step 1: Write failing tests for generation**
 
@@ -70,8 +68,8 @@ Create tests proving:
 
 - a high-risk stock-radar-like bundle without a safe case receives one generated case
 - bundles with authored `safe_preflight: true` are left unchanged
-- unsafe LLM candidates are rejected
-- invalid/unavailable LLM output falls back to the deterministic template
+- old generated LLM/heavy check cases are migrated back to the deterministic template
+- preflight harness prompts forbid formal business workflow execution
 - generated check cases are excluded from formal case counts
 - `ingest_bundle()` keeps generated preflight cases in `eval_cases` but excludes them from `n_cases`
 
@@ -105,26 +103,17 @@ def fallback_safe_preflight_case(bundle: dict) -> dict:
     }
 ```
 
-- [ ] **Step 3: Implement hybrid builder**
+- [ ] **Step 3: Implement deterministic builder**
 
-Implement `build_safe_preflight_case(bundle, candidate_generator=None)`:
+Implement `build_safe_preflight_case(bundle)`:
 
 ```python
-def build_safe_preflight_case(bundle: dict, candidate_generator=None) -> dict | None:
+def build_safe_preflight_case(bundle: dict) -> dict | None:
     risk = str(bundle.get("risk_level_locked") or bundle.get("risk_level_declared") or bundle.get("risk_level") or "low").lower()
     if risk != "high":
         return None
     if any(c.get("safe_preflight") or c.get("type") == "preflight" for c in bundle.get("eval_cases") or []):
         return None
-    if candidate_generator is not None:
-        try:
-            candidate = candidate_generator(bundle)
-        except Exception:
-            candidate = None
-        if isinstance(candidate, dict):
-            ok, _reasons = validate_safe_preflight_candidate(candidate)
-            if ok:
-                return {**candidate, "id": "runtime_preflight_01", "type": "preflight", "safe_preflight": True, "origin": "runtime_platform_llm"}
     return fallback_safe_preflight_case(bundle)
 ```
 
@@ -149,7 +138,7 @@ Expected: PASS.
 
 ---
 
-### Task 2: Auto-Run Local Execution Check Before Formal Blocking
+### Task 2: Optional Local Execution Check Diagnostic
 
 **Files:**
 - Modify: `skillhub_eval/core/engine.py`
@@ -160,42 +149,39 @@ Expected: PASS.
 **Interfaces:**
 - Consumes: `ensure_safe_preflight_case(bundle_path)`
 - Consumes: `PreflightRunner.run(skill_bundle_path, runtime_id, model_id, locked_risk_level)`
-- Produces: engine behavior where missing/expired cache triggers an automatic local execution check before returning `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`.
-- Produces: visible stage/event/message before the automatic check starts, using product copy such as "正在检查本地执行环境".
+- Produces: manual/API behavior where the user can run a local execution check and inspect diagnostic results.
+- Produces: engine behavior where missing/failed/expired preflight cache does not block formal local evaluation; formal results rely on real case execution.
 
-- [ ] **Step 1: Write failing engine tests**
+- [x] **Step 1: Write failing engine tests**
 
-Add a test where local execution is selected, no cache exists, a safe check can be generated, `PreflightRunner.run()` returns `passed`, and formal evaluation proceeds into case execution.
+Add a test where local execution is selected, no cache exists, and formal evaluation proceeds into case execution without calling `PreflightRunner.run()`.
 
-Add a second test where auto-check returns `blocked`/`failed`, and the run fails before `case_executing` with local execution check evidence.
+Add a second test where a failed/expired preflight cache exists, and the run still enters formal case execution without returning `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`.
 
 Run: `pytest tests/core/test_engine.py -q -k "preflight or local_runtime"`
-Expected: FAIL because engine only checks cache and blocks.
+Expected: PASS after optional-diagnostic implementation (historical note: earlier drafts expected FAIL while the hard gate still existed).
 
-- [ ] **Step 2: Implement auto-check path**
+- [x] **Step 2: Implement optional diagnostic path**
 
-In `EvaluationEngine`, change `_valid_runtime_preflight()` or the surrounding gate so the order is:
+In `EvaluationEngine`, remove the formal-eval hard gate:
 
-1. check cache
-2. ensure/generate safe check case
-3. re-ingest the bundle after any check-case write
-4. recompute/use the new skill fingerprint for cache and runner context
-5. emit a visible stage/event/message for "正在检查本地执行环境"
-6. run `PreflightRunner.run()` when cache is missing or invalid
-7. re-check/consume passed result
-8. block only when the check cannot pass
+1. Do **not** call `_ensure_valid_runtime_preflight` (or equivalent) when starting formal local evaluation.
+2. Proceed from `normalizing` directly to `case_executing`.
+3. Keep `PreflightRunner` / cache / `POST /api/exec/runtimes/{id}/preflight` for **manual** diagnostics only.
+4. Manual check may ensure/generate the lightweight template, run the probe, and write cache; failed/blocked results are warnings only.
+5. Formal trust: failed local cases are not scored; all-local-failed runs fail with the local execution reason.
 
-Do not run judge providers or formal eval cases during auto-check.
+Do not run judge providers or formal eval cases during the optional diagnostic.
 
-- [ ] **Step 3: Add UI-visible check stage signal**
+- [x] **Step 3: Add UI-visible check stage signal**
 
-Use the existing stage transition or conversation message pattern already used for `level0_checking`, `risk_locking`, `normalizing`, `case_executing`, and assessment-gate/readiness messages. The exact implementation should produce one user-readable state before the check runs and a pass/fail result that Task 4 can render.
+Manual environment check uses toast / Exec Settings status (and optional chat header button). Formal eval no longer emits an automatic `local_execution_check` stage before `case_executing`.
 
-- [ ] **Step 4: Preserve diagnostics**
+- [x] **Step 4: Preserve diagnostics**
 
-Report evidence should say "本地执行环境检查未通过/未完成", while developer fields keep `failure_reason`, `runtime_id`, `model_id`, `checked_at`, and cache evidence.
+Manual check and legacy reports may show "本地执行环境检查未通过/未完成" as **diagnostic** copy (not "正式评估已阻止"). Developer fields keep `failure_reason`, `runtime_id`, `model_id`, `checked_at`, and cache evidence.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `pytest tests/core/test_engine.py tests/execution/test_preflight_runner.py -q -k "preflight or local_runtime"`
 Expected: PASS.
@@ -274,15 +260,15 @@ Show the user:
 
 - runtime name/model
 - install/login/model readiness
-- local execution check status and expiry
-- primary action: "运行环境检查" / "重新检查" / "生成检查用例"
-- disabled formal-run hint when check is missing/failed
+- local execution check status and expiry as diagnostics
+- primary action: "运行环境检查" / "重新检查" / "重置轻量检查"
+- warning copy that failed diagnostics do not block formal local evaluation
 
 - [ ] **Step 3: Fix blocked report UX**
 
-When a report has `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`, explain:
+When a legacy report has `LOCAL_RUNTIME_PREFLIGHT_REQUIRED`, explain:
 
-"Test 只证明 CLI 能响应；本地执行环境检查会验证该 runtime 能读取当前 Skill、调用必要入口并返回可评估结果。"
+"本地执行环境检查是诊断结果；新版正式评估会以真实 case 执行为准，不再因该检查失败直接阻断。"
 
 For ordinary users, replace raw terms in actions:
 
@@ -436,15 +422,19 @@ Manual website test after offline verification:
 
 Archive `openspec/changes/local-cli-runtime-platform` only after all of the following are true:
 
-- Automatic local execution check generation, LLM-candidate validation, template fallback, persistence, and exclusion from scoring are implemented.
+- Automatic local execution check generation, deterministic template fallback, old heavy/LLM check migration, persistence, and exclusion from scoring are implemented.
+- The default product path does not call Provider A / LLM for preflight generation; authored safe preflight cases remain silently compatible.
+- Preflight execution uses a dedicated lightweight harness prompt and does not instruct the local agent to run the Skill's formal business workflow.
 - Formal local evaluation automatically runs the local execution check before local case execution and blocks without a bypass when the check fails.
 - Runtime readiness UI splits connection test and current Skill check status.
 - Failed checks show non-technical recovery actions: retry check, regenerate check case, switch to another checked local tool, or use sample outputs with explicit "not local real run" wording.
 - Explicit switch updates local preferences only after user action and never auto-switches during a run.
+- Explicit switch preserves the checked runtime+model pair, instead of forcing `default`.
 - Offline tests pass for execution/core/API/UI, and document encoding guard passes.
 - Website live validation covers Trae, Cursor Agent, and Codex, either passing or producing an explained product-readable failure.
 - Claude and Antigravity live coverage may remain documented gaps if the local machine lacks working CLI conditions, provided fixture/sanitizer mechanisms exist for future capture.
 - Runbook, main spec sync, RECORD, and Sprint are updated.
+- Sanitizer redacts Windows absolute paths with spaces and non-ASCII segments before fixtures enter Git.
 
 ---
 

@@ -1047,21 +1047,30 @@ class SqliteRepository:
                 """,
                 (run_id,),
             ).fetchall()
-            budget_rows = conn.execute(
+            event_rows = conn.execute(
                 """
-                SELECT payload_json FROM analytics_events
-                WHERE run_id=? AND event_name='stage_budget'
+                SELECT event_name, payload_json, created_at FROM analytics_events
+                WHERE run_id=? AND event_name IN (
+                    'stage_budget',
+                    'local_agent_case_started',
+                    'local_agent_case_succeeded',
+                    'local_agent_case_failed'
+                )
                 ORDER BY id ASC
                 """,
                 (run_id,),
             ).fetchall()
         progress: list = [row["stage"] for row in rows]
-        for row in budget_rows:
+        for row in event_rows:
             try:
                 payload = json.loads(row["payload_json"] or "{}")
             except json.JSONDecodeError:
                 continue
-            progress.append({"event": "stage_budget", **payload})
+            progress.append({
+                "event": row["event_name"],
+                "created_at": row["created_at"],
+                **payload,
+            })
         return progress
 
     def save_report(self, run_id: str, report: EvaluationReport) -> None:

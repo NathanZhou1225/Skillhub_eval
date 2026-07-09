@@ -258,8 +258,9 @@ def test_diagnose_missing_models_section(tmp_path, monkeypatch):
     # whether the machine running it happens to have a working trae-cli install.
     with patch.object(models_module, "_run_probe", return_value=None):
         result = TraeAdapter(model="GLM-5.2").diagnose()
-    assert result.ok is False
-    assert result.reason_code == "TRAE_MODEL_NOT_CONFIGURED"
+    assert result.ok is True
+    assert result.reason_code is None
+    assert "无法在线枚举" in result.message_zh
 
 
 def test_diagnose_reads_fallback_config_filename(tmp_path, monkeypatch):
@@ -271,8 +272,8 @@ def test_diagnose_reads_fallback_config_filename(tmp_path, monkeypatch):
     )
     with patch.object(models_module, "_run_probe", return_value=None):
         result = TraeAdapter(model="GLM-5.2").diagnose()
-    assert result.ok is False
-    assert result.reason_code == "TRAE_MODEL_NOT_CONFIGURED"
+    assert result.ok is True
+    assert result.reason_code is None
 
 
 def test_diagnose_malformed_config_returns_parse_error(tmp_path, monkeypatch):

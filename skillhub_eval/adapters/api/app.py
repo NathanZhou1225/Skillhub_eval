@@ -26,12 +26,16 @@ from skillhub_eval.execution.consent import hydrate_exec_consent_from_db
 
 
 class _NoCacheUiHtmlMiddleware(BaseHTTPMiddleware):
-    """Prevent stale index.html during active UI iteration (W5.3.3)."""
+    """Prevent stale UI assets during active iteration (html + js)."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         path = request.url.path
-        if path.endswith(".html") or path.rstrip("/") == "/ui":
+        if (
+            path.endswith(".html")
+            or path.endswith(".js")
+            or path.rstrip("/") == "/ui"
+        ):
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             response.headers["Pragma"] = "no-cache"
         return response

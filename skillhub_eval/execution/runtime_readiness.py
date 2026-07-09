@@ -161,6 +161,7 @@ def build_runtime_readiness(
     repo: SqliteRepository | None = None,
     locked_risk_level: str | None = None,
     cli_version: str | None = None,
+    model_readiness: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     det = det or detect_agent(agent, force=True)
     runtime = get_runtime_def(agent.id)
@@ -171,7 +172,10 @@ def build_runtime_readiness(
     auth_status = det.auth_state if det.detected else "missing"
 
     is_active = agent.id == active_agent_id
-    model_status, model_message_zh = _model_readiness(agent, selected_model, is_active=is_active)
+    if model_readiness is not None:
+        model_status, model_message_zh = model_readiness
+    else:
+        model_status, model_message_zh = _model_readiness(agent, selected_model, is_active=is_active)
 
     capability_status = "ready" if det.detected and invocation_status == "ok" else "unavailable"
     if det.detected and auth_status == "missing":
