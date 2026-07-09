@@ -70,6 +70,8 @@ Before this change, a local-agent failure (agent unavailable, consent missing, C
 **Current behavior:**
 
 - A single case's local execution failure marks that case `incomplete` (does not count toward pass) — the run otherwise proceeds and produces a report.
+- A case with `status != ok` or no `actual_output` is **not sent to DeepSeek/Gemini for semantic judging**. It appears in the per-case table with empty model scores and the red "本地执行未完成" badge.
+- Bundle `score_total` is calculated only from cases that successfully produced `actual_output`. Failed local cases are execution diagnostics, not scoring inputs.
 - If **every** case in the run fails local execution, or no usable local agent was detected at all, the whole run is finalized as `status=failed` with `reason_codes` including `LOCAL_EXEC_UNAVAILABLE` (no agent) or `LOCAL_EXEC_ALL_CASES_FAILED` (agent ran but every case failed). No report is produced pretending the run passed.
 - One exception: `redline_no_hardened_profile` (an agent without a hardened execution profile hitting a redline/adversarial case) is a **deliberate** design degrade, not a failure — it still substitutes `sample_io` for that specific case, by spec.
 
@@ -77,12 +79,29 @@ Before this change, a local-agent failure (agent unavailable, consent missing, C
 
 - Report (`EvaluationReport`): `exec_agent_label`/`exec_model_label` are only non-null when a case actually executed successfully via `local_agent`. `exec_requested_agent_label`/`exec_requested_model_label` always show what the user's preferences pointed at, whether or not it actually ran — so a report can never claim an agent "ran" when it didn't.
 - Per-case: `CaseScoreRow.exec_status`/`exec_degrade_reason` (surfaced in the UI as a red "本地执行未完成" badge with a Chinese reason on hover).
-- Event log: every local-agent failure is persisted as a `local_agent_failure` analytics event (`case_id`, `degrade_reason`, a bounded `stderr_excerpt`), queryable via `SqliteRepository.log_event`/the `analytics_events` table even after the report UI is closed.
+- Event log: each local-agent case lifecycle is persisted through `local_agent_case_started`, `local_agent_case_succeeded`, and `local_agent_case_failed` analytics events. Failures are also persisted as `local_agent_failure` (`case_id`, `degrade_reason`, a bounded `stderr_excerpt`), queryable via `SqliteRepository.list_events`/the `analytics_events` table even after the report UI is closed.
 - UI: `formatScoreDisplay`/`formatScoreCompact` render `LOCAL_EXEC_UNAVAILABLE`/`LOCAL_EXEC_ALL_CASES_FAILED` as a red "本地执行阻断" badge instead of a score.
+- UI: during a running evaluation, the chat/report poll renders **本地 Agent case 进度** from `stage_progress`, including running/succeeded/failed cases, elapsed time, selected agent/model, and stderr excerpts when available. The chat live panel is capped at `max-h-[40vh]`, the case list scrolls internally, and the panel shows the last refresh time so operators can distinguish a live poll from a stalled UI.
 
 **Real-machine confirmation (2026-07-01):** a fresh run against Trae/GLM-5.2 (`run_id=9f5ff946-...`) produced `status=failed`, `reason_codes=['LOCAL_EXEC_ALL_CASES_FAILED']`, `exec_agent_label=None` (not claimed as executed), `exec_requested_agent_label=Trae`. All 5 cases logged `local_agent_failure` events with `degrade_reason=run_incomplete` (streamed output never reached its end marker). **The specific reason `trae-cli` produces `run_incomplete` on this machine is not yet root-caused** — that is tracked as a follow-up backlog item, not fixed by this change.
 
 **If you want `sample_io` scoring instead of blocking on local failure:** switch `exec_source` to `sample_io` in **Exec Settings** and re-run. There is intentionally no "run anyway with sample data" button in the moment of a blocked run — that would reintroduce the "looks like it ran, actually didn't" ambiguity this change removes.
+
+### Complex-skill timeout diagnosis (2026-07-08 stock-radar)
+
+The stock-radar real-machine trial is the current reference for a complex Skill that reaches real local execution but still fails:
+
+- Example run: `2d981732-601b-40c0-be3e-ad0625393a04` (`stock-radar-cursorauto`, Cursor Agent / Auto).
+- The run entered `case_executing`; it did **not** stop at preflight.
+- The run ended `status=failed` with `reason_codes=["LOCAL_EXEC_ALL_CASES_FAILED"]` after about 914s in local case execution.
+- Several cases each failed after roughly the configured per-case timeout (`LOCAL_AGENT_CASE_TIMEOUT_HIGH_S=300`) with `degrade_reason=run_incomplete` and no stderr.
+
+Interpretation:
+
+- This is a real local-execution failure for the selected runtime/model on this Skill, not a judge/scoring failure and not a `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` gate.
+- A green connection test only proves the CLI can answer a minimal probe; it does not prove the selected model can finish a long business workflow.
+- For comparisons, first rerun a simpler Skill or `testskills/exec-fixture-minimal/`; then compare Cursor/Codex/Trae on the same Skill with the same case timeout/concurrency settings.
+- Deferred optimization: first-case canary can stop later cases after process-level local runtime failures. This is intentionally not part of the P0 preflight downgrade.
 
 ## Selected-model diagnosis and model-aware Test (2026-07-02, Q-29)
 
@@ -146,6 +165,17 @@ Judge and local-agent phases use **separate** budgets (2026-06-18). See `.env.ex
 | `LOCAL_AGENT_WORKFLOW_TIMEOUT_HIGH_S` | 7200 | Local CLI `case_executing` only |
 | `PROVIDER_CALL_TIMEOUT_HIGH_RISK_S` | 300 | Per judge LLM call |
 
+Local-execution debugging profile (useful when comparing Cursor/Codex/Trae on the same skill and avoiding 30-minute failed-case waits):
+
+| Variable | Debug value | Purpose |
+|----------|-------------|---------|
+| `LOCAL_AGENT_WORKFLOW_TIMEOUT_MEDIUM_S` | 900 | Medium-risk local exec wall-clock budget |
+| `LOCAL_AGENT_WORKFLOW_TIMEOUT_HIGH_S` | 1200 | High-risk local exec wall-clock budget |
+| `LOCAL_AGENT_CASE_TIMEOUT_LOW_S` | 180 | Per low-risk case timeout |
+| `LOCAL_AGENT_CASE_TIMEOUT_MEDIUM_S` | 240 | Per medium-risk case timeout |
+| `LOCAL_AGENT_CASE_TIMEOUT_HIGH_S` | 300 | Per high-risk case timeout |
+| `EXEC_CONCURRENCY` | 2 | Parallel local cases; raise only after the selected CLI/model is stable |
+
 Restart `serve` after edits. Future: parallel multi-case local exec — see `RECORD.md` Q-24.
 
 ## Full regression (no local agents required)
@@ -186,29 +216,53 @@ Product-facing term: **本地执行环境检查**. Developer docs may still say 
 
 | Action | Proves | Does NOT prove |
 |--------|--------|----------------|
-| **连接测试** (`POST /api/exec/agents/{id}/test`) | CLI binary resolves, responds to a minimal probe, optional model hint | Current Skill can be read, entrypoint can run, formal local eval is allowed |
-| **本地执行环境检查** (`POST /api/exec/runtimes/{id}/preflight`) | Selected runtime+model can execute a **safe check case** for the **current skill fingerprint**, with entrypoint evidence when required | Judge scores, formal eval cases |
+| **连接测试** (`POST /api/exec/agents/{id}/test`) | CLI binary resolves, responds to a minimal probe, optional model hint | Current Skill can be read; formal local eval will succeed |
+| **本地执行环境检查** (`POST /api/exec/runtimes/{id}/preflight`) | Selected runtime+model can execute a **safe check case** for the **current skill fingerprint** (diagnostic only) | Judge scores, formal eval cases, or that formal local eval is blocked |
 
-UI: Exec Settings cards show both lines separately. A green connection test must not imply formal local evaluation readiness.
+UI: Exec Settings Agent cards are the primary entry for **本地执行环境检查**. After a successful ZIP upload / bootstrap, the API returns `staging_path`; the Chat UI caches it and can run the check immediately (no need to wait for补题). The chat header shows an **环境：未检查 / 已通过 / 失败** status pill when `exec_source=local`; clicking it opens Exec Settings and does **not** POST preflight. A green connection test must not imply formal local evaluation readiness. A failed environment check is a warning only — formal local eval may still proceed and is judged by real case execution.
 
-### Automatic check before formal local eval
+### Optional check before formal local eval
 
-When `execution_source=local` and cache has no valid pass for `(runtime, model, skill_fingerprint)`:
+The local execution environment check is now an optional diagnostic. Formal local eval does not automatically run it and does not require a passed preflight cache. Real trust is enforced by formal case execution: failed local cases are not judged or scored, and a run where all local cases fail ends as a local-exec failure.
 
-1. Engine may auto-generate `eval_cases/runtime_preflight_01.yaml` for **high-risk** bundles without an authored safe case (`ensure_safe_preflight_case`).
-2. Engine emits visible stage `local_execution_check` / message「正在检查本地执行环境」.
-3. `PreflightRunner` runs once; on pass, formal eval continues; on fail/blocked → `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` before `case_executing`.
+When the user clicks **本地执行环境检查**:
+
+1. The runtime preflight API may auto-generate `eval_cases/runtime_preflight_01.yaml` for **high-risk** bundles without an authored safe case (`ensure_safe_preflight_case_with_provider`).
+   - Generation uses a deterministic lightweight template by default; it does **not** call Provider A / LLM.
+   - Deterministic validation remains the safety boundary: `type: preflight`, `safe_preflight: true`, environment-check framing, and no real-world buy/sell/payment/delete/send/publish actions.
+   - Existing generated heavy/LLM check cases (`origin: runtime_platform_llm`, or generated cases failing validation) are automatically reset to the lightweight template.
+   - Low-risk bundles or bundles that already have an authored safe check case do not create a generated check case.
+2. Preflight execution uses a dedicated lightweight harness prompt. The agent may read `SKILL.md` and check files/entrypoint visibility, but it is explicitly told not to follow the Skill's formal business workflow, fetch business data, diagnose, or run a full pipeline.
+3. `PreflightRunner` runs once and writes/reads the runtime preflight cache.
+4. Passed/failed/blocked results are shown as diagnostics. Failed checks do **not** create a formal failed report and do **not** block `case_executing` when the user starts formal local eval.
 
 Preflight cases (`type: preflight`, `safe_preflight: true`) are excluded from formal case counts and judge scoring.
 
 ### Manual retry / switch / sample_io fallback
 
 - **重新检查**: `POST /api/exec/runtimes/{id}/preflight` with `force=true`.
-- **重新生成检查用例**: same endpoint with `regenerate_check_case=true` (replaces only system-generated `runtime_preflight_01.yaml`).
-- **改用另一个已检查通过的本地工具**: `POST /api/exec/runtimes/switch` — updates SQLite preferences only after verifying `local_check_status=passed` for the current skill fingerprint. Does not auto-switch during a run.
+- **重置轻量检查**: same endpoint with `regenerate_check_case=true` (replaces only system-generated `runtime_preflight_01.yaml` with the deterministic lightweight template).
+- **改用另一个已检查通过的本地工具**: `POST /api/exec/runtimes/switch` — updates SQLite preferences only after verifying `local_check_status=passed` for the current skill fingerprint. The switch should preserve the checked runtime+model pair. Does not auto-switch during a run.
 - **使用样例输出评估（非本地真跑）**: set `exec_source=sample_io` via Exec Settings.
 
 `GET /api/exec/agents/scan?skill_bundle_path=...` returns readiness fields: `install_status`, `invocation_status`, `local_check_status`, `can_run_local_check`, `can_switch_and_rerun`, etc.
+
+## UI polling and performance notes (2026-07-08)
+
+During long local-agent runs, avoid making the chat page poll heavy endpoints unnecessarily:
+
+- `pollConversation()` should have a single in-flight request at a time; overlapping polls can make **新对话** and session switching feel unresponsive.
+- High-frequency polling should use `/conversations/{id}/status` for run status and `stage_progress`.
+- Full messages should be fetched only when `lui_messages_count` changes, when switching conversations, after sending a message, or when a run reaches a terminal state.
+- Session list refresh is throttled during background polling (15s by default) and forced only after user actions such as create/select/archive/review.
+- While an active run is in a running status, `/conversations/{id}/status` skips bundle re-ingest and case-gate scanning. Complex bundles such as stock-radar should not be re-read every 3s just to update live progress.
+
+If the UI appears stuck:
+
+1. Check the live panel's **最后刷新** timestamp.
+2. If it keeps updating, inspect `analytics_events` for `local_agent_case_started` / `local_agent_case_failed` / `local_agent_case_succeeded`; the run may simply be waiting on CLI case timeouts.
+3. If the timestamp stops updating or the banner says 状态刷新失败, verify `skillhub-eval serve` is still running and responsive.
+4. A terminal DB status of `failed` + `LOCAL_EXEC_ALL_CASES_FAILED` means local execution really failed all cases; refresh the page if the old live panel did not pick up the terminal state.
 
 ### Capture and sanitize stream fixtures
 
@@ -219,7 +273,7 @@ Preflight cases (`type: preflight`, `safe_preflight: true`) are excluded from fo
 python scripts/sanitize_runtime_stream.py .tmp/raw_runtime_streams/cursor_agent.jsonl
 ```
 
-3. Commit output under `tests/fixtures/runtime_streams/`. Sanitizer redacts usernames, absolute paths, tokens, and truncates long prompts while preserving event shapes.
+3. Commit output under `tests/fixtures/runtime_streams/`. Sanitizer redacts usernames, absolute paths including Windows paths with spaces/non-ASCII segments, tokens, and truncates long prompts while preserving event shapes.
 4. Regression: `pytest tests/execution/test_runtime_stream_fixtures.py -q`
 
 Live CLI E2E remains opt-in (`RUN_LOCAL_AGENT=1`); default pytest must not require installed CLIs.
