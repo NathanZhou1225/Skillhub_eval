@@ -61,6 +61,25 @@ def test_ui_has_key_api_endpoints_referenced():
     assert "/gaps" in text
 
 
+def test_ui_switch_verified_runtime_keeps_verified_model():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "findVerifiedRuntimeModel" in text
+    assert "model: findVerifiedRuntimeModel(runtimeId)" in text
+
+
+def test_ui_local_execution_check_notice_renderer():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "renderLocalExecutionCheckHtml" in text
+    assert "normalizeStageToken" in text
+    assert "currentRunStageToken" in text
+    assert "local_execution_check" in text
+    assert "正在检查本地执行环境" in text
+
+
 def test_ui_gaps_panel_wired_to_api():
     app = create_app()
     client = TestClient(app)
@@ -96,6 +115,57 @@ def test_ui_t6_history_and_timing_helpers():
     assert "renderStageTimingPanel" in text
     assert "renderStageProgressList" in text
     assert "stage_timing" in text
+
+
+def test_ui_local_agent_case_progress_helpers():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "renderLocalAgentCaseProgress" in text
+    assert "renderConversationLiveProgressSlot" in text
+    assert "refreshConversationLiveProgress" in text
+    assert "renderChatLiveRunPanelContent" in text
+    assert "chat-live-run-panel" in text
+    assert "当前阶段：" in text
+    assert "data-chat-live-run-progress" in text
+    assert "local_agent_case_started" in text
+    assert "当前正在执行" in text
+    assert "本地执行失败" in text
+    assert "latestStageToken" in text
+    assert "最后刷新" in text
+    assert "max-h-[40vh]" in text
+    assert "max-h-56 overflow-y-auto" in text
+
+
+def test_ui_exposes_chat_local_execution_check_button():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "chat-local-check-btn" in text
+    assert "环境检查" in text
+    assert "getSelectedExecAgentForAction" in text
+    assert "updateChatLocalCheckButton" in text
+    assert "仅诊断，不阻断正式评估" in text
+    assert "状态刷新失败" in text
+
+
+def test_ui_conversation_polling_is_throttled():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "_conversationPollInFlight" in text
+    assert "_lastFetchedMessageCount" in text
+    assert "_lastSessionListRefreshAt" in text
+    assert "now - _lastSessionListRefreshAt < 15000" in text
+    assert "forceMessages" in text
+
+
+def test_ui_runtime_preflight_reset_uses_lightweight_wording():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "重置轻量检查" in text
+    assert "重新生成检查用例" not in text
 
 
 def test_ui_has_diagnostic_and_feedback_helpers():
@@ -276,3 +346,22 @@ def test_ui_split_asset_served():
     assert r.status_code == 200
     assert "renderProviderSummaryBars" in r.text
     assert "createNewSession" in r.text
+
+
+def test_ui_caches_staging_path_from_bootstrap():
+    app = create_app()
+    client = TestClient(app)
+    r, text = _ui_page(client, "/ui/index.html")
+    assert "_stagingPathByConversation" in text
+    assert "rememberStagingPath" in text
+    assert "getActiveSkillBundlePath" in text
+    # Priority: cache before hidden input / message payload
+    cache_idx = text.find("_stagingPathByConversation")
+    fn_idx = text.find("function getActiveSkillBundlePath")
+    assert cache_idx != -1 and fn_idx != -1
+    # Function body must read cache first
+    body = text[fn_idx : fn_idx + 800]
+    assert "getCachedStagingPath" in body or "_stagingPathByConversation" in body
+    assert body.find("getCachedStagingPath") < body.find("inp-bundle-path") or (
+        "_stagingPathByConversation" in body and "inp-bundle-path" in body
+    )

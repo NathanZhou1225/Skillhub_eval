@@ -5,7 +5,27 @@ let _currentRunId = null;
 let _confirmSkillId = null;
 let _lastGapsSnapshot = null;
 let _conversationPollTimer = null;
+let _lastConversationPollAt = null;
+let _conversationPollFailCount = 0;
+let _conversationPollInFlight = false;
+let _lastFetchedMessageCount = null;
+let _lastFetchedMessagesRunId = null;
+let _lastFetchedMessagesRunStatus = null;
+let _sessionListInFlight = false;
+let _lastSessionListRefreshAt = 0;
 let _activeConversationId = null;
+const _stagingPathByConversation = Object.create(null);
+
+function getCachedStagingPath(conversationId = _activeConversationId) {
+  if (!conversationId) return '';
+  return String(_stagingPathByConversation[conversationId] || '').trim();
+}
+
+function rememberStagingPath(conversationId, stagingPath) {
+  const path = String(stagingPath || '').trim();
+  if (!conversationId || !path) return;
+  _stagingPathByConversation[conversationId] = path;
+}
 let _activeRunId = null;
 let _latestConversationStatus = null;
 let _messagesCache = [];
@@ -80,21 +100,47 @@ function shouldBlockFormalEval() {
   return getExecSource() === 'local' && !_execPreferences?.ready;
 }
 
+/** stage_progress may contain stage strings or stage_budget event objects. */
+function normalizeStageToken(stage) {
+  if (!stage) return '';
+  if (typeof stage === 'string') return stage;
+  if (typeof stage === 'object') {
+    if (stage.stage) return String(stage.stage);
+    if (stage.event === 'stage_budget' && stage.stage) return String(stage.stage);
+  }
+  return '';
+}
+
+function latestStageToken(stages, fallback = '') {
+  if (Array.isArray(stages)) {
+    for (let i = stages.length - 1; i >= 0; i--) {
+      const token = normalizeStageToken(stages[i]);
+      if (token) return token;
+    }
+  }
+  return normalizeStageToken(fallback) || String(fallback || '');
+}
+
 function stageLabelForExec(stage, execSource) {
   const source = execSource || getExecSource();
-  if (stage === 'case_executing') {
+  const s = normalizeStageToken(stage);
+  if (s === 'case_executing') {
     if (source === 'local') return '本地 Agent 真跑中 <span class="badge bg-blue-100 text-blue-700 border-blue-200">[LOCAL]</span>';
     return '校验样例输出';
   }
-  return STAGE_ZH[stage] || stage || '评估';
+  if (s === 'local_execution_check') return '本地执行环境检查';
+  return STAGE_ZH[s] || s || '评估';
 }
 
 function evalProgressLabel(stage, execSource) {
   const source = execSource || getExecSource();
   const agent = _execPreferences?.exec_agent || 'local';
   const agentLabel = EXEC_AGENT_LABELS[agent] || agent;
-  const s = stage || '';
+  const s = normalizeStageToken(stage);
   if (source === 'local') {
+    if (s === 'local_execution_check') {
+      return '正在检查本地执行环境（准备轻量检查用例并验证 CLI 能读取当前 Skill），请稍候…';
+    }
     if (s === 'case_executing') {
       return `正在通过本地 Agent 执行评测案例（${agentLabel}），每个案例约需 30–60 秒，请稍候…`;
     }
@@ -301,17 +347,44 @@ const STAGE_ZH = {
   level0_checking: '检查包结构',
   risk_locking: '锁定风险等级',
   normalizing: '整理评估条件',
+  local_execution_check: '本地执行环境检查',
   case_executing: '执行评测案例',
   code_asserting: '校验输出',
   model_judging: '双模型评估中',
   aggregating: '汇总结果',
 };
 
+const STAGE_ORDER = [
+  'pending',
+  'level0_checking',
+  'risk_locking',
+  'normalizing',
+  'local_execution_check',
+  'case_executing',
+  'code_asserting',
+  'model_judging',
+  'divergence_synthesis',
+  'aggregating',
+];
+
+function stageRank(stage) {
+  const idx = STAGE_ORDER.indexOf(normalizeStageToken(stage));
+  return idx >= 0 ? idx : -1;
+}
+
+function currentRunStageToken(statusObj) {
+  const status = statusObj || {};
+  const stages = getStatusValue(status, ['stage_progress'], []);
+  const fromProgress = latestStageToken(stages, '');
+  const runStatus = normalizeStageToken(getStatusValue(status, ['run_status', 'active_run_status', 'status'], ''));
+  if (!runStatus) return fromProgress;
+  if (!fromProgress) return runStatus;
+  return stageRank(runStatus) >= stageRank(fromProgress) ? runStatus : fromProgress;
+}
+
 function activityPhaseLabel(phase, statusObj) {
   if (phase === 'formal_eval') {
-    const stages = getStatusValue(statusObj || _latestConversationStatus || {}, ['stage_progress'], []);
-    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
-    return evalProgressLabel(last, getExecSource());
+    return evalProgressLabel(currentRunStageToken(statusObj || _latestConversationStatus || {}), getExecSource());
   }
   const map = {
     thinking: '正在理解你的意思，请稍候…',
@@ -334,9 +407,7 @@ function syncPendingFromRunStatus(statusObj) {
   const runStartedAt = getStatusValue(statusObj, ['run_started_at', 'active_run_started_at'], '');
   if (isRunActivelyExecuting(runStatus, runStartedAt)) {
     _optimisticPending = true;
-    const stages = getStatusValue(statusObj, ['stage_progress'], []);
-    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
-    _optimisticPendingLabel = evalProgressLabel(last, getExecSource());
+    _optimisticPendingLabel = evalProgressLabel(currentRunStageToken(statusObj), getExecSource());
     return;
   }
   if (!_optimisticPending) {
@@ -417,7 +488,7 @@ function setPerspective(p) {
   renderMessages(_messagesCache);
   updateComposerState();
   if (_latestConversationStatus) updateChatStatusBanner(_latestConversationStatus);
-  loadSessionList();
+  loadSessionList({ force: true });
 }
 
 function toggleDemoMode() {
@@ -437,7 +508,7 @@ async function createNewSession() {
   try {
     const data = await apiFetch('/conversations/new', { method: 'POST' });
     await selectSession(data.conversation_id);
-    await loadSessionList();
+    await loadSessionList({ force: true });
     toast('新对话已创建');
   } catch (e) {
     toast(e.message, false);
@@ -478,10 +549,16 @@ function archiveBlockReason(conv, perspective) {
   return null;
 }
 
-async function loadSessionList() {
+async function loadSessionList(opts = {}) {
+  const force = opts.force === true;
+  const now = Date.now();
+  if (!force && now - _lastSessionListRefreshAt < 15000) return;
+  if (_sessionListInFlight) return;
+  _sessionListInFlight = true;
   const el = document.getElementById('session-list');
   try {
     const data = await apiFetch('/conversations?limit=50');
+    _lastSessionListRefreshAt = Date.now();
     const convs = data.conversations || [];
     _sessionListCache = convs;
     const perspective = getPerspective();
@@ -517,16 +594,26 @@ async function loadSessionList() {
     document.getElementById('expert-pending-dot')?.classList.toggle('hidden', !anyPending);
   } catch (e) {
     el.innerHTML = `<p class="text-xs text-red-400 py-4">${escapeHtml(e.message)}</p>`;
+  } finally {
+    _sessionListInFlight = false;
   }
 }
 
 async function selectSession(convId) {
   _activeConversationId = convId;
+  _activeRunId = null;
+  _latestConversationStatus = null;
+  _lastFetchedMessageCount = null;
+  _lastFetchedMessagesRunId = null;
+  _lastFetchedMessagesRunStatus = null;
+  _lastRenderedMessageKeys = [];
   persistConversationId(convId);
   document.getElementById('chat-conversation-id').textContent = convId;
+  updateChatLocalCheckButton();
+  renderExecAgentCards();
   startConversationPolling();
-  await pollConversation();
-  await loadSessionList();
+  await pollConversation({ force: true, forceMessages: true });
+  await loadSessionList({ force: true });
 }
 
 async function archiveSession(convId, ev, listIndex) {
@@ -559,7 +646,7 @@ async function archiveSession(convId, ev, listIndex) {
       document.getElementById('chat-messages').innerHTML =
         '<p class="text-sm text-gray-400 text-center py-16">未选择会话</p>';
     }
-    await loadSessionList();
+    await loadSessionList({ force: true });
     if (wasActive) {
       const data = await apiFetch('/conversations?limit=50');
       const convs = data.conversations || [];
@@ -609,9 +696,11 @@ async function resumeConversation(convId, runIdHint) {
     const maxRuns = statusObj.max_auto_runs || 5;
     const autoRuns = statusObj.auto_run_count || 0;
     document.getElementById('chat-run-badge').textContent = `${autoRuns}/${maxRuns}`;
+    updateChatLocalCheckButton();
+    renderExecAgentCards();
     switchTab('author');
     startConversationPolling();
-    await pollConversation();
+    await pollConversation({ force: true, forceMessages: true });
     toast('已恢复会话');
     return true;
   } catch (e) {
@@ -655,7 +744,9 @@ const REASON_ZH = {
   'RISK_CASE_COUNT_INSUFFICIENT': '当前风险等级用例数量不足',
   'EVAL_WORKFLOW_TIMEOUT': '评估超时',
   'EVAL_PROVIDER_UNAVAILABLE': '双模型 API 均未返回有效分数',
-  'LOCAL_RUNTIME_PREFLIGHT_REQUIRED': '当前 Skill 的本地执行环境检查尚未通过，正式本地评估已阻止',
+  'LOCAL_RUNTIME_PREFLIGHT_REQUIRED': '当前 Skill 的本地执行环境检查未通过（旧版阻断结果；新版仅作诊断）',
+  'LOCAL_RUNTIME_TOOL_FAILURES_EXCEEDED': '本地 preflight 在多次工具调用失败后已提前终止',
+  'LOCAL_RUNTIME_PREFLIGHT_TOOL_BUDGET_EXCEEDED': '本地 preflight 工具调用超出环境检查预算，已提前终止',
   'LOCAL_EXEC_UNAVAILABLE': '本地 Agent 不可用（未检测到或未授权），本次未执行、未出报告',
   'LOCAL_EXEC_ALL_CASES_FAILED': '本地 Agent 执行全部失败，本次未出报告（非静默降级为示例数据）',
   'LOCAL_RUNTIME_CLI_UNAVAILABLE': '本地 CLI 未检测到或不可调用',
@@ -668,7 +759,7 @@ const REASON_ZH = {
   'LOCAL_RUNTIME_MISSING_ENTRYPOINT_EVIDENCE': '未观察到入口脚本执行证据',
   'LOCAL_RUNTIME_OUTPUT_LEAK': '本地产出疑似包含敏感信息，已拦截',
   'LOCAL_RUNTIME_HARDENED_PROFILE_UNAVAILABLE': '该 Runtime 不支持红线题所需强化模式',
-  'LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED': '高风险 Skill 缺少安全 Preflight 用例',
+  'LOCAL_RUNTIME_SAFE_PREFLIGHT_REQUIRED': '高风险 Skill 缺少安全检查用例（仅诊断，不阻止正式评估）',
   'LOCAL_RUNTIME_ADAPTER_UNAVAILABLE': '该 Runtime 暂无可用 adapter',
 };
 
@@ -724,6 +815,10 @@ function getSelectedExecAgent() {
   return _execPreferences?.exec_agent || '';
 }
 
+function getSelectedExecAgentForAction() {
+  return getSelectedExecAgent() || 'cursor-agent';
+}
+
 function getSelectedExecModel() {
   return _execPreferences?.exec_model || 'default';
 }
@@ -760,7 +855,7 @@ const EXEC_READY_REASON_ZH = {
   local_runtime_prompt_too_large: '当前 CLI 通过命令行参数接收 prompt，内容过长，需缩短 case 或改用 stdin/prompt-file runtime',
   local_runtime_skill_injection_unavailable: '当前 skill 无可用注入方式',
   runtime_auth_missing: '本地 CLI 未登录或配置不可用',
-  runtime_safe_preflight_required: '需要先生成本地执行环境检查用例',
+  runtime_safe_preflight_required: '本地执行环境检查缺少轻量检查用例',
   runtime_missing_entrypoint_evidence: '环境检查未观察到入口脚本执行证据',
   runtime_run_incomplete: '环境检查未完成或返回错误',
   runtime_parser_missing: '环境检查输出无法解析',
@@ -771,17 +866,19 @@ const LOCAL_CHECK_STATUS_ZH = {
   passed: '已通过',
   failed: '检查失败',
   expired: '已过期',
-  blocked: '需生成检查用例或修复环境',
+  blocked: '诊断未通过（可继续正式评估）',
   not_applicable: '未选择 Skill',
 };
 
 function getActiveSkillBundlePath() {
+  const fromCache = getCachedStagingPath();
+  if (fromCache) return fromCache;
   const inp = document.getElementById('inp-bundle-path');
   const fromInput = inp && inp.value ? inp.value.trim() : '';
   if (fromInput) return fromInput;
   const messages = Array.isArray(_messagesCache) ? _messagesCache : [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const payload = _messagesCache[i].payload_json || _messagesCache[i].payload || {};
+    const payload = messages[i].payload_json || messages[i].payload || {};
     if (payload.skill_bundle_path) return payload.skill_bundle_path;
   }
   return '';
@@ -794,6 +891,21 @@ function formatLocalCheckStatus(agent) {
     ? `（有效至 ${formatScanTime(agent.local_check_expires_at)}）`
     : '';
   return `${label}${expiry}`;
+}
+
+function formatClockTime(dateLike) {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (!Number.isFinite(date.getTime())) return '';
+  return date.toLocaleTimeString('zh-CN', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function canRunCurrentLocalExecutionCheck() {
+  return getExecSource() === 'local' && !!getActiveSkillBundlePath() && !!getSelectedExecAgent();
 }
 
 function formatExecReadyReason(reason) {
@@ -1281,7 +1393,10 @@ async function runLocalExecutionCheck(runtimeId, opts = {}) {
     });
     _runtimePreflightStatus[key] = data;
     const msg = data?.message_zh || formatLocalCheckStatus({ local_check_status: data?.status, local_check_expires_at: data?.expires_at });
-    toast(`本地执行环境检查：${msg}`, data?.status === 'passed');
+    const suffix = data?.status === 'passed'
+      ? ''
+      : '（仅作诊断，不会阻止正式评估；正式结果以 case 实跑为准）';
+    toast(`本地执行环境检查：${msg}${suffix}`, data?.status === 'passed');
     await fetchExecScan(true);
     return data;
   } catch (e) {
@@ -1289,6 +1404,12 @@ async function runLocalExecutionCheck(runtimeId, opts = {}) {
     toast(`本地执行环境检查失败：${e.message}`, false);
     return null;
   }
+}
+
+function findVerifiedRuntimeModel(runtimeId) {
+  const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
+  const agent = agents.find((a) => a.id === runtimeId && a.can_switch_and_rerun);
+  return agent?.selected_model || (getSelectedExecAgent() === runtimeId ? getSelectedExecModel() : 'default');
 }
 
 async function switchToVerifiedRuntime(runtimeId) {
@@ -1302,7 +1423,7 @@ async function switchToVerifiedRuntime(runtimeId) {
       method: 'POST',
       body: JSON.stringify({
         runtime_id: runtimeId,
-        model: 'default',
+        model: findVerifiedRuntimeModel(runtimeId),
         skill_bundle_path: skillPath,
       }),
     });
@@ -1320,12 +1441,12 @@ function renderLocalExecCheckRecovery(d) {
   const agents = Array.isArray(_execScanCache?.agents) ? _execScanCache.agents : [];
   const alternates = agents.filter((a) => a.can_switch_and_rerun && a.id !== getSelectedExecAgent());
   return `<div class="mt-2 text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-3 py-2 space-y-2">
-    <div><strong>本地执行环境检查未通过。</strong>连接测试只证明 CLI 能响应；环境检查会验证该工具能读取当前 Skill、调用必要入口并返回可评估结果。</div>
+    <div><strong>本地执行环境检查未通过。</strong>这是诊断结果，不代表正式评估一定失败；新版正式评估会以真实 case 执行为准。</div>
     <div class="flex flex-wrap gap-2">
       <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
         onclick="runLocalExecutionCheck(getSelectedExecAgent(), { force: true })">重新检查</button>
       <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
-        onclick="runLocalExecutionCheck(getSelectedExecAgent(), { regenerate: true, force: true })">重新生成检查用例</button>
+        onclick="runLocalExecutionCheck(getSelectedExecAgent(), { regenerate: true, force: true })">重置轻量检查</button>
       <button type="button" class="px-2 py-1 border border-amber-300 bg-white hover:bg-amber-100"
         onclick="switchExecBannerToSample()">使用样例输出评估（非本地真跑）</button>
       ${alternates.map((a) => `<button type="button" class="px-2 py-1 border border-emerald-300 bg-white hover:bg-emerald-50"
@@ -1360,11 +1481,16 @@ function resetConversationView() {
   _activeRunId = null;
   _latestConversationStatus = null;
   _messagesCache = [];
+  _lastFetchedMessageCount = null;
+  _lastFetchedMessagesRunId = null;
+  _lastFetchedMessagesRunStatus = null;
   _pendingFormalResume = false;
   _pendingFormalAction = null;
   _openingTriggeredRunId = null;
+  _conversationPollFailCount = 0;
   clearBridgePromptCard();
   stopConversationPolling();
+  updateChatLiveRunPanel(null);
   const cidEl = document.getElementById('chat-conversation-id');
   if (cidEl) cidEl.textContent = '未选择会话';
 }
@@ -1520,6 +1646,7 @@ function renderMessages(messages) {
     _lastRenderedMessageKeys.length === keys.length
     && _lastRenderedMessageKeys.every((k, i) => k === keys[i])
   ) {
+    refreshConversationLiveProgress();
     renderBridgePromptCard();
     return;
   }
@@ -1552,6 +1679,11 @@ function renderMessages(messages) {
     if (mtype === 'draft_failed') {
       const inner = renderDraftFailedHtml(m.payload_json || {});
       return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-red-200 bg-red-50/70 p-3 text-sm">${inner}</div></div>`;
+    }
+    if (mtype === 'local_execution_check'
+      || (mtype === 'readiness_result' && (m.payload_json || {}).phase === 'local_execution_check')) {
+      const inner = renderLocalExecutionCheckHtml(text, m.payload_json || {});
+      return `<div class="flex justify-start"><div class="max-w-[95%] w-full rounded-2xl border border-indigo-200 bg-indigo-50/70 p-3 text-sm">${inner}</div></div>`;
     }
     if (mtype === 'readiness_result' || mtype === 'assessment_gate_result') {
       const inner = renderAssessmentGateHtml(m.payload_json || {});
@@ -1591,11 +1723,13 @@ function renderMessages(messages) {
   if (_optimisticPending) {
     container.innerHTML += `
       <div class="flex justify-start" id="agent-pending-bubble">
-        <div class="max-w-[85%] rounded-2xl px-3 py-2 text-sm bg-gray-100 text-gray-500 italic animate-pulse">
-          ${escapeHtml(_optimisticPendingLabel || activityPhaseLabel('thinking'))}
+        <div class="max-w-[95%] w-full rounded-2xl px-3 py-2 text-sm bg-gray-100 text-gray-600">
+          <div class="italic animate-pulse" data-chat-pending-label>${escapeHtml(_optimisticPendingLabel || activityPhaseLabel('thinking'))}</div>
+          ${renderConversationLiveProgressSlot(_latestConversationStatus)}
         </div>
       </div>`;
   }
+  refreshConversationLiveProgress();
   renderBridgePromptCard();
   container.scrollTop = container.scrollHeight;
   updateComposerState();
@@ -1735,6 +1869,19 @@ function renderL0QuestionHtml(q) {
     </li>`;
 }
 
+function renderLocalExecutionCheckHtml(text, payload = {}) {
+  const body = text || '正在检查本地执行环境，请稍候…';
+  const detail = payload.detail_zh
+    ? `<p class="mt-1 text-xs text-indigo-800/90">${escapeHtml(payload.detail_zh)}</p>`
+    : `<p class="mt-1 text-xs text-indigo-800/90">连接测试只证明 CLI 能响应；此步骤会验证所选工具能读取当前 Skill、必要时检查入口文件并返回可评估结果。高风险 Skill 可能先准备轻量检查用例。</p>`;
+  return `
+    <div class="text-sm font-semibold text-indigo-950">本地执行环境检查</div>
+    <div class="mt-2 px-3 py-2.5 border border-indigo-200 rounded-lg bg-indigo-50/90 text-xs text-indigo-900 leading-relaxed">
+      ${escapeHtml(body)}
+      ${detail}
+    </div>`;
+}
+
 function renderAssessmentGatePassedHtml(payload) {
   if (shouldBlockFormalEval()) {
     _pendingFormalAction = _pendingFormalAction || ACTION_START_FORMAL;
@@ -1751,8 +1898,7 @@ function renderAssessmentGatePassedHtml(payload) {
   const optionalNote = optional.length
     ? `<p class="mt-2 text-xs text-slate-500">另有 ${optional.length} 项可选改进，不影响本次正式评估。</p>`
     : '';
-  const stages = getStatusValue(_latestConversationStatus || {}, ['stage_progress'], []);
-  const lastStage = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : null;
+  const lastStage = currentRunStageToken(_latestConversationStatus || {});
   const progressText = evalProgressLabel(lastStage, getExecSource());
   return `
     <div class="text-sm font-semibold text-slate-900">评估条件检查</div>
@@ -1760,11 +1906,15 @@ function renderAssessmentGatePassedHtml(payload) {
       <span class="font-semibold">评估需求已满足</span>，${escapeHtml(progressText)}
     </div>
     ${optionalNote}
+    ${renderConversationLiveProgressSlot(_latestConversationStatus)}
   `;
 }
 
 function renderAssessmentGateHtml(payload, opts = {}) {
   if (!payload || typeof payload !== 'object') return '';
+  if (payload.phase === 'local_execution_check') {
+    return renderLocalExecutionCheckHtml('', payload);
+  }
   const embedded = opts.embedded === true;
   if (payload.can_enter_formal && !embedded) {
     return renderAssessmentGatePassedHtml(payload);
@@ -2024,8 +2174,8 @@ async function handleReportAction(actionId, runId) {
       });
       setPerspective('author');
       toast('已批准');
-      await pollConversation();
-      await loadSessionList();
+      await pollConversation({ force: true, forceMessages: true });
+      await loadSessionList({ force: true });
     } catch (e) { toast(e.message, false); }
     return;
   }
@@ -2038,8 +2188,8 @@ async function handleReportAction(actionId, runId) {
       });
       setPerspective('author');
       toast('已驳回，会话已解冻');
-      await pollConversation();
-      await loadSessionList();
+      await pollConversation({ force: true, forceMessages: true });
+      await loadSessionList({ force: true });
     } catch (e) { toast(e.message, false); }
   }
 }
@@ -2224,20 +2374,32 @@ function updateChatStatusBanner(statusObj) {
       : '会话已冻结，暂不可修改。';
   } else if (isRunActivelyExecuting(runStatus, runStartedAt)) {
     banner.className = 'px-4 py-2 text-xs bg-blue-50 text-blue-700 border-b border-blue-100';
-    const stages = getStatusValue(statusObj, ['stage_progress'], []);
-    const last = Array.isArray(stages) && stages.length ? stages[stages.length - 1] : runStatus;
+    const last = currentRunStageToken(statusObj);
     const stageZh = stageLabelForExec(last, getExecSource());
     banner.innerHTML = `评估进行中…（${stageZh}）`;
   } else {
     banner.textContent = '';
   }
   document.getElementById('chat-run-badge').textContent = `${autoRuns}/${maxRuns}`;
+  updateChatLiveRunPanel(statusObj);
   updateComposerState();
 }
 
 function updateConfirmButton(_statusObj) { /* chips in rich_report */ }
 
 async function refreshReport(_statusObj) { /* reports in message stream */ }
+
+function updateChatLocalCheckButton() {
+  const btn = document.getElementById('chat-local-check-btn');
+  if (!btn) return;
+  const shouldShow = getExecSource() === 'local';
+  const canRun = canRunCurrentLocalExecutionCheck();
+  btn.classList.toggle('hidden', !shouldShow);
+  btn.disabled = !canRun;
+  btn.title = canRun
+    ? '运行当前 Skill 的本地执行环境检查（仅诊断，不阻断正式评估）'
+    : '需要选择本地 Agent，并让当前会话具备 Skill Bundle 路径';
+}
 
 async function triggerOpeningIfNeeded(statusObj) {
   const runId = getStatusValue(statusObj, ['active_run_id', 'run_id'], null);
@@ -2249,29 +2411,78 @@ async function triggerOpeningIfNeeded(statusObj) {
   await sendConversationMessage('__TRIGGER_AGENT_OPENING__', true);
 }
 
-async function pollConversation() {
+async function pollConversation(opts = {}) {
   if (!_activeConversationId) return;
-  const statusObj = await fetchConversationStatus();
-  if (!statusObj) return;
-  _latestConversationStatus = statusObj;
-  _activeRunId = statusObj.active_run_id || _activeRunId;
-  updateChatStatusBanner(statusObj);
-  syncPendingFromRunStatus(statusObj);
-  _messagesCache = await fetchConversationMessages();
-  const convStatus = getStatusValue(statusObj, ['status', 'conversation_status'], '');
-  if (
-    ['awaiting_propagation_confirm', 'awaiting_propagation_clarify'].includes(String(convStatus))
-    || _messagesCache.some((m) => (m.message_type || '') === 'propagation_plan')
-  ) {
-    _optimisticPending = false;
-    _optimisticPendingLabel = '';
+  if (_conversationPollInFlight && !opts.force) return;
+  const convId = _activeConversationId;
+  _conversationPollInFlight = true;
+  try {
+    const statusObj = await fetchConversationStatus();
+    if (convId !== _activeConversationId) return;
+    if (!statusObj) {
+      _conversationPollFailCount += 1;
+      if (_conversationPollFailCount >= 2) {
+        const banner = document.getElementById('chat-status-banner');
+        if (banner) {
+          banner.className = 'px-4 py-2 text-xs bg-amber-50 text-amber-800 border-b border-amber-100';
+          banner.textContent = `状态刷新失败，已连续失败 ${_conversationPollFailCount} 次。请确认 serve 是否仍在运行。`;
+        }
+      }
+      return;
+    }
+    _conversationPollFailCount = 0;
+    _lastConversationPollAt = new Date();
+    _latestConversationStatus = statusObj;
+    _activeRunId = statusObj.active_run_id || _activeRunId;
+    updateChatStatusBanner(statusObj);
+    updateChatLocalCheckButton();
+    syncPendingFromRunStatus(statusObj);
+
+    const messageCount = Number(getStatusValue(statusObj, ['lui_messages_count'], 0) || 0);
+    const runId = String(getStatusValue(statusObj, ['active_run_id', 'run_id'], '') || '');
+    const runStatus = String(getStatusValue(statusObj, ['run_status', 'active_run_status', 'status'], '') || '');
+    const terminal = isRunCompleted(statusObj);
+    const messagesChanged = messageCount !== _lastFetchedMessageCount;
+    const shouldFetchMessages = opts.forceMessages
+      || _messagesCache.length === 0
+      || messagesChanged
+      || runId !== _lastFetchedMessagesRunId
+      || (terminal && runStatus !== _lastFetchedMessagesRunStatus);
+
+    if (shouldFetchMessages) {
+      _messagesCache = await fetchConversationMessages();
+      if (convId !== _activeConversationId) return;
+      _lastFetchedMessageCount = messageCount;
+      _lastFetchedMessagesRunId = runId;
+      _lastFetchedMessagesRunStatus = runStatus;
+    }
+
+    const convStatus = getStatusValue(statusObj, ['status', 'conversation_status'], '');
+    if (
+      ['awaiting_propagation_confirm', 'awaiting_propagation_clarify'].includes(String(convStatus))
+      || _messagesCache.some((m) => (m.message_type || '') === 'propagation_plan')
+    ) {
+      _optimisticPending = false;
+      _optimisticPendingLabel = '';
+    }
+    if (terminal) {
+      _optimisticPending = false;
+      _optimisticPendingLabel = '';
+    }
+    if (shouldFetchMessages || terminal) {
+      renderMessages(_messagesCache);
+    } else {
+      refreshConversationLiveProgress();
+      updateComposerState();
+    }
+    if (terminal || messagesChanged) {
+      await loadSessionList({ force: terminal });
+    } else {
+      await loadSessionList();
+    }
+  } finally {
+    _conversationPollInFlight = false;
   }
-  if (isRunCompleted(statusObj)) {
-    _optimisticPending = false;
-    _optimisticPendingLabel = '';
-  }
-  renderMessages(_messagesCache);
-  await loadSessionList();
 }
 
 async function sendConversationMessage(text, silent = false, displayLabel = null) {
@@ -2344,12 +2555,18 @@ async function sendConversationMessage(text, silent = false, displayLabel = null
       _optimisticPendingLabel = activityPhaseLabel(chatResp.activity_phase, _latestConversationStatus);
       renderMessages(_messagesCache);
     }
+    if (chatResp?.staging_path && _activeConversationId) {
+      rememberStagingPath(_activeConversationId, chatResp.staging_path);
+      await fetchExecScan(true);
+      updateChatLocalCheckButton();
+      renderExecAgentCards();
+    }
     _pendingZipFile = null;
     document.getElementById('chat-zip-file').value = '';
     document.getElementById('chat-zip-name').textContent = '';
     msgEl.textContent = '';
     if (!silent) toast('已发送');
-    await pollConversation();
+    await pollConversation({ force: true, forceMessages: true });
   } catch (e) {
     _optimisticPending = false;
     _optimisticPendingLabel = '';
@@ -2455,6 +2672,162 @@ function renderLocalAgentBudget(reportLike) {
   return `<div class="text-xs text-blue-800 bg-blue-50 border border-blue-200 px-2 py-1 mt-2 rounded">
     本地 Agent 真跑中：已用 ${elapsed}s / 总预算 ${total}s / 剩余 ${remaining}s
   </div>`;
+}
+
+function getLocalAgentCaseEvents(reportLike) {
+  const stages = getStageProgress(reportLike || {});
+  return (Array.isArray(stages) ? stages : []).filter((item) =>
+    item && typeof item === 'object' && String(item.event || '').startsWith('local_agent_case_')
+  );
+}
+
+function summarizeLocalAgentCaseEvents(events) {
+  const byCase = new Map();
+  for (const event of events) {
+    const caseId = String(event.case_id || '').trim();
+    if (!caseId) continue;
+    const row = byCase.get(caseId) || { case_id: caseId, case_type: event.case_type || '', events: [] };
+    row.events.push(event);
+    if (event.case_type) row.case_type = event.case_type;
+    if (event.event === 'local_agent_case_started') {
+      row.started_at = event.created_at || row.started_at;
+      row.status = row.status || 'running';
+    } else if (event.event === 'local_agent_case_succeeded') {
+      row.status = 'succeeded';
+      row.duration_ms = event.duration_ms;
+      row.agent_label = event.agent_label;
+      row.model_label = event.model_label;
+    } else if (event.event === 'local_agent_case_failed') {
+      row.status = 'failed';
+      row.duration_ms = event.duration_ms;
+      row.degrade_reason = event.degrade_reason;
+      row.stderr_excerpt = event.stderr_excerpt;
+      row.agent_label = event.agent_label;
+      row.model_label = event.model_label;
+    }
+    byCase.set(caseId, row);
+  }
+  return Array.from(byCase.values());
+}
+
+function formatCaseDuration(row) {
+  if (Number.isFinite(Number(row.duration_ms))) {
+    return `${Math.max(0, Number(row.duration_ms) / 1000).toFixed(1)}s`;
+  }
+  const started = row.started_at ? Date.parse(row.started_at) : NaN;
+  if (!Number.isFinite(started)) return '计时中';
+  return `${Math.max(0, Math.floor((Date.now() - started) / 1000))}s`;
+}
+
+function renderLocalAgentCaseProgress(reportLike) {
+  const rows = summarizeLocalAgentCaseEvents(getLocalAgentCaseEvents(reportLike));
+  if (!rows.length) return '';
+  const running = rows.filter((row) => row.status === 'running');
+  const failed = rows.filter((row) => row.status === 'failed');
+  const succeeded = rows.filter((row) => row.status === 'succeeded');
+  const statusBadge = (row) => {
+    if (row.status === 'succeeded') return '<span class="badge bg-green-100 text-green-700 border-green-200">完成</span>';
+    if (row.status === 'failed') return '<span class="badge bg-red-100 text-red-700 border-red-200">本地执行失败</span>';
+    return '<span class="badge bg-blue-100 text-blue-700 border-blue-200">当前正在执行</span>';
+  };
+  const rowsHtml = rows.map((row) => {
+    const reason = row.degrade_reason ? (EXEC_READY_REASON_ZH[row.degrade_reason] || row.degrade_reason) : '';
+    const stderr = row.stderr_excerpt ? `<div class="mt-1 text-[11px] text-red-700 break-all">${escapeHtml(row.stderr_excerpt)}</div>` : '';
+    const meta = [row.case_type, row.agent_label, row.model_label].filter(Boolean).join(' · ');
+    return `
+      <div class="py-2 border-t border-blue-100 first:border-t-0">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-mono text-xs text-slate-800 break-all">${escapeHtml(row.case_id)}</div>
+            ${meta ? `<div class="text-[11px] text-slate-500">${escapeHtml(meta)}</div>` : ''}
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            ${statusBadge(row)}
+            <span class="font-mono text-xs text-slate-500">${escapeHtml(formatCaseDuration(row))}</span>
+          </div>
+        </div>
+        ${reason ? `<div class="mt-1 text-xs text-red-800">${escapeHtml(reason)}</div>` : ''}
+        ${stderr}
+      </div>`;
+  }).join('');
+  return `
+    <section class="mt-2 border border-blue-200 bg-blue-50/60 rounded">
+      <div class="px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+        <h4 class="text-sm font-semibold text-blue-950">本地 Agent case 进度</h4>
+        <div class="text-xs text-blue-800">执行中 ${running.length} / 完成 ${succeeded.length} / 失败 ${failed.length}</div>
+      </div>
+      <div class="px-3 pb-2 max-h-56 overflow-y-auto">${rowsHtml}</div>
+    </section>`;
+}
+
+function renderConversationLocalAgentProgressContent(statusObj) {
+  if (getExecSource() !== 'local') return '';
+  const status = statusObj || {};
+  const budgetHtml = renderLocalAgentBudget(status);
+  const caseHtml = renderLocalAgentCaseProgress(status);
+  if (!budgetHtml && !caseHtml) return '';
+  return `${budgetHtml}${caseHtml}`;
+}
+
+function renderChatLiveRunPanelContent(statusObj) {
+  const status = statusObj || {};
+  const runStatus = getStatusValue(status, ['run_status', 'active_run_status', 'status'], '');
+  const runStartedAt = getStatusValue(status, ['run_started_at', 'active_run_started_at'], '');
+  if (!isRunActivelyExecuting(runStatus, runStartedAt)) return '';
+  const stage = currentRunStageToken(status);
+  const title = stageLabelForExec(stage, getExecSource()).replace(/<[^>]*>/g, '');
+  const detail = evalProgressLabel(stage, getExecSource());
+  const localProgress = renderConversationLocalAgentProgressContent(status);
+  const refreshed = _lastConversationPollAt ? formatClockTime(_lastConversationPollAt) : '';
+  return `
+    <div class="px-4 py-2 border-b border-blue-100 bg-blue-50/80 text-sm text-blue-950 max-h-[40vh] overflow-y-auto">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="font-semibold">当前阶段：${escapeHtml(title)}</div>
+        <div class="flex items-center gap-3 text-xs text-blue-700">
+          ${refreshed ? `<span>最后刷新 ${escapeHtml(refreshed)}</span>` : ''}
+          <span class="font-mono">${escapeHtml(String(getStatusValue(status, ['active_run_id', 'run_id'], '') || '').slice(0, 8))}${getStatusValue(status, ['active_run_id', 'run_id'], '') ? '…' : ''}</span>
+        </div>
+      </div>
+      <div class="mt-1 text-xs text-blue-900 leading-relaxed">${escapeHtml(detail)}</div>
+      ${localProgress}
+    </div>`;
+}
+
+function ensureChatLiveRunPanel() {
+  let panel = document.getElementById('chat-live-run-panel');
+  if (panel) return panel;
+  const banner = document.getElementById('chat-status-banner');
+  if (!banner || !banner.parentElement) return null;
+  panel = document.createElement('div');
+  panel.id = 'chat-live-run-panel';
+  panel.className = 'hidden';
+  banner.insertAdjacentElement('afterend', panel);
+  return panel;
+}
+
+function updateChatLiveRunPanel(statusObj) {
+  const panel = ensureChatLiveRunPanel();
+  if (!panel) return;
+  const html = renderChatLiveRunPanelContent(statusObj);
+  panel.innerHTML = html;
+  panel.classList.toggle('hidden', !html);
+}
+
+function renderConversationLiveProgressSlot(statusObj) {
+  const html = renderConversationLocalAgentProgressContent(statusObj);
+  return `<div data-chat-live-run-progress class="${html ? '' : 'hidden'}">${html}</div>`;
+}
+
+function refreshConversationLiveProgress() {
+  const html = renderConversationLocalAgentProgressContent(_latestConversationStatus);
+  document.querySelectorAll('[data-chat-live-run-progress]').forEach((el) => {
+    el.innerHTML = html;
+    el.classList.toggle('hidden', !html);
+  });
+  const pendingLabel = document.querySelector('[data-chat-pending-label]');
+  if (pendingLabel && _optimisticPending) {
+    pendingLabel.textContent = _optimisticPendingLabel || activityPhaseLabel('thinking', _latestConversationStatus);
+  }
 }
 
 let _usageDetailSeq = 0;
@@ -3140,6 +3513,7 @@ async function pollStatus(runId) {
         ? renderModelVotesFeedback(d, true) : ''}
       ${terminal ? renderSkillSummaryCard(d, { collapsed: true }) : ''}
       ${renderLocalAgentBudget(d)}
+      ${renderLocalAgentCaseProgress(d)}
       ${terminal ? renderUsageSummary(d) : ''}
       ${terminal ? '<div class="text-xs text-gray-400 mt-1">任务已终结，停止轮询</div>' : '<div class="text-xs text-blue-400 animate-pulse">评估进行中，每 4s 自动刷新…</div>'}
     `;
@@ -3567,6 +3941,7 @@ function conversationMessagePreview(m) {
   const mtype = m.message_type || 'text';
   const typeLabels = {
     rich_report: '评估简卡',
+    local_execution_check: '本地执行环境检查',
     readiness_result: '评估条件检查',
     assessment_gate_result: '评估条件检查',
     propagation_plan: '评估材料补充',
@@ -3727,6 +4102,7 @@ async function openRunDetail(runId, opts = {}) {
       ${renderDiagnosticReportCard(d)}
       ${progress.length ? `<div class="border-t border-gray-100 pt-3">${renderStageProgressList(progress)}</div>` : ''}
       ${renderLocalAgentBudget(d)}
+      ${renderLocalAgentCaseProgress(d)}
       ${ps ? `<div class="border-t border-gray-100 pt-3">${renderProviderSummaryBars(ps)}${renderPerCaseDetails(ps, true, runId, showTrace)}</div>` : ''}
       ${renderModelVotesFeedback(d, true)}
       ${renderUsageSummary(d)}
@@ -3778,7 +4154,7 @@ setInterval(checkHealth, 30000);
 setPerspective(getPerspective());
 const _demoOnInit = localStorage.getItem(DEMO_MODE_KEY) === 'true';
 document.getElementById('demo-path-wrap')?.classList.toggle('hidden', !_demoOnInit);
-loadSessionList();
+loadSessionList({ force: true });
 renderHistoryFilterChips();
 (async () => {
   await initExecBridge();
