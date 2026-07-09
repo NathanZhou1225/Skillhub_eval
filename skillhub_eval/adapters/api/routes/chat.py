@@ -60,7 +60,6 @@ from skillhub_eval.core.ports import Repository
 from skillhub_eval.core.propagation_plan import build_propagation_plan, format_l0_labels
 from skillhub_eval.core.propagator import CasePropagator, PropagatorResult
 from skillhub_eval.core.schemas import BundleState
-from skillhub_eval.core.schemas.enums import RUNNING_STATUSES
 from skillhub_eval.core.skill_id_resolver import (
     needs_user_confirm,
     parse_user_message_skill_id,
@@ -1328,9 +1327,7 @@ async def get_status(
     stage_progress: list[str] = []
     if active_run_id:
         stage_progress = repo.get_stage_progress(str(active_run_id))
-    active_status = str(active_run.get("status") or "") if active_run else ""
-    should_scan_bundle = active_status not in RUNNING_STATUSES
-    if should_scan_bundle and staging_path.is_dir() and (staging_path / "SKILL.md").is_file():
+    if staging_path.is_dir() and (staging_path / "SKILL.md").is_file():
         bundle = ingest_bundle(str(staging_path))
         gap_zero = _compute_gap_zero(staging_path)
         gate = Level0Checker().check_case_gate(bundle)
