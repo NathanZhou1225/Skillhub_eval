@@ -5,7 +5,7 @@
 
 ---
 
-## 1. 一句话说明
+## 1. 总结说明
 
 本地 CLI Agent 真跑，是让作者本机已经装好的 Agent 工具实际执行测试题，把真实产出交给 SkillHub 评分。
 
@@ -133,22 +133,43 @@ flowchart TD
 
 ## 6. CLI 穿透技术架构
 
-本地 CLI 真跑的技术核心，是把 SkillHub 的评估引擎和作者本机 CLI Agent 用一个执行接缝连接起来：评估引擎仍按 case 推进，实际产出来源从 `sample_io` 切到 `local_agent`。
+本地 CLI 真跑的技术核心，是把 SkillHub 的评估引擎和作者本机 CLI Agent 用一个执行接缝连接起来：评估引擎仍按 case 推进，评分标准不变，只是把“这道题的实际产出从哪里来”从 `sample_io` 切到 `local_agent`。
+
+用非技术语言说，这套架构分三层：
+
+1. 上层评估系统决定“现在要评哪道题、需要什么产出”。
+2. 中间本地执行平台决定“作者本机哪个 CLI 可以跑、用哪个模型、怎么启动”。
+3. 底层 adapter 负责“把任务交给具体 CLI，并把 CLI 返回的信息翻译回 SkillHub 看得懂的格式”。
+
+所以它不是让 SkillHub 接管作者电脑，也不是重写一套 Agent；它是在作者当前机器上启动已安装的 CLI，把执行结果收回来，再放回原评估流水线。
+
+先把几个术语说清楚：
+
+| 术语 | 在这里指什么 |
+|------|--------------|
+| Runtime Platform | 本地执行平台。负责登记有哪些本地 CLI、怎么检测、怎么选模型、怎么做环境检查 |
+| Runtime | 一个具体本地工具的运行定义，例如 Codex、Cursor Agent、Trae |
+| Adapter | 每个 CLI 的适配器。负责把 SkillHub 的请求翻译成该 CLI 能执行的命令，并把该 CLI 的输出翻译回统一格式 |
+| Transport | 执行传输方式。当前主路径是启动本机 CLI 进程并读取结构化输出流 |
+| ParsedStream | CLI 输出被解析后的统一过程结果，包括最终文本、工具调用、用量、完成状态、错误信息 |
+| ExecResult | 给评估引擎使用的单题执行结果，包括实际产出、执行来源、Agent/模型、失败原因 |
 
 ```mermaid
 flowchart TD
-    A["EvaluationEngine\ncase_executing"] --> B["RoutingExecutionSource"]
-    B -->|"execution_source != local"| C["SampleIoSource"]
-    B -->|"execution_source = local"| D["LocalAgentSource"]
-    D --> E["PerRunWorkspace\n复制单题工作区"]
-    E --> F["prepare_skill_injection\n生成 harness prompt"]
-    F --> G["Agent Adapter\nCodex / Cursor Agent / Trae"]
-    G --> H["LocalAgentRunner\nsubprocess 启动本地 CLI"]
-    H --> I["stdout 结构化流\nstderr 错误流"]
-    I --> J["normalize_events / ParsedStream"]
-    J --> K["ExecResult\nactual_output / usage / status"]
-    K --> L["DSL + Sanitizer + 双模型评审"]
+    A["EvaluationEngine\n评估主控：推进每道测试题"] --> B["RoutingExecutionSource\n执行来源路由：决定读样例还是真跑"]
+    B -->|"execution_source != local"| C["SampleIoSource\n样例来源：读取 sample_io"]
+    B -->|"execution_source = local"| D["LocalAgentSource\n本地执行入口：调用作者本机 CLI"]
+    D --> E["PerRunWorkspace\n单题工作区：复制 Skill 到临时目录"]
+    E --> F["prepare_skill_injection\nSkill 注入：生成带约束的执行指令"]
+    F --> G["Agent Adapter\nCLI 适配器：匹配 Codex / Cursor / Trae"]
+    G --> H["LocalAgentRunner\n进程运行器：启动本地 CLI 子进程"]
+    H --> I["stdout / stderr\n过程输出：读取结果流和错误流"]
+    I --> J["normalize_events / ParsedStream\n输出归一：转成统一过程结果"]
+    J --> K["ExecResult\n单题结果：产出、用量、状态、失败原因"]
+    K --> L["DSL + Sanitizer + 双模型评审\n原评分流水线：规则、安全、模型打分"]
 ```
+
+这张图从左到右看即可：左边是评估系统，右边是评分系统，中间新增的是“本地 CLI 执行桥”。技术名词保留是为了方便和代码对应，节点里的第二行是它在业务流程里的作用。
 
 ### 6.1 执行路由
 
@@ -161,7 +182,115 @@ flowchart TD
 
 `local` 路径由 `LocalAgentSource` 承接。它先检查执行授权，再读取当前选择的 Agent 和模型，解析出对应 adapter。如果 adapter 不存在、CLI 检测失败、未授权或红线题缺少加固能力，会返回 `ExecResult(status="incomplete")`，而不是继续假装执行成功。
 
-### 6.2 Adapter 如何启动本地 CLI
+这一步的非技术含义是：系统先决定“这道题是看作者样例，还是让本机工具真的跑一次”。只有明确选择本地执行并授权后，才会进入后面的 CLI 调用链。
+
+### 6.2 Runtime Platform 管什么
+
+Runtime Platform 是本地 CLI 真跑的底座。它不直接评分，也不直接判断 Skill 好坏；它负责把“本机有哪些可用执行工具”这件事标准化。
+
+当前每个 runtime 定义会记录这些信息：
+
+| 配置项 | 作用 |
+|--------|------|
+| runtime_id / label | 工具身份和展示名称，例如 `codex` / Codex |
+| binary | CLI 主命令、别名、常见安装目录、版本探测参数 |
+| models | 默认模型、模型枚举命令、备用模型枚举命令 |
+| launch | prompt 传递方式、输出流格式、是否支持红线加固模式 |
+| skill_injection | 优先用哪种方式把 Skill 给到 CLI |
+| preflight | 环境检查使用的轻量用例和证据要求 |
+| config_dirs | 用于判断登录或配置状态的本地配置目录 |
+
+用非技术语言说，Runtime Platform 像是一张“本地工具能力登记表”：它告诉系统 Codex 怎么找、Cursor Agent 怎么列模型、Trae 怎么接收 prompt、哪个工具支持更严格的红线执行配置。
+
+这层存在的原因是避免把每个 CLI 的安装路径、模型列表、prompt 传递方式写散在各处。产品上看到的是“可选择多个本地 Agent”；技术上靠 runtime 定义把这些 Agent 变成同一种可管理对象。
+
+### 6.3 Runtime Platform 怎么发现本机能力
+
+作者打开执行设置或点击扫描时，系统会遍历本地工具目录，做几类检查：
+
+| 检查 | 返回到 UI 的含义 |
+|------|------------------|
+| CLI 是否存在 | 是否安装、能否找到命令或常见安装目录 |
+| CLI 是否可调用 | 用版本命令验证当前 SkillHub 进程能否启动它 |
+| 登录 / 配置是否存在 | 通过配置目录、诊断命令或工具自检判断是否可能可用 |
+| 模型是否可选 | 优先在线枚举模型；枚举失败时使用 fallback 模型 |
+| 已选模型是否仍有效 | 对当前选中的 runtime 和模型做 live probe |
+| 环境检查状态 | 展示 missing / passed / failed / expired / blocked |
+
+这些结果会形成 runtime readiness，给前端展示“已安装、待登录、模型可用、检查通过、检查过期”等状态。正式评估不会因为环境检查缺失而被拦住；环境检查只是诊断层，真正结论仍来自正式 case 执行。
+
+换成产品语言，这一步解决的是“按钮能不能点、失败该提示什么、用户该修安装还是修登录”。它不是评分证据，只是把本机环境状态提前讲清楚。
+
+### 6.4 本地模型如何探测和调用
+
+本地模型不是 SkillHub 自己维护的一张固定表，而是尽量从作者本机 CLI 里实时读取。原因很直接：不同作者本机登录的账号、可用模型、CLI 版本和自定义 provider 可能不一样，中央系统不能假设所有人都有同一组模型。
+
+模型探测的链路如下：
+
+```mermaid
+flowchart TD
+    A["AgentDef / RuntimeModels\n模型探测配置：声明怎么问 CLI"] --> B["resolve_agent_binary\n找到本机 CLI 可执行文件"]
+    B --> C["model_probe\n执行模型列表命令"]
+    C --> D["parse_model_lines\n解析 stdout，过滤登录提示和无效行"]
+    D --> E{"是否拿到 live 模型?"}
+    E -->|"是"| F["live models\n展示 CLI 实时返回的模型"]
+    E -->|"否"| G["fallback models\n使用系统登记的默认候选"]
+    F --> H["stored model retention\n保留用户已选模型，标记 stale/custom"]
+    G --> H
+    H --> I["exec_model preference\n保存当前选择"]
+    I --> J["resolve_adapter(agent, model)\n执行时把模型传给 adapter"]
+```
+
+模型探测分四步：
+
+| 步骤 | 技术动作 | 非技术解释 |
+|------|----------|------------|
+| 读取配置 | 从 runtime / agent 定义读取 `model_probe` 和备用探测命令 | 先知道“应该问这个 CLI 哪个命令才能列模型” |
+| 找到 CLI | 通过命令名、别名、常见安装目录解析本机可执行文件 | 先确认本机真正能调用哪个 CLI |
+| 执行探测 | 运行类似 `cursor-agent models`、`trae-cli models` 的命令 | 让 CLI 自己说当前账号有哪些模型 |
+| 解析结果 | 过滤登录提示、空行、说明文字，提取模型 ID 和展示名 | 把 CLI 输出整理成 UI 下拉框能用的模型列表 |
+
+如果 live probe 成功，模型来源标记为 `live`，UI 优先展示 CLI 实时返回的模型，并额外放一个“默认模型”。默认模型的含义是：SkillHub 不指定具体模型，让该 CLI 使用自己的默认配置。
+
+如果 live probe 失败，系统不会直接让选择框空掉，而是使用 fallback models。fallback 不是证明模型一定可用，只是保留一个可选项，避免 CLI 暂时无法枚举模型时整个本地执行设置不可操作。
+
+还有一种情况是用户之前选过某个模型，但这次 live probe 没有返回它。系统会保留这个已选模型，并标记为 `stale` 或 `custom`：
+
+| 标记 | 含义 |
+|------|------|
+| `live` | 本次从 CLI 实时探测到 |
+| `fallback` | 系统登记的备用模型 |
+| `stale` | 之前选过，但本次 live 列表没有出现，可能已失效或名称变化 |
+| `custom` | 无法 live 探测时保留的用户自定义模型 |
+
+正式执行时，模型选择通过 `exec_model` preference 保存。`LocalAgentSource` 读取当前 `exec_agent` 和 `exec_model` 后，会调用 `resolve_adapter(agent_id, model)` 生成带模型参数的 adapter。adapter 再把模型写进本地 CLI 启动命令：
+
+| Agent | 模型如何传给 CLI |
+|------|------------------|
+| Codex | 启动命令追加 `--model <model>` |
+| Cursor Agent | 启动命令追加 `--model <model>` |
+| Trae | 启动命令追加 `-c model.name=<model>` |
+| 默认模型 | 不追加具体模型参数，让 CLI 使用自己的默认模型 |
+
+因此，SkillHub 调用的不是“平台内置模型”，而是“作者本机 CLI 当前账号下可用的模型”。模型能否真正执行，最终仍以正式 case 的本地执行结果为准；模型探测只负责尽量提前发现可选项和明显失效项。
+
+### 6.5 环境检查如何跑
+
+环境检查由 `PreflightRunner` 执行，流程和正式本地执行相似，但用的是更轻量的检查题：
+
+1. 读取当前 Skill 包，计算 skill fingerprint。
+2. 读取 runtime 定义，确认 CLI 路径、版本、模型、配置状态。
+3. 生成或选择轻量 preflight case。
+4. 复制独立工作区。
+5. 用同一套 Skill 注入和本地 CLI 启动机制跑一次轻量检查。
+6. 检查是否完成、是否报错、是否能看到入口文件或入口调用证据。
+7. 把结果写入缓存，默认 24 小时有效。
+
+缓存绑定 runtime、模型、Skill 指纹和 CLI 状态。换了 Skill、换了模型、CLI 版本或配置变化后，检查会过期。这样 UI 可以提示“上次检查是否还可信”，但不会把这次检查当作正式评分依据。
+
+也就是说，环境检查回答的是“这个工具大概率能不能被 SkillHub 调起来”，不是“这个 Skill 的正式业务 case 一定能跑通”。正式结论仍要看正式 case。
+
+### 6.6 Adapter 如何启动本地 CLI
 
 每个本地 Agent 都有一个 adapter。adapter 负责三件事：
 
@@ -181,7 +310,11 @@ flowchart TD
 
 也就是说，SkillHub 不直接调用某个模型 API，而是启动作者本机已经登录、已经配置好的 CLI 进程。模型账号、内网权限、本地配置都继续留在作者机器上。
 
-### 6.3 Prompt 与 Skill 注入
+Adapter 和 Runtime Platform 的关系是：Runtime Platform 决定“这个工具怎么被发现、有哪些能力、默认怎么运行”；adapter 负责“这一次具体怎么拼命令、怎么解释输出”。新增本地 CLI 时，原则上先补 runtime 定义，再补对应 adapter。
+
+非技术理解可以简单记成：Runtime Platform 负责“登记和检查”，adapter 负责“执行落地”。前者让系统知道工具是否存在、能力是什么；后者负责一次真实执行。
+
+### 6.7 Prompt 与 Skill 注入
 
 正式执行前，系统会生成一份 harness prompt。它包含：
 
@@ -195,7 +328,11 @@ flowchart TD
 
 注入策略按 Agent 能力选择：原生加载优先，其次是把 Skill 文件放在工作区，最后把必要内容放进 prompt。这样可以兼容不同 CLI 的能力差异。
 
-### 6.4 进程执行与超时控制
+这里的关键点是：SkillHub 不把 Skill 当作普通文本随便问模型，而是明确要求 Agent 在当前工作区读取 Skill、执行指定 case，并在必要时调用声明的入口脚本。也就是说，本地 CLI 是被“带着任务约束”启动的。
+
+这一步保证本地真跑不是让 Agent 自由发挥，而是让它在明确测试题、明确输入、明确 Skill 规则下完成任务。后续评分才有稳定依据。
+
+### 6.8 进程执行与超时控制
 
 `LocalAgentRunner` 用 `subprocess` 启动本地 CLI，并把 prompt 通过 stdin 或命令参数传给 CLI。执行时会同时处理三类信号：
 
@@ -207,7 +344,19 @@ flowchart TD
 
 stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主流程。Windows 下终止进程时使用进程树终止，避免只杀掉 `.cmd` 包装层而留下实际的 `node.exe` 子进程。
 
-### 6.5 输出归一化
+这就是“CLI 穿透”的实际含义：SkillHub 服务端进程不接管作者账号，也不替作者登录模型；它只在作者当前机器上启动已安装的 CLI，把任务交给 CLI，再读取 CLI 返回的结构化过程数据。
+
+对用户来说，这意味着本地账号、模型权限、内网访问和文件路径仍然由作者机器提供。SkillHub 做的是调度、记录和评判，不把这些本机能力搬到中央服务器。
+
+### 6.9 信息如何从 CLI 返回
+
+本地 CLI 返回信息分三层：
+
+| 层级 | 内容 | 处理方式 |
+|------|------|----------|
+| 原始输出 | CLI stdout 的逐行结构化事件、stderr 错误文本 | `LocalAgentRunner` 持续读取 |
+| 统一事件 | 文本增量、工具结果、用量、完成、错误 | adapter 的 `normalize_events` 负责转换 |
+| 评估结果 | `ParsedStream` 和 `ExecResult` | 交回评估引擎继续评分 |
 
 不同 CLI 的事件格式不一致。例如 Codex、Cursor Agent、Trae 对文本、工具调用、命令执行结果和完成事件的字段命名都不完全相同。adapter 会先把这些原始事件转成统一事件，再形成 `ParsedStream`：
 
@@ -221,9 +370,21 @@ stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主
 
 只有 `is_complete=true` 且 `is_error=false`，系统才认为本地执行完成。否则该 case 会被标记为 `run_incomplete`。
 
-### 6.6 ExecResult 如何回到评估引擎
+这一层的价值是把不同 CLI 的输出差异统一成 SkillHub 的标准格式。Codex、Cursor Agent、Trae 返回格式不同，但进入评分前都必须变成同一种 `ParsedStream`。
 
-`LocalAgentSource` 会把 `ParsedStream` 转成 `ExecResult`：
+### 6.10 actual_output 怎么拿到
+
+`LocalAgentSource` 会把 `ParsedStream` 转成 `ExecResult`。其中最关键的是 `actual_output`，也就是后续评分真正读取的“本题实际产出”。
+
+`actual_output` 的生成顺序是：
+
+1. 先看 Agent 最终文本里是否有 fenced JSON。
+2. 如果有结构化 JSON，就把它作为主体结果。
+3. 如果工作区里有新增或修改的小文本文件，把这些文件作为 `artifacts` 附上。
+4. 如果没有结构化 JSON，就用最终文本、工具结果和文件产物合成结果。
+5. 如果 Skill 声明了入口脚本，还要检查工具结果里是否能看到入口调用证据。
+
+形成的 `ExecResult` 字段如下：
 
 | ExecResult 字段 | 含义 |
 |-----------------|------|
@@ -235,9 +396,27 @@ stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主
 | `degrade_reason` | 未完成或降级原因 |
 | `stderr_excerpt` | 失败时保留的错误摘要 |
 
-如果 Agent 返回了结构化 JSON，系统优先把它作为 `actual_output`；如果没有结构化 JSON，就用最终文本、工具结果和工作区文件产物合成 `actual_output`。有脚本入口的 Skill 还会额外校验 `tool_results` 中是否能看到入口调用证据。
+`ExecResult` 会被缓存到当前 run 的 case 执行结果里。后续 DSL 断言、输出泄密检查、双模型评分、报告归因都会通过这个结果读取实际产出。换句话说，CLI 返回不是直接写进最终报告，而是先变成标准执行结果，再进入原有评估流水线。
 
-### 6.7 失败不再静默回退
+非技术理解是：系统不会把一大段原始日志直接交给评委，而是先整理成“这道题的最终答案、执行证据、产物文件、是否成功、失败原因”。评审只看这份整理后的标准结果。
+
+### 6.11 执行归属如何返回到报告
+
+报告会区分“用户选择了什么”和“实际成功跑了什么”：
+
+| 报告字段 | 口径 |
+|----------|------|
+| `exec_requested_agent_label` / `exec_requested_model_label` | 用户本轮选择的 Agent 和模型 |
+| `exec_agent_label` / `exec_model_label` | 至少一个 case 真实通过本地 Agent 跑通后才填充 |
+| `provider_summary.per_case.exec_status` | 每个 case 的本地执行状态 |
+| `provider_summary.per_case.exec_degrade_reason` | 每个 case 的本地失败原因 |
+| `usage_summary` | 本地 Agent、Provider A、Provider B 的 token / 耗时汇总 |
+
+这样可以避免“选了某个 Agent”被误读成“该 Agent 已经成功执行”。如果用户选了 Cursor Agent 但所有 case 都失败，报告会显示已选择 Cursor Agent，但不会把 Cursor Agent 写成成功执行来源。
+
+这一点是报告诚实性的关键：选择是用户意图，成功执行是系统证据。两者分开记录，才能解释清楚“用户想用哪个工具”和“实际哪个工具跑出了可评分产出”。
+
+### 6.12 失败不再静默回退
 
 本地执行失败后，`RoutingExecutionSource` 会把原始失败结果返回给引擎。引擎会记录 `local_agent_failure` 事件，并把失败原因挂到对应 case。
 
@@ -249,6 +428,8 @@ stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主
 | `LOCAL_EXEC_ALL_CASES_FAILED` | 已尝试本地执行，但没有任何 case 成功产出 |
 
 唯一保留的样例回退，是红线题遇到 Agent 不支持加固执行配置时的有意降级。这属于明确设计的安全边界，不属于本地执行失败。
+
+所以整套 CLI 穿透架构的闭环是：能跑就拿真实产出评分；跑不成就保留失败证据；只有明确设计的安全降级才回到样例。这样本地真跑既能提高评估真实性，也不会把失败包装成成功。
 
 ---
 

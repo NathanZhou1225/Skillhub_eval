@@ -29,10 +29,22 @@
 
 ### 进行中 / 待做
 
-- [ ] **W5.5** 本地 Demo 验收（三剧本 + runbook）
-- [x] **P2 / W4.5** Provider 完全 env 驱动（`JUDGE_PROVIDER_A/B_*` + OpenAI-compatible factory + label 展示）
+- [x] **W5.5 主链路** 本地评估实测通过（2026-07-09）；可选剧本 B/C 文档不阻塞
+- [x] **P2 / W4.5** Provider 完全 env 驱动
+- [x] **W8 / Q-24～Q-29** 本地 Agent 真跑与 hardening
+- [x] **local-cli-runtime-platform** 已归档（2026-07-09）
 - ~~**W7** 评估系统服务器彩排~~ → 阶段四 W7
-- [ ] **评估系统增强 TBD** — 待产品窗口追加（见 `SPRINT_phase3-eval-system.md` §阶段三后续）
+- [ ] **阶段三增强 TBD** — 按产品反馈追加（见 `RECORD.md` 交接快照；阶段三未正式完结）
+
+### 可选小项（不阻塞交接 / 开场勿当主线）
+
+- [ ] **W8.4** 多 agent 对照统计
+- [ ] **N3** 拆 `run_incomplete`（解析器漏判 vs 真超时）
+- [ ] **N5** 按 agent/模型差异化本地执行超时
+- [ ] **UI 纵切** 选 trae 模型跑 `exec-fixture-minimal` 出 Pass/Warn/Fail
+- [ ] **runbook** 补强「每人各自起 `serve`」（README 已有一句提示）
+- [ ] **Q-30** 刷新后 `staging_path` 始终由 status API 返回
+- [ ] **（可选）** `phase3-eval-validation.md` 验收矩阵文档化
 
 ### P2 工程优化预留（2026-06-23）
 
@@ -54,7 +66,7 @@
 > 依赖阶段三 W5.5 本地验收。W7 服务器彩排已移入本阶段。详见 `active/SPRINT_phase4-marketplace-biz.md`。
 
 - [ ] **W6** 集市生态（listing、Export Freeze、Trending、NL 搜索、集市 UI）
-- [ ] **W7** 评估系统服务器彩排（release zip、服务器 env、Linux smoke、`server-deployment.md`）
+- [ ] **W7** 评估系统服务器彩排（release zip、服务器 env、host/IP 绑定、防火墙、Linux/Windows smoke、`server-deployment.md`）
 - [ ] **4.1** 痛点 ↔ 平台价值映射矩阵
 - [ ] **4.2** 风控 Demo + 提效 Demo 材料包
 - [ ] **4.3+** （可选）IAM / Portal 信息架构

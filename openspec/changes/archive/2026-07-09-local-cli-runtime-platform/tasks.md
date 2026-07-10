@@ -63,7 +63,7 @@
       Verify: API tests prove `regenerate_check_case=true` still writes the deterministic lightweight template and does not affect formal case counts/scoring.
 - [x] 5.9 Use a dedicated lightweight harness prompt for preflight cases instead of the formal skill-execution prompt.
       Verify: harness prompt tests prove `type: preflight` / `safe_preflight: true` cases do not instruct the local agent to run the formal skill workflow, while entrypoint bundles only ask for visibility/file evidence.
-- [ ] 5.10 Deferred P1: add first-case canary to stop later cases after process-level local runtime failures.
+- [x] 5.10 Deferred P1: add first-case canary（明确不做于本 change；留 backlog） to stop later cases after process-level local runtime failures.
       Verify: future tests distinguish process/runtime failures from successful execution with poor business output; not part of P0.
 
 ## 6. Runtime Failure Taxonomy
@@ -115,5 +115,5 @@
 - [x] 9.1 Update `docs/runbooks/local-agent-exec-validation.md` with runtime platform concepts, preflight, explicit switching, and troubleshooting.
 - [x] 9.2 Propose updates to `RECORD.md` and `.project_memory/active/SPRINT_phase3-eval-system.md` after implementation verification.
 - [x] 9.3 Sync accepted requirements into `openspec/specs/skill-execution/spec.md` during archive.
-- [ ] 9.4 Archive OpenSpec change only after tests, live checks, and user acceptance.
+- [x] 9.4 Archive OpenSpec change only after tests, live checks, and user acceptance.（2026-07-09 用户确认可归档）
 - [x] 9.5 Update user-facing docs/runbook language so non-technical users see "本地执行环境检查" while developers can still diagnose preflight cache/fingerprint details.

@@ -2,7 +2,7 @@
 
 > **Sprint Root**：工作区根目录（`Skillhub/`）  
 > **创建日期**：2026-06-12  
-> **状态**：⬜ 待启动（依赖阶段三 **本地评估验收收官**：W5.5 三剧本 + W8 本地真跑）  
+> **状态**：⬜ 待启动。阶段三 **主链路已实机验收**（2026-07-09），但仍可能增强、**尚未正式完结**；启动本 Sprint 前与产品确认是否进入服务器/集市窗口。详见 `RECORD.md` 交接快照。  
 > **Goal**：在 **评估系统本地已可独立运行** 的前提下，完成 **服务器部署与多人协作彩排**，建设 **Skill 集市与消费者发现**（listing / Trending / NL 匹配 / 发布 Freeze），并完成 **立项提案与商业价值呈现**（痛点映射、Demo 材料、可选 IAM/Portal 细化）。
 
 ---
@@ -21,9 +21,9 @@
 > **部署路线**：release zip → 服务器 env + smoke → 后续 Git/Docker。
 
 - [ ] **W7-1** Release zip 制作（排除 `.env` / `venv` / 用户绝对路径）
-- [ ] **W7-2** 服务器 env：`STAGING_ROOT`、`DATABASE_URL`、双模型 API Key
-- [ ] **W7-3** 服务器 smoke：重跑阶段三 Demo 剧本 A；验证 Linux 路径/编码/权限
-- [ ] **W7-4** `docs/runbooks/server-deployment.md`：部署步骤与 env 清单
+- [ ] **W7-2** 服务器 env 与访问绑定：`STAGING_ROOT`、`DATABASE_URL`、双模型 API Key、`serve --host/--port`、服务器 IP / 域名、Windows/Linux 防火墙或内网访问策略
+- [ ] **W7-3** 服务器 smoke：重跑阶段三 Demo 剧本 A；验证 Linux/Windows 路径、编码、权限、浏览器访问地址；若 UI/API 分离，确认 `index.js` 的 `API` 与 CORS
+- [ ] **W7-4** `docs/runbooks/server-deployment.md`：部署步骤、env 清单、host/IP 绑定、UI 同源/跨源配置、本地 Agent 仍依赖运行 `serve` 的机器这一边界
 
 **建议顺序**：W7 可在 W6 集市开发前或并行启动（多人访问评估 UI 的前置）；公网题中央 agent 复核能力可在 W7 后迭代。
 

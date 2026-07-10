@@ -96,9 +96,9 @@
 
 ### Requirement: 执行来源传输分派
 
-`LocalAgentSource` 获取产出 SHALL 经「按 `AgentDef.stream_format` 的传输分派」：`stream-json` SHALL 复用现有 `LocalAgentRunner`；`acp-json-rpc` SHALL 为受控扩展点（当前抛 `NotImplementedError`，不实现）。claude/codex/cursor-agent 的执行、usage 透传、红线 `HardenedProfile`、降级矩阵与 `ExecResult` 字段 SHALL 保持不变。trae SHALL 作为 stream-json adapter 经同一路径真跑（修正其 bin 名 `trae-cli` 与 stream-json 调用参数后）。
+`LocalAgentSource` 获取产出 SHALL 经 runtime platform / 「按 `AgentDef.stream_format` 的传输分派」：`stream-json` SHALL 复用现有 `LocalAgentRunner`；`acp-json-rpc` SHALL 为受控扩展点（当前抛 `NotImplementedError`，不实现）。claude/codex/cursor-agent 的执行、usage 透传、红线 `HardenedProfile`、降级矩阵与 `ExecResult` 字段 SHALL 保持不变。trae SHALL 作为 stream-json adapter 经同一路径真跑。正式执行 SHALL 使用 runtime readiness 与真实 case 执行结果兜底，SHALL NOT 要求 skill-specific preflight pass。
 
-正式评估 SHALL 使用全局偏好中的 `exec_agent` 与 `exec_model`（经 `resolve_adapter` 传入各 adapter 的 `--model` 等参数）；agent 连通性 smoke test SHALL 固定使用默认模型，不得误用其他 agent 的 `exec_model`。
+正式评估 SHALL 使用全局偏好中的 `exec_agent`/`exec_model`（或等价 runtime/model 偏好）；agent 连通性 smoke test SHALL 固定使用默认模型，不得误用其他 agent 的 `exec_model`。`ExecResult` 仍为评估引擎边界；judge 与评分聚合 SHALL 仅消费 `status=ok` 且存在 `actual_output` 的正式 case。未完成 case SHALL 保留执行诊断与 per-case 状态，但 SHALL NOT 进入 DeepSeek/Gemini judge、`model_votes`、provider 均值、R5 或 `score_total`。
 
 本地 agent 执行 SHALL 在每个 case 的隔离 workspace 执行前后做文件指纹快照；新增或修改的小文本文件 SHALL 作为 `actual_output.artifacts[]` 回传（至少包含 `path`、`size_bytes`、`content`）。系统 SHALL 跳过未变化的原始 bundle 文件、常见二进制/缓存文件与过大的文件。若 agent 最终文本包含 structured JSON，artifacts SHALL 与该 JSON 共存而非被丢弃。
 
@@ -212,30 +212,71 @@
 - **When** 引擎生成 `EvaluationReport`
 - **Then** `exec_agent_label`/`exec_model_label` SHALL 取自该成功 `ExecResult` 的 `agent_label`/`model_label`
 
-## Runtime platform（2026-07-07 合入）
+## Runtime platform（自 `local-cli-runtime-platform` 合入，2026-07-09 archive）
 
 以下增量自 OpenSpec change `local-cli-runtime-platform` 同步。用户面向文案使用「本地执行环境检查」；实现与开发者文档仍可使用 preflight/runtime 术语。
 
 ### Requirement: 本地 CLI runtime 平台契约
 
-系统 SHALL 将本地 CLI agent 抽象为可复用 runtime，而非由评估引擎直接依赖各 CLI 的启动参数与原始输出格式。每个 runtime SHALL 通过声明式定义描述身份、二进制解析、版本探测、认证/配置探测、模型探测、prompt 传输方式、skill 注入策略、stream 格式、工具能力、preflight 配置、安装/修复指引。系统 SHALL 至少支持 `Codex`、`Cursor Agent`、`Trae`、`Claude`、`Antigravity` 五个 runtime。
+系统 SHALL 将本地 CLI agent 抽象为可复用 runtime，而非由评估引擎直接依赖各 CLI 的启动参数与原始输出格式。每个 runtime SHALL 通过声明式定义描述身份、二进制解析、版本探测、认证/配置探测、模型探测、prompt 传输方式、skill 注入策略、stream 格式、工具能力、preflight 配置、安装/修复指引。系统 SHALL 至少支持 `Codex`、`Cursor Agent`、`Trae`、`Claude`、`Antigravity` 五个 runtime。新增 CLI runtime SHOULD 通过新增 runtime definition、event normalizer 与 preflight fixture 接入，而非修改评估引擎主逻辑。
 
-runtime definition SHALL 随代码版本化；resolved CLI path、用户选择的 runtime/model、preflight cache SHALL 作为本机用户状态保存在 SQLite，且 SHALL NOT 写回 runtime definition。
+runtime definition、能力默认值、prompt transport 与 skill injection 策略 SHALL 作为项目级产品定义随代码版本化。resolved CLI path、认证/ready 探测结果、用户选择的 runtime/model、一键切换偏好、preflight cache SHALL 作为本机用户状态保存到现有本地 SQLite/config 层，且 SHALL NOT 写回 runtime definition 或提交到仓库。
+
+#### Scenario: 新增 runtime 不修改评估引擎
+
+- **Given** 一个新 CLI agent 具备可声明的二进制、模型探测、prompt 传输与 stream 格式
+- **When** 开发者新增该 runtime 的 definition、event normalizer 与 fixture 测试
+- **Then** 该 runtime SHALL 可被 scan/preflight/formal local execution 路径使用
+- **And** 不需要修改 judge、R1-R8、报告聚合或专家复核逻辑
+
+#### Scenario: 连接测试与当前 Skill 检查分开展示
+
+- **Given** 用户查看本地工具 readiness card
+- **When** 某本地工具连接测试通过但当前 Skill 本地执行环境检查未通过
+- **Then** UI SHALL 分开展示“连接测试”和“当前 Skill 检查”两个状态
+- **And** SHALL NOT 使用一个笼统“可用”徽章暗示正式本地评估已经可运行
 
 ### Requirement: 统一 AgentEvent 事件层
 
-系统 SHALL 将各 CLI 原始输出流归一化为内部 `AgentEvent` 流，再由统一逻辑合成 `ParsedStream`/`ExecResult`。完整 live raw stream SHALL 仅保存在 ignored 目录（例如 `.tmp/raw_runtime_streams/`）；仓库内 fixture SHALL 经 sanitizer 脱敏。默认测试套件 SHALL NOT 依赖本机已安装 CLI；live E2E 仅在 `RUN_LOCAL_AGENT=1` 等显式开关下运行。
+系统 SHALL 将各 CLI 的原始输出流先归一化为内部 `AgentEvent` 流，再由统一逻辑合成 `ParsedStream`/`ExecResult`。评估引擎 SHALL NOT 直接消费各 CLI 原始 JSON/event/text 方言。完整 live raw stream SHALL 仅保存在 ignored 目录（例如 `.tmp/raw_runtime_streams/`）；仓库内 fixture SHALL 经 sanitizer 脱敏。默认测试套件 SHALL NOT 依赖本机已安装 CLI；live E2E 仅在 `RUN_LOCAL_AGENT=1` 等显式开关下运行。
 
 ### Requirement: runtime preflight 作为可选本地执行环境诊断
 
-当用户选择本地 CLI runtime 时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`，且 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。runtime preflight SHALL 作为用户可手动触发的“本地执行环境检查”诊断能力保留。主入口为执行设置 Agent 卡；ZIP/bootstrap 成功响应 SHALL 返回 `staging_path`，使 UI 在补题完成前即可发起检查。对话顶栏在 `exec_source=local` 时 MAY 展示未检查/检查中/已通过/未通过状态并打开执行设置，SHALL NOT 在顶栏直接 POST preflight。无历史结果时 UI SHALL 展示为未检查，不得把未跑过标成失败。高风险 bundle 缺少安全 preflight case 时，手动诊断 API MAY 使用确定性轻量模板自动生成 `runtime_preflight_01`（`type: preflight`），不得默认调用 LLM 生成检查题；preflight 执行 SHALL 使用专用轻量 harness，只允许读取/确认 Skill 与必要文件/入口可见性，不得按正式业务流程取数、诊断或运行完整 pipeline；该 case SHALL 不计入正式 case 数量与 judge 评分。
+当用户选择本地 CLI runtime 作为执行源时，系统 SHALL NOT 因 skill-specific runtime preflight 缺失、失败、过期或因指纹变化失效而阻止正式本地评估进入 `case_executing`。runtime preflight SHALL 作为用户可手动触发的本地执行环境诊断能力保留；正式本地评估的可信边界 SHALL 由真实 eval case 执行结果承担。系统 SHALL NOT 在用户开始正式本地评估时自动运行 skill-specific preflight。
 
-缓存 SHALL 在 SQLite 中保存 24 小时，并在 runtime id、model id、skill fingerprint、CLI path/version 或 SkillHub version 变化时失效。缓存状态仅用于诊断/UI 展示，不作为正式本地评估硬门禁。
+面向普通用户的产品文案 SHALL 将该能力称为“本地执行环境检查”。主入口为执行设置 Agent 卡；ZIP/bootstrap 成功响应 SHALL 返回 `staging_path`，使 UI 在补题完成前即可发起检查。对话顶栏在 `exec_source=local` 时 MAY 展示未检查/检查中/已通过/未通过状态并打开执行设置，SHALL NOT 在顶栏直接 POST preflight。无历史结果时 UI SHALL 展示为未检查，不得把未跑过标成失败。
+
+高风险 bundle 缺少安全 preflight case 时，手动诊断 API MAY 使用确定性轻量模板自动生成检查用例（`type: preflight`），不得默认调用 LLM；preflight 执行 SHALL 使用专用轻量 harness；该 case SHALL 不计入正式 case 数量与 judge 评分。
+
+#### Scenario: preflight 缺失时仍允许正式评估
+
+- **Given** 用户选择 `execution_source=local` 且 runtime/model 没有有效 preflight pass
+- **When** 用户尝试开始正式本地评估
+- **Then** 系统 SHALL 直接进入正式 eval case 执行路径
+- **And** SHALL NOT 返回 `LOCAL_RUNTIME_PREFLIGHT_REQUIRED` 作为整轮阻断原因
+
+#### Scenario: ZIP 挂载后即可做环境检查
+
+- **Given** 用户已成功上传 ZIP 或 bootstrap，且响应含 `staging_path`
+- **When** 用户打开执行设置且本地 Agent 已 detected
+- **Then** UI SHALL 在补题完成前即可对当前 Skill 发起本地执行环境检查
+
+### Requirement: preflight 缓存与指纹失效
+
+系统 SHALL 在现有 SkillHub SQLite 数据库中持久化 runtime preflight 诊断结果 24 小时。preflight 诊断结果 SHALL 绑定 runtime id、model id、skill fingerprint、resolved CLI path、CLI version、runtime definition fingerprint、SkillHub version。任一绑定输入变化时，系统 SHALL 将旧 preflight 视为失效。过期或失效的 preflight SHALL NOT 阻止正式本地评估。
+
+### Requirement: runtime preflight 证明真实 skill 执行能力
+
+runtime preflight SHALL 针对当前 skill bundle 使用安全 preflight probe 验证该 runtime 能读取指令、在正确 workspace 中执行安全 entrypoint/probe（若要求）、产出可解析结果并提供工具执行证据（若要求）。仅模型文本回复成功 SHALL NOT 被视为 preflight 通过。自动生成 SHALL 使用确定性轻量模板，不得默认调用 LLM。
+
+### Requirement: skill 注入策略
+
+系统 SHALL 为 runtime 提供可声明的 skill 注入策略：native skill loading、file-placed workflow、prompt injection。每个 runtime SHALL 至少支持 prompt injection 作为兜底。注入层 SHALL 在 prompt/argv 过大时返回明确失败原因（如 `runtime_prompt_too_large`）。
 
 ### Requirement: 显式 runtime 切换而非自动 fallback
 
-preflight 未通过或 runtime 失败时，系统 SHALL NOT 自动切换 runtime。UI MAY 展示其他已通过检查的 runtime，并通过 `POST /api/exec/runtimes/switch` 等显式操作更新本地偏好后由用户重新发起评估。显式切换 SHALL 保留已验证的 runtime/model 组合，而非无条件退回默认模型。
+本地 runtime 失败或 preflight 未通过时，系统 SHALL NOT 自动切换到其他 runtime。UI MAY 展示其他已通过检查的 runtime，并通过显式操作（如 `POST /api/exec/runtimes/switch`）更新本地偏好后由用户重新发起评估。显式切换 SHALL 保留已验证的 runtime/model 组合，而非无条件退回默认模型。报告 SHALL 区分 requested runtime/model 与实际成功执行 runtime/model。
 
-### Requirement: 执行来源传输分派（修订）
+### Requirement: runtime 失败原因产品化
 
-`LocalAgentSource` 获取产出 SHALL 经 runtime platform 分派；正式执行 SHALL 使用 runtime readiness 与真实 case 执行结果兜底，不要求 preflight pass。`ExecResult` 仍为评估引擎边界；正式评分仅消费 `status=ok` 且存在 `actual_output` 的 case，未完成 case 只进入执行诊断与 per-case 状态呈现。
+系统 SHALL 使用稳定、可读、可持久化的 runtime failure taxonomy，而非把所有未完成统一归为 `run_incomplete`。失败原因 SHALL 至少覆盖：未安装、不可启动、未登录、模型不可用、preflight 缺失/过期、工具权限不足、prompt 过大、CLI 崩溃、进程超时、完成事件缺失、parser 不支持、entrypoint 未调用、输出泄漏、workspace 错误。报告、事件日志与 UI SHALL 使用这些原因生成中文说明与修复提示。

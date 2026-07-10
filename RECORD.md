@@ -1,6 +1,65 @@
 # RECORD — SkillHub MVP
 
-> 总账文档：记录项目目标、决策与状态。阶段二 Sprint 已归档：`.project_memory/archive/SPRINT_skillhub-mvp_completed.md`；**阶段三** Active Sprint：`active/SPRINT_phase3-eval-system.md`；**阶段四** 待启动：`active/SPRINT_phase4-marketplace-biz.md`。
+> 总账文档：项目目标、决策与状态。详细任务勾选见 `.project_memory/`；本文件顶部「交接快照」供下一任 agent / 同学开场阅读。
+
+| 记忆层 | 路径 | 用途 |
+|--------|------|------|
+| 本文件 | `RECORD.md` | 概览、时间线、已完成/未完成、决策与流水 |
+| 阶段三 Sprint | `.project_memory/active/SPRINT_phase3-eval-system.md` | 阶段三任务真源（勾选） |
+| 阶段四 Sprint | `.project_memory/active/SPRINT_phase4-marketplace-biz.md` | 待启动；集市 + 服务器 + 立项 |
+| 架构 | `.project_memory/global/ARCHITECTURE.md` | 模块边界（细节以 Sprint / 全景说明为准） |
+| Backlog | `.project_memory/backlog/BACKLOG.md` | 非当前主线积压 |
+
+---
+
+## 交接快照（2026-07-09）
+
+> **给下一任**：先读本节，再按需下钻决策表 / 变更流水。不要把下方历史 Completed 清单当成待办。
+
+### 项目概览
+
+SkillHub MVP 目标是内部 Skill **分享、治理与使用** 平台（重运营、重标准、低门槛）。当前仓库交付的是其中的 **Skill 自动评估系统**。
+
+**主路径（默认即可演示）**：上传 ZIP → 材料/补题门禁 → 双模型三维打分 → 报告 / 专家复核。  
+**可选增强**：本地 CLI Agent 真跑（Codex / Cursor Agent / Trae）——用户选择 `execution_source=local` 时才走；未选则用 `sample_io`，不要求本机装 CLI。
+
+**阶段定位**：**阶段三（评估系统）主链路已实机验收，可交接继续增强**；**阶段三尚未正式完结**（仍可能优化）；**阶段四未启动**。
+
+**关于测试数量**：下文 Wave 旁的 `235 / 400 / 742…` 是**当时里程碑快照**，不是「当前全量基线」，也不可累加。当前绿测以本机 `pytest` 为准；勿把历史流水里的 `N failed` 当成交接阻塞项。
+
+**关于换机 / 服务器承接**：当前 Demo 默认是单机本地服务，`skillhub-eval serve` 默认绑定 `127.0.0.1`，只允许运行服务的电脑访问。新电脑或服务器接手时，先看 `README.md` 的「新机器启动检查清单」和「换电脑 / 服务器承接注意」：重点检查 `serve --host/--port`、`.env` 的 `EVAL_DB_PATH` / `STAGING_ROOT` / 双模型 Key、本地 CLI Agent 安装登录、UI `API=''` 同源假设、Windows 防火墙与公司网络策略。`127.0.0.1` 永远指浏览器所在机器自己；跨机器访问必须用运行 server 那台机器的真实 IP。不要复用旧电脑的绝对路径、runtime cache 或本机 agent 状态。
+
+### 已完成（可演示）
+
+- 阶段一规范文档 + 阶段二评估引擎闭环
+- Chat-First 对话评估：补题计划、自动正式评、专家视角、会话归档、安全分层（**可不启用本地 Agent**）
+- 本地 Agent 执行桥（**可选**）：Codex / Cursor Agent / Trae 真跑 + 失败阻断（不静默回退 sample_io）
+- 环境检查为**可选诊断**（非正式评估硬门禁）；Token/耗时同卡
+- 用户确认（2026-07-09）：评估主路径 + 本地真跑 + 测试端实测通过；`local-cli-runtime-platform` **已归档** `openspec/changes/archive/2026-07-09-local-cli-runtime-platform/`
+
+### 未完成 / 开放
+
+| 项 | 说明 |
+|----|------|
+| **阶段三正式收官** | 主链路已通，但仍可能继续优化；未宣布阶段三完结 |
+| **阶段三增强（按需）** | 体验/稳定性等——**仅当有产品反馈时**再开；非阻塞交接 |
+| **阶段四** | 服务器部署（W7）、集市（W6）、Golden Case / 上架后健康检查（W10）、立项材料（4.1–4.2） |
+| **明确不做（现阶段）** | 改 1.2 准入阈值（85/70/90）；阶段三夹带集市或服务器部署 |
+
+**不要**把下列项当成开场待办（均在 Backlog，可选）：W8.4 多 agent 对照、N3/N5 失败原因细分、trae UI 纵切、`staging_path` 刷新加固、`phase3-eval-validation.md` 等。
+
+### 下一优先（交接后）
+
+1. 按产品反馈做**阶段三增强**（有明确痛点再开 OpenSpec；无则保持可演示状态）
+2. 条件成熟时启动 **阶段四**（见 `SPRINT_phase4-marketplace-biz.md`）
+
+### Agent 必读顺序
+
+1. 本交接快照  
+2. `README.md`（如何跑）  
+3. `SPRINT_phase3-eval-system.md` 顶栏状态  
+4. 需要改执行层 → `openspec/specs/skill-execution/spec.md` + `docs/runbooks/local-agent-exec-validation.md`  
+5. 业务全景 → `docs/guides/Skill评估系统全景说明.md`
 
 ---
 
@@ -8,9 +67,18 @@
 
 构建 **SkillHub MVP**：面向全员的内部 Skill **分享、治理与使用** 平台——**重运营、重标准、低门槛**，而非单纯技术仓库。通过统一元数据规范、**多模型评审 Agent** 交叉验证的三维准入机制（指令遵循度 / 输出合规性 / 业务解决度），确立资产质量底线；并以业务场景化分类、自然语言交互（LUI）与数据驱动推荐，降低非技术员工使用门槛。
 
-**四阶段设计路线**（2026-06-12 重定标；**2026-06-23** 阶段边界再收紧）：① 准入规范与自动质检 → ② 闭环验证与评判调优（Capability + 上架后健康检查 + 使用反馈）→ ③ **评估系统完善**（对话式评估、安全门禁、自动补题、专家复核、报告呈现、**本地 Demo 验收**）→ ④ **集市生态 + 服务器部署 + 立项提案与商业价值呈现**（W7 服务器部署、listing / Trending / 消费者发现、痛点映射、Demo 材料、可选 IAM/Portal）。
+### 四阶段路线与时间线
 
-**当前交付边界**：阶段一文档定标 ✅；阶段二 **全量收官** ✅（220 tests）；阶段三 **W0** ✅（235）、**W1** ✅（250）、**W2** ✅（292）、**W3** ✅（328）、**W4 LUI Agent** ✅（367）、**W5 Chat-First 对话壳** ✅（400）、**W5.1 聊天简卡 + 报告分流** ✅（413）、**W5.2 UI 透明化** ✅（447）、**W5.3 智能对话 + LLM 补题计划** ✅（472）、**W5.3.1 Demo 热修** ✅（475）、**W5.3.2 评估门禁 + 自动正式评估** ✅（478）、**W5.3.3 材料补充卡片 UX** ✅、**W5.3.4 材料补充卡 UI 精修** ✅、**W5.4 评分过程留痕 + 追踪页** ✅（**498+ tests**；OpenSpec 已归档 `archive/2026-06-12-wave5.4-judge-trace/`）。**W5.5 剧本 A**（stock-radar 全流程 + FB-16～18 热修 + 追踪页 + 专家裁定）✅ **实机通过**。**W5.5 UI 制式回单 + 侧栏独立滚动 + 会话归档（DB v8）** ✅ **实机通过**（UI `w5.5-form-archive-hints`）；OpenSpec 已归档 `archive/2026-06-12-conversation-archive/`。**W5.5 安全 gate 分层 + 拦截 UX** ✅（`bundle_security`；**511 tests**）。**W5.5 回归 fixture 三件套 + 评估结果/拦截 UX 热修** ✅（`testskills/stock-radar-fixture-{sec-block,score-low,score-high}`；fail 红标、`security_blocked` 可读说明、共识 fail 聚合、`skill_summary` 兜底；**524 tests**）。**W8 本地 Agent 执行桥 + UI 执行桥** ✅ **收官**（后端 23/23 + UI C01–C16；**595 tests**；DB v9；网页实机验收通过 tiered-memory-sprint-manager + cursor-agent；judge/local agent 超时预算拆分）— OpenSpec 已归档 `archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/`。**W4.5 provider-env-factory** ✅（双评审槽位 env 驱动 + 报告/UI/脚本 label 全链路；UI `w4.5-provider-labels`）。**P2 工程优化** ✅（`index.html` 主业务脚本拆分、engine/chat 状态流小拆分、pytest 环境整理）。**不重写** 1.2 准入阈值（85/70/90）。**Q-29 已完全收官（2026-07-02）**：Codex/Cursor Agent/Trae 三个本地 CLI 均已确认端到端跑通 `exec-fixture-minimal`（`status=ok`），8.10 整项勾选。过程中按 TDD 修复诊断假阳性（D13）+ Cursor Agent 解析器 bug（D14）+ Trae 三个真实 bug（`--allowed-tool` 叠加解锁 D17、Windows cmd.exe 中文路径 cd 缺陷规避 D18、Trae 解析器 bug D19）+ Codex 解析器同类 bug（D20）+ LocalAgentRunner 超时失效（stdin 阻塞主线程）与 Windows 孤儿进程双重 bug（D21）。**当前主线（下一窗口）**：**W5.5 本地验收收官**（剧本 B/C + `phase3-eval-validation.md`）。**服务器部署（原 W7）**、集市生态（原 W6）/ W10 **已移至阶段四**。阶段二可选收尾已取消。
+| 阶段 | 内容 | 状态 | 大致时间 |
+|------|------|------|----------|
+| **一** | 准入规范与自动质检文档（1.1–1.3 + 编写指南） | ✅ 收官 | 2026-06-01～06-02 |
+| **二** | 评估引擎工程（Capability + 报告/专家台 + UI） | ✅ 收官（Sprint 已归档） | 2026-06-02～06-05 |
+| **三** | 评估系统完善：对话评估、安全、补题、本地 Demo、本地 Agent 真跑 | 🟢 **主链路已验收，可交接增强**；尚未正式完结 | 2026-06-09～进行中 |
+| **四** | 服务器部署 + 集市生态 + 立项/商业价值呈现 | ⬜ 待启动 | 依赖阶段三收官窗口 |
+
+**阶段三内里程碑（摘要）**：W0–W5.4 对话与报告 ✅ → W5.5 剧本 A / UI / 安全 ✅ → W8 本地执行桥 ✅ → Q-24～Q-29 / adapter / trial-hardening ✅ → runtime 产品化 + 环境检查 UI ✅（2026-07-09 实机）→ **当前：可交接继续增强，阶段四未开**。
+
+**边界**：不重写 1.2 阈值（85/70/90）。服务器 / 集市 / W10 在阶段四。
 
 ---
 
@@ -167,7 +235,7 @@
 | **W5.3.3** | 材料补充复合卡：gate+plan 同批出现；评估材料补充命名；中文 gap；两按钮 | ✅ 已收官 |
 | **W5.3.4** | 材料补充卡 UI 精修：去 v1 徽标；2 列表格+红线折叠；gate pill 行；L0 blockquote；历史状态汉化 | ✅ 已收官 |
 | **W5.4** | 评分过程留痕：Prompt v0.5、DB v7 `judge_traces`、分歧合成、`/ui/trace.html`、报告 `has_judge_trace` | ✅ 已收官 + 归档（498+ tests） |
-| **W5.5** | 本地 Demo 验收（三剧本 + runbook）+ 制式 UI + 会话归档 | 🟡 **剧本 A ✅**；**UI 制式/布局/归档 ✅**；**安全 gate 分层+拦截 UX ✅**；剧本 B/C + runbook 待补 |
+| **W5.5** | 本地 Demo 验收 + 制式 UI + 会话归档 | 🟢 **主链路实机验收通过**（评估 UI + 本地真跑）；剧本 B/C 文档化为可选增强，不阻塞交接 |
 | **W8（重定义）** | **本地 Agent 执行桥**（穿透本地 CLI agent 真跑 skill → 回传真实产出 → 复用 judge）；**取代原 W8 Level 2 沙盒 + 原 W9 自建 Harness** | ✅ **收官**（595 tests；网页实机验收通过；OpenSpec 已归档 2026-06-18） |
 | ~~**W7 服务器部署**~~ | ~~服务器彩排~~ | **已移至阶段四**（2026-06-23） |
 | ~~**W8 Level 2 沙盒**~~ | ~~引擎接 `PythonSubprocessRunner`~~ | **已废弃**（2026-06-17）：本地 agent 跑任务时已执行脚本，中央代码跑冗余 |
@@ -180,65 +248,42 @@
 
 | 事项 | 状态 |
 |------|------|
-| 阶段二 **全量收官** | **✅**（220 tests；Sprint 归档 `SPRINT_skillhub-mvp_completed.md`） |
-| **阶段三 Wave 0** | **✅ 收官** — `wave0-infra` 落地；235 tests |
-| **阶段三 Wave 1** | **✅ 收官** — Q-08 场景分类词表（`wave1-taxonomy`）；250 tests |
-| **阶段三 Wave 2** | **✅ 收官** — Security Intake Gate Level 0.5；292 tests |
-| **阶段三 Wave 3** | **✅ 收官** — Case Propagator + 题型完整性门槛 + POST /conversations/start；328 tests |
-| **阶段三 Wave 4** | **✅ 收官 + 归档** — LUI Agent + staging_writer + API；367 tests；`archive/2026-06-12-wave4-lui-agent/` |
-| **阶段三 Wave 5** | **✅ 收官 + 归档** — Chat-First 对话壳；DB v3 rich_report；400 tests；`archive/2026-06-12-wave5-chat-first-shell/` |
-| **阶段三 Wave 5.1** | **✅ 收官 + 归档** — 聊天简卡 + 报告分流；DB v4 pending_patch；413 tests；`archive/2026-06-12-wave5.1-chat-report-split/` |
-| **W5.4 judge-trace** | **✅ 收官 + 归档** — `archive/2026-06-12-wave5.4-judge-trace/`；498+ tests |
-| **W5.5 Demo 剧本 A** | **✅ 实机通过** — stock-radar：材料补充合并卡 → 自动出题 → 正式评 → 追踪页 → 专家裁定（FB-16～18 已验） |
-| **W5.5 UI 制式回单 + 侧栏归档** | **✅ 收官 + 归档** — 方向三「制式回单」换肤；Layout A；`DELETE /conversations/{id}` 软归档（DB v8）；删除门禁与「需专家删除」提示；UI `w5.5-form-archive-hints`；`archive/2026-06-12-conversation-archive/` |
-| **W5.5 安全 gate 分层 + 拦截 UX** | **✅ 收官** — `core/bundle_security.py`（intake 阻断 / propagator case 参考）；gate payload 含 `security_findings` + 红色告警；补题后不再因对抗题误拦开评；**511 tests** |
-| **W5.5 Demo 剧本 B/C + runbook** | **🟡 待补** — Reject 解冻复评、quota 熔断、验收矩阵文档 |
-| **W5.3.4 材料补充卡 UI 精修** | **✅ 收官** — 去 v1；2 列表格+红线 `<details>`；gate 压缩 pill 行；L0 左侧色条；agent 气泡白底蓝边；历史 Tab 状态汉化；UI w5.3.4 |
-| **阶段路线重定标** | **✅ 2026-06-12** — 阶段三 = 评估系统完善；集市 W6 → 阶段四；Sprint 见 `SPRINT_phase3-eval-system.md` / `SPRINT_phase4-marketplace-biz.md` |
-| **W5.3.3 材料补充 UX** | **✅ 收官** — gate 延后至 enrich 后与 plan 同批落库；UI 复合卡「评估材料补充」；两按钮 + 中文 gap |
-| **W5.3.2 评估门禁流** | **✅ 收官 + 归档** — 方案 B；478 tests；`archive/2026-06-12-wave5.3.2-assessment-gate-flow/` |
-| **W5.3.1 Demo 热修** | **✅ 收官** — 澄清去重 + 全链路等待 + 超时可配；475 tests |
-| **W5.3 智能对话** | **✅ 收官 + 归档** — `wave5.3-intelligent-chat`；472 tests；`archive/2026-06-12-wave5.3-intelligent-chat/` |
-| **W5.2 UI 透明化** | **✅ 收官 + 归档** — 447 tests；`archive/2026-06-12-wave5.2-ui-transparency/` |
-| **W5.5 回归 fixture + 拦截 UX 热修** | **✅ 收官** — 三 fixture + UI fail 红标/说明；**524 tests** |
-| **W8 本地 Agent 执行桥 + UI** | **✅ 收官 + 归档** — `local-agent-exec-bridge` 23/23 + `ui-local-exec-bridge` C01–C16；**595 tests**；网页实机验收通过；`archive/2026-06-18-local-agent-exec-bridge/`、`archive/2026-06-18-ui-local-exec-bridge/` |
-| **W4.5 provider-env-factory** | **✅ 收官** — `JUDGE_PROVIDER_A/B_*` 双评审槽位、`OpenAICompatibleProvider`、API/CLI/脚本工厂、报告/UI 全链路 label（含 per-case 表头与不可用横幅）；UI build `w4.5-provider-labels` |
-| **Q-24 / Q-25 功能优化包** | **✅ 已合入 main（2026-06-30）** — Q-24 ①②④⑤ + 五 Agent registry/模型选择 + Q-25 Token 汇总均在 `main`；**W8.4 多 agent 对照统计仍未做** |
-| **W8.7 / Q-26 可扩展 adapter 框架** | **✅ 已合入 main + 归档（2026-06-30）+ hardening（2026-07-01）** — 数据驱动检测/三态 auth + 通用 `model_probe` + trae stream-json 真跑 + `transport` 接缝 + scan/UI 三态徽章与安装指引；网页实机 codex/cursor-agent/trae **Test 通过**；smoke test 不再误用全局 `exec_model`；补齐本地 agent 工作区 artifacts 收集、Cursor `models → --list-models` 模型探测 fallback 与非模型提示过滤。OpenSpec `archive/2026-06-30-local-agent-adapter-framework/` |
-| **local-agent-trial-hardening（Q-28）** | **✅ 已实现（2026-07-01）** — 实测发现本地执行失败会**静默降级**为 `sample_io` 且报告仍显示原选 Agent/模型已执行；改为**阻断而非静默降级**（按 case incomplete，全部失败才整轮 `failed`，`redline_no_hardened_profile` 仍保留刻意降级）；报告新增 `exec_requested_agent_label/model_label` 区分「选了什么」vs「真跑了什么」；失败原因持久化为 `local_agent_failure` 事件；UI 四项修复：skill 确认 loading 文案按会话状态统一、Cursor 徽章 Test 后乐观转「可用」+ 三卡路径统一 `break-all`、Token 消耗汇总收窄为总计+三分桶+弹窗明细。真机用 Trae/GLM-5.2 验证：`run_id=9f5ff946...` 如实报 `LOCAL_EXEC_ALL_CASES_FAILED` + `exec_agent_label=None`（不再冒充已执行）。此后经 Q-29 收尾 Codex/Cursor Agent/Trae 三个本地 CLI 全部端到端跑通（D13–D21）。OpenSpec 已归档 `archive/2026-07-07-local-agent-trial-hardening/`，delta spec 已同步进 `openspec/specs/skill-execution/spec.md`（新增「本地执行失败阻断而非静默回退」「阻断粒度为按 case」「本地执行失败原因持久化可追溯」「报告执行归属诚实性」四条 Requirement） |
-| **报告「Token 与耗时」同卡** | **✅ 2026-07-09 实机确认** — 完整报告/历史详情在 Token 卡展示总耗时、本地 Agent（或 Case 执行）、双模型评测；`case_executing_ms` + UI cache-bust / `.js` no-store |
-| **环境检查 UI 时机与过程态** | **✅ 2026-07-09 实机确认** — ZIP/bootstrap 返回 `staging_path` + 前端缓存；上传后即可在执行设置点「运行环境检查」；顶栏 B3 状态 pill（未检查/检查中/已通过/未通过）；过程态与结果持久显示；执行设置抽屉不再挡住「确认继续」；未检查不再误标「失败/需要生成检查用例」。设计：`docs/superpowers/specs/2026-07-09-env-check-ui-timing-design.md`；计划：`docs/superpowers/plans/2026-07-09-env-check-ui-timing.md` |
+| **阶段三主链路** | 🟢 **已实机验收，可交接继续增强**（对话评估为主；本地 Agent 真跑为可选能力；2026-07-09 用户确认） |
+| **阶段三正式收官** | ⬜ 未宣布完结——仍可能按反馈优化 |
+| **local-cli-runtime-platform** | ✅ **已归档**（2026-07-09）`archive/2026-07-09-local-cli-runtime-platform/`；delta 已同步主 spec |
+| **阶段四** | ⬜ 待启动（`SPRINT_phase4-marketplace-biz.md`） |
+
+> 历史 Wave 收官明细见上方「In Progress（Wave 清单）」与「变更流水」；开场勿逐条当待办。
 
 ---
 
-## 下一步（功能优化 · Codex 执行）
+## 下一步与未来能力
 
-> **窗口约定（2026-06-23 锁定）**：本包**只做功能与 UI**；**全部 pytest / 剧本 B/C / `phase3-eval-validation.md` 后置到本包完成之后**。`skill_summary` 可选跳过**明确不做**。
+### 交接后优先（阶段三增强窗口）
 
-| 序 | ID | 内容 | 交付要点 | 主要触点 |
-|----|-----|------|----------|----------|
-| **①** | Q-24-1 | **引擎多题并行 `case_executing`** | `EvaluationEngine._run_case_exec_phase` 由串行 `for` 改为有界并发（默认 `EXEC_CONCURRENCY=2`）；每题仍走独立 workspace；对齐 W8 spec「并行多题各自隔离」 | `core/engine.py`、`execution/local_agent_source.py` |
-| **②** | Q-24-2 | **UI：本地 Agent 阶段预算可见** | `case_executing` 进行中展示 **已用 / 剩余 / 总预算**（秒，来自 `LOCAL_AGENT_WORKFLOW_TIMEOUT_*` + 当前 `risk_level_locked`）；轮询或 SSE 消费 `stage_progress` / 新增轻量字段；超时终态沿用 `EVAL_LOCAL_AGENT_TIMEOUT` | `adapters/ui/static/assets/index.js`、report API（如需补字段） |
-| **④** | Q-24-4 | **限流退并发 + 按 risk 单题 agent 超时** | 并行 hit 429/rate-limit 时 **退并发到 1** + 指数退避（对齐 W8 spec G11）；单题 `timeout_s` 按 locked risk 分档（可复用 `provider_call_timeout_*` 或新增 `LOCAL_AGENT_CASE_TIMEOUT_*`） | `execution/local_agent_source.py`、`core/latency.py`、`settings.py`、`.env.example` |
-| **⑤** | Q-24-5 | **Provider B 不可用横幅按因分类** | 单侧无分时**禁止**一律写「API 限流」；按 `provider_error` 摘要区分：地域不可用 / 限流 / 密钥或模型错误 / 超时等（中文一句） | `adapters/ui/static/assets/index.js` |
-| **⑥** | W8.4 | **多 Agent 对照统计（最小版）** | 同一 skill 可选多 `exec_agent` 跑对照（或同 run 记录 agent 维度）；报告/历史可筛 **agent × case** 执行结果摘要（不必先做运营看板） | `execution/`、`core/schemas/report.py`、UI 历史或报告区 |
-| **⑦** | Q-25 | **报告 Token 消耗汇总** | 见下「Q-25 范围」 | providers、engine、report schema、UI |
+| 优先 | 内容 | 说明 |
+|------|------|------|
+| **1** | 按反馈增强评估体验 / 稳定性 | 有明确痛点再开 OpenSpec；无则保持可演示 |
+| **2** | （可选）验收文档 | `phase3-eval-validation.md`、剧本 B/C 若需要再补 |
 
-### Q-25 范围（Token 汇总 · 已锁定）
+已合入、勿重复实现：Q-24（并行 case_exec / 预算 UI / 限流退并发 / Provider 横幅）、Q-25 Token 汇总、Q-26 adapter、Q-28/Q-29 真跑收口。
 
-| 项 | 约定 |
+### 阶段四（期待实现 · 待启动）
+
+详见 `.project_memory/active/SPRINT_phase4-marketplace-biz.md`：
+
+| 块 | 内容 |
 |----|------|
-| **采集** | OpenAI 兼容 `/chat/completions` 响应里的 `usage`（`prompt_tokens` / `completion_tokens` / `total_tokens`）；**双模型 judge**、**enrich / 补题 generate**、**divergence 合成**、**skill_summary**、**risk_review** 凡走 provider 的调用均记账 |
-| **本地 Agent** | `ExecResult.usage`（stream-json 已解析部分）并入汇总，阶段标 `local_agent` |
-| **报告字段** | `EvaluationReport` 增 `usage_summary`：`by_stage[]`（stage、provider_label、prompt、completion、total）+ `totals`（全轮合计）；可选 per-call 明细进 `eval_events` 或 `model_votes[].usage` |
-| **UI** | 完整报告 / 历史详情「Token 与耗时」卡：Token 合计 + Provider A/B/本地 Agent 分桶；同卡第二行展示 **总耗时**（`total_phase_ms`）/ **本地 Agent 或 Case 执行**（`case_executing_ms`）/ **双模型评测**（`model_judging_ms`）；**不做** 计费/单价 |
-| **不做** | 对话 LUI 每条消息的 token；阶段四运营看板；改 1.2 阈值 |
+| **W7** | 服务器部署（release zip、env、Linux smoke）——judge 上云，executor 仍可留本地 |
+| **W6** | 集市：listing / Export Freeze / Trending / 消费者 NL 匹配 / 集市 UI |
+| **W10** | Golden Case 固化 + 上架后健康检查 |
+| **4.1–4.2** | 痛点↔价值矩阵、风控/提效 Demo 材料 |
+| **4.3+** | 可选 IAM / Portal |
 
-### 本包明确排除
+### 明确排除（当前）
 
-- `skill_summary` env 跳过（用户决定不做）
-- 本包内不新增/不跑 pytest（收官前统一补测）
-- W5.5 剧本 B/C、`phase3-eval-validation.md`（本包之后）
+- 改 1.2 准入阈值；阶段三夹带集市/服务器
+- 把历史 Completed / 决策表当待办清单
 
 ---
 
@@ -485,9 +530,9 @@
 
 ## 阶段二接续指引（2.1b–2.6）
 
-### 新窗口开场句（可复制 · 阶段三评估系统）
+### 新窗口开场句（可复制）
 
-> 阶段三定位：**本地 Skill 评估跑通**（不做服务器、不做集市）。**W0–W8 + Q-24～Q-29 已收官**（Codex/Cursor Agent/Trae 三个本地 CLI 均已在 2026-07-02 确认端到端跑通 `exec-fixture-minimal`，`status=ok`；≈750 tests）。**本窗口首选**：进入 **W5.5 剧本 B/C + `phase3-eval-validation.md`**（Q-29 8.10 已整项勾选，无遗留 CLI 收尾项）。Q-29 收尾过程中共发现并修复五个真实 bug（均已落地，见「已做决策」D17–D21）：①`--allowed-tool`/`allowed_tools` 是叠加机制而非硬编码限制，`TraeAdapter.build_args()` 补 `--allowed-tool Bash`（D17）；②Windows `cmd.exe` 处理含空格+中文的绝对路径 `cd "..."` 会报路径语法错误（与任何本地 agent 均无关，`cmd /c` 可直接复现），`harness_prompt.py` 补一句「已在正确工作目录，用相对路径，别 cd」规避（D18）；③④`TraeAdapter.parse_stream()`/`CodexAdapter.parse_stream()` 与 D14（Cursor Agent）同类的解析器 bug——通用解析器不认 Trae 真实的 `type:"user",subtype:"tool_result"`、Codex 真实的 `type:"item.completed"`+`item.type:"command_execution"` 事件形状，均已按 TDD 补归一化（D19/D20）；⑤网页 UI 上一次真实 Cursor Agent 评估 `case_executing` 卡住 50+ 分钟远超配置超时——根因是 `proc.stdin.write()` 此前阻塞主线程、发生在截止时间循环建立之前，导致 `timeout_s` 从未真正生效；叠加 Windows `.cmd` 包装进程只 `proc.kill()` 掉 `cmd.exe` 却留下 `node.exe` 孙进程变孤儿的问题；`LocalAgentRunner._stream_until_complete()` 已修复：stdin 写入移到后台线程 + 杀进程改用 `taskkill /PID <pid> /T /F` 整树终止（D21）。详细证据链见 `design.md`「Q-29」相关小节、`tasks.md` 8.10 进展备注。必读 `testskills/README-fixtures.md`、runbook `docs/runbooks/local-agent-exec-validation.md`。**不重写** 1.2 阈值。服务器部署（原 W7）、集市见 **阶段四** `SPRINT_phase4-marketplace-biz.md`。
+> 先读 `RECORD.md` **交接快照（2026-07-09）**。阶段三 **主链路已实机验收，可交接继续增强**（对话评估 + 本地 CLI 真跑）；**阶段三尚未正式完结**；阶段四未启动；活跃 OpenSpec change **已清空**（`local-cli-runtime-platform` 已归档）。按反馈做阶段三增强，或确认后开阶段四。必读 `README.md`、`docs/runbooks/local-agent-exec-validation.md`。**不重写** 1.2 阈值。
 
 ### 2.6 R5 聚合优化说明（减小分歧 ≠ 掩盖分歧）
 
@@ -678,6 +723,9 @@
 | 2026-07-08 | **本地真跑 UI 可观测性与性能热修**：对话顶部新增当前 Skill 的 **环境检查** 按钮（仅诊断、不阻断正式评估）；live 进度面板限制为 `max-h-[40vh]`，case 列表内部滚动并显示「最后刷新」时间；轮询失败时显示 amber 提示。针对 UI 卡顿（新对话/切换会话慢、回复变慢）定位根因：`pollConversation()` 每 3s 拉全量 messages + 50 条 session list 并重绘，`GET /conversations/{id}/status` 在运行中还反复 `ingest_bundle()` 扫复杂包。修复：前端轮询防重入、messages 按数量/终态/强制操作才拉、session list 15s 节流、会话切换丢弃旧响应；后端运行态 status 跳过 bundle 重扫，只返回 run/status/stage_progress。验证：`node --check`；`tests/api/test_ui.py` 29→32 passed；`tests/api/test_chat.py` 8 passed。 |
 | 2026-07-09 | **环境检查 UI 时机落地 + 实机热修收口**。按设计 `2026-07-09-env-check-ui-timing-design.md` / 计划 `2026-07-09-env-check-ui-timing.md`：chat/bootstrap 成功响应返回 `staging_path`；前端会话缓存 + 上传后立刻 scan；Agent 卡在路径就绪时始终露出「运行环境检查」；顶栏改为状态 pill（打开执行设置，不直接跑检查）；报告归属卡去掉环境检查按钮。实机跟进修复：①确认循环——内部动作/确认态忽略残留 ZIP，避免反复 `awaiting_skill_id_confirm`；②未检查误标——readiness 无历史结果一律 `missing`，禁止「需要生成检查用例 / 环境：失败」；③过程态——点击后卡片与顶栏显示「检查中…」，结束后持久「已通过/未通过」；④执行设置抽屉 overlay 改为不拦截聊天区点击，修复开着抽屉时「确认继续」无响应。用户确认流程可用。验证：相关 `test_chat_wave5` / `test_ui` / `test_runtime_readiness_local_check` 通过；`check_doc_encoding.py` 通过。可选后续：P1 status 始终带 `staging_path`（刷新后缓存仍稳）。 |
 | 2026-07-09 | **文档与记录同步（环境检查 UI）**：设计 Status→Implemented；计划任务全勾选；runbook 补过程态/抽屉/确认忽略 ZIP；主 spec + delta spec 补 UI 时机场景；`SPRINT_phase3` 勾选该项；RECORD 决策/进行中/Q-30 已对齐。`check_doc_encoding.py` 通过。未 commit（待用户指示）。 |
+| 2026-07-09 | **交接文档轻量对齐**：RECORD 顶部新增「交接快照」+ 四阶段时间线；「进行中/下一步」改为主链路已验收可增强、阶段三未完结、阶段四待启动；同步 Sprint/BACKLOG/ARCHITECTURE 顶注与 README。用户确认评估主路径 + 本地真跑 + runtime 可归档（A–D）。 |
+| 2026-07-09 | **local-cli-runtime-platform 归档**：delta 同步进 `openspec/specs/skill-execution/spec.md`；change 移至 `archive/2026-07-09-local-cli-runtime-platform/`；RECORD/Sprint/BACKLOG/README 对齐「活跃 change 已清空」。5.10 first-case canary 明确不做于本 change。 |
+| 2026-07-09 | **交接快照纠偏（测验反馈）**：强调本地 Agent 为可选路径；Wave 旁 tests 数为历史里程碑非当前基线；N3/N5/W8.4/UI 纵切等移入 Backlog「可选小项」，Sprint 不再以未勾选主线呈现。 |
 
 | 2026-06-16 | **W5.5 安全 gate 分层 + 拦截 UX 热修**：`core/bundle_security.py`；assessment_gate 透传 findings；补题后 propagator 对抗题不再误拦 `can_enter_formal`；UI 红色安全告警 + 修复嵌入卡颜色；**511 tests**（+13）；根因 FB-21 |
 
