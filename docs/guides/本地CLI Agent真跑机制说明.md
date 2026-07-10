@@ -62,7 +62,7 @@ flowchart TD
     J --> K["收集输出流和文件产物"]
     E --> L["规则校验 + 泄密检查"]
     K --> L
-    L --> M["DeepSeek + Gemini 双模型评分"]
+    L --> M["评审模型 A / B 双模型评分"]
     M --> N["Pass / Warn / Fail"]
 ```
 
@@ -483,7 +483,7 @@ stdin 写入放在后台线程，避免 CLI 没有及时读取输入时阻塞主
 
 1. 代码规则先查格式和字段契约。
 2. 输出泄密检查扫描敏感信息。
-3. DeepSeek 与 Gemini 分别评分。
+3. 评审模型 A / B 分别评分；当前演示配置为 DeepSeek / Gemini。
 4. 红线题失败直接 Fail。
 5. 两个模型严重分歧则 Warn，交专家复核。
 
